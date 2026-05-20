@@ -4,8 +4,19 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>GoTeam User Management Dashboard</title>
-<!-- Microsoft Authentication Library (MSAL.js) for Microsoft Graph integration -->
-<script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js"></script>
+<!-- Microsoft Authentication Library (MSAL.js) — load from jsDelivr (most universally reachable). -->
+<!-- If jsDelivr is blocked, fall back to unpkg, then Microsoft's CDN. -->
+<script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js"></script>
+<script>
+  if (typeof msal === 'undefined') {
+    document.write('<script src="https://unpkg.com/@azure/msal-browser@2.38.3/lib/msal-browser.min.js"><\/script>');
+  }
+</script>
+<script>
+  if (typeof msal === 'undefined') {
+    document.write('<script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js"><\/script>');
+  }
+</script>
 <!-- Local seed data (gitignored; sets window.__GOTEAM_SEED__). Missing on public deploys → dashboard starts empty. -->
 <script src="dashboard-seed.js" onerror="window.__SEED_MISSING__=true;"></script>
 <style>
