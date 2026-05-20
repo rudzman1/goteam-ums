@@ -1,0 +1,2841 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GoTeam User Management Dashboard</title>
+<!-- Microsoft Authentication Library (MSAL.js) for Microsoft Graph integration -->
+<script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js"></script>
+<!-- Local seed data (gitignored; sets window.__GOTEAM_SEED__). Missing on public deploys → dashboard starts empty. -->
+<script src="dashboard-seed.js" onerror="window.__SEED_MISSING__=true;"></script>
+<style>
+  :root {
+    --bg: #f5f7fb;
+    --panel: #ffffff;
+    --sidebar: #0f172a;
+    --sidebar-hover: #1e293b;
+    --sidebar-active: #2563eb;
+    --text: #0f172a;
+    --muted: #64748b;
+    --border: #e2e8f0;
+    --primary: #2563eb;
+    --primary-hover: #1d4ed8;
+    --success: #16a34a;
+    --success-bg: #dcfce7;
+    --warning: #f59e0b;
+    --warning-bg: #fef3c7;
+    --danger: #dc2626;
+    --danger-bg: #fee2e2;
+    --info: #0ea5e9;
+    --info-bg: #e0f2fe;
+    --purple: #7c3aed;
+    --purple-bg: #ede9fe;
+    --shadow: 0 1px 3px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04);
+    --shadow-lg: 0 10px 25px rgba(15, 23, 42, 0.1), 0 4px 6px rgba(15, 23, 42, 0.05);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .sidebar {
+    width: 240px; background: var(--sidebar); color: #cbd5e1;
+    display: flex; flex-direction: column; padding: 20px 0;
+    position: fixed; height: 100vh; overflow-y: auto;
+  }
+  .brand { padding: 0 22px 22px; border-bottom: 1px solid #1e293b; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
+  .brand-logo { width: 34px; height: 34px; border-radius: 8px; background: linear-gradient(135deg, #2563eb, #7c3aed); display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 15px; }
+  .brand h1 { color: #fff; font-size: 16px; font-weight: 700; letter-spacing: -0.3px; }
+  .brand p { color: #64748b; font-size: 11px; margin-top: 1px; }
+  .nav-section-title { padding: 0 22px; font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin: 12px 0 6px; }
+  .nav-item {
+    display: flex; align-items: center; gap: 12px; padding: 11px 22px;
+    cursor: pointer; color: #cbd5e1; font-size: 14px; font-weight: 500;
+    border-left: 3px solid transparent; transition: all 0.15s;
+    background: none; border-top: none; border-right: none; border-bottom: none;
+    width: 100%; text-align: left;
+  }
+  .nav-item:hover { background: var(--sidebar-hover); color: #fff; }
+  .nav-item.active { background: var(--sidebar-hover); color: #fff; border-left-color: var(--sidebar-active); }
+  .nav-item .icon { width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .nav-item .badge { margin-left: auto; background: var(--primary); color: white; font-size: 11px; padding: 2px 7px; border-radius: 10px; font-weight: 600; }
+  .sidebar-footer { margin-top: auto; padding: 16px 22px; border-top: 1px solid #1e293b; display: flex; align-items: center; gap: 10px; }
+  .avatar { width: 34px; height: 34px; border-radius: 50%; background: linear-gradient(135deg, #2563eb, #7c3aed); display: flex; align-items: center; justify-content: center; color: white; font-weight: 600; font-size: 13px; flex-shrink: 0; }
+  .sidebar-footer .user-info { overflow: hidden; }
+  .sidebar-footer .user-info p:first-child { color: white; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sidebar-footer .user-info p:last-child { color: #64748b; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .main { margin-left: 240px; flex: 1; padding: 28px 36px; max-width: 1500px; width: 100%; }
+  .page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; flex-wrap: wrap; gap: 16px; }
+  .page-title h2 { font-size: 24px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 4px; }
+  .page-title p { color: var(--muted); font-size: 14px; }
+  .header-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid transparent; transition: all 0.15s; font-family: inherit; }
+  .btn-primary { background: var(--primary); color: white; }
+  .btn-primary:hover { background: var(--primary-hover); }
+  .btn-secondary { background: white; color: var(--text); border-color: var(--border); }
+  .btn-secondary:hover { background: #f8fafc; border-color: #cbd5e1; }
+  .btn-danger { background: var(--danger); color: white; }
+  .btn-danger:hover { background: #b91c1c; }
+  .btn-icon { width: 32px; height: 32px; padding: 0; justify-content: center; background: transparent; color: var(--muted); }
+  .btn-icon:hover { background: #f1f5f9; color: var(--text); }
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .stat-card { background: var(--panel); border-radius: 12px; padding: 20px; border: 1px solid var(--border); box-shadow: var(--shadow); }
+  .stat-card .label { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 8px; }
+  .stat-card .value { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 4px; }
+  .stat-card .change { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 4px; }
+  .stat-card .change.up { color: var(--success); }
+  .stat-card .change.down { color: var(--danger); }
+  .panel { background: var(--panel); border-radius: 12px; border: 1px solid var(--border); box-shadow: var(--shadow); overflow: hidden; margin-bottom: 20px; }
+  .panel-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+  .panel-title { font-size: 16px; font-weight: 600; }
+  .panel-tools { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .search-input {
+    padding: 8px 12px 8px 34px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; width: 240px;
+    background: white url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='11' cy='11' r='8'/><line x1='21' y1='21' x2='16.65' y2='16.65'/></svg>") no-repeat 11px center;
+    font-family: inherit;
+  }
+  .search-input:focus { outline: 2px solid var(--primary); outline-offset: -1px; border-color: transparent; }
+  .filter-select {
+    padding: 8px 30px 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px;
+    background: white url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'><polyline points='6 9 12 15 18 9'/></svg>") no-repeat right 10px center;
+    appearance: none; cursor: pointer; font-family: inherit;
+  }
+  table { width: 100%; border-collapse: collapse; }
+  thead { background: #f8fafc; border-bottom: 1px solid var(--border); }
+  th { text-align: left; padding: 12px 20px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
+  td { padding: 14px 20px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: #f8fafc; }
+  .user-cell { display: flex; align-items: center; gap: 10px; }
+  .user-cell .avatar { width: 32px; height: 32px; font-size: 12px; }
+  .user-cell .name { font-weight: 600; }
+  .user-cell .sub { color: var(--muted); font-size: 12px; }
+  .id-chip { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-weight: 600; background: #f1f5f9; padding: 3px 9px; border-radius: 6px; font-size: 12px; color: #334155; display: inline-block; }
+  .week-section { margin-bottom: 18px; }
+  .week-header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: #f1f5f9; border: 1px solid var(--border); border-bottom: none; border-radius: 10px 10px 0 0; font-size: 13px; font-weight: 600; color: #334155; }
+  .week-header .week-count { margin-left: auto; background: white; padding: 2px 10px; border-radius: 10px; font-size: 11px; color: var(--muted); border: 1px solid var(--border); }
+  .week-section .panel { margin-bottom: 0; border-radius: 0 0 10px 10px; border-top: none; }
+  .week-pager { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; padding: 4px; background: white; border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); margin-bottom: 14px; }
+  .week-pager-month { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; padding: 0 8px 0 4px; border-left: 1px solid var(--border); margin-left: 2px; align-self: stretch; display: inline-flex; align-items: center; }
+  .week-pager-month:first-child { border-left: none; margin-left: 0; padding-left: 4px; }
+  .week-pager-btn { padding: 7px 12px; border-radius: 7px; background: transparent; border: none; font-size: 12px; font-weight: 600; color: var(--text); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all 0.15s; font-family: inherit; }
+  .week-pager-btn:hover { background: #f1f5f9; }
+  .week-pager-btn.active { background: var(--primary); color: white; }
+  .week-pager-btn .count { background: rgba(15,23,42,0.08); padding: 1px 6px; border-radius: 8px; font-size: 11px; font-weight: 700; min-width: 18px; text-align: center; }
+  .week-pager-btn.active .count { background: rgba(255,255,255,0.25); color: white; }
+  .week-pager-btn.has-withdrawn::after { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--danger); }
+  /* Bulk selection */
+  .row-checkbox { width: 16px; height: 16px; accent-color: var(--primary); cursor: pointer; vertical-align: middle; }
+  .col-checkbox { width: 36px; padding-right: 4px !important; }
+  .bulk-bar { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: linear-gradient(90deg, #2563eb, #1d4ed8); color: white; border-radius: 10px; margin-bottom: 14px; box-shadow: var(--shadow-lg); animation: slideDown 0.2s ease-out; }
+  .bulk-bar .count-badge { background: rgba(255,255,255,0.2); padding: 4px 10px; border-radius: 14px; font-size: 13px; font-weight: 700; }
+  .bulk-bar .label { font-size: 13px; font-weight: 600; }
+  .bulk-bar .spacer { flex: 1; }
+  .bulk-bar button { padding: 7px 14px; border-radius: 7px; font-size: 12px; font-weight: 600; border: none; cursor: pointer; font-family: inherit; }
+  .bulk-bar .btn-bulk-action { background: white; color: var(--primary); display: inline-flex; align-items: center; gap: 6px; }
+  .bulk-bar .btn-bulk-action:hover { background: #f1f5f9; }
+  .bulk-bar .btn-clear { background: transparent; color: white; border: 1px solid rgba(255,255,255,0.3); }
+  .bulk-bar .btn-clear:hover { background: rgba(255,255,255,0.15); }
+  @keyframes slideDown { from { transform: translateY(-8px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  /* MS365 action button */
+  .btn-ms365 { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; font-size: 11px; font-weight: 600; border-radius: 6px; background: #f0f6ff; color: #1d4ed8; border: 1px solid #bfdbfe; cursor: pointer; font-family: inherit; transition: all 0.15s; }
+  .btn-ms365:hover { background: #dbeafe; border-color: #93c5fd; }
+  .btn-ms365 svg { width: 12px; height: 12px; }
+  .btn-ms365.created { background: #dcfce7; color: #166534; border-color: #86efac; }
+  .btn-teramind { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; font-size: 11px; font-weight: 600; border-radius: 6px; background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; cursor: pointer; font-family: inherit; transition: all 0.15s; }
+  .btn-teramind:hover { background: #dcfce7; border-color: #86efac; }
+  .btn-teramind svg { width: 12px; height: 12px; }
+  .btn-teramind.created { background: #f1f5f9; color: #475569; border-color: #cbd5e1; }
+  /* MS365 modal larger */
+  .modal-wide { max-width: 720px; }
+  .csv-preview { background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 8px; font-family: ui-monospace,Menlo,Consolas,monospace; font-size: 11px; white-space: pre; overflow-x: auto; max-height: 240px; line-height: 1.6; }
+  .format-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .format-tab { padding: 5px 14px; font-size: 12px; font-weight: 600; background: white; border: none; cursor: pointer; color: var(--text); border-right: 1px solid var(--border); font-family: inherit; transition: background 0.12s; }
+  .format-tab:last-child { border-right: none; }
+  .format-tab.active { background: var(--primary); color: white; }
+  .format-tab:not(.active):hover { background: #f1f5f9; }
+  .pill-tiny { font-size: 10px; padding: 2px 7px; }
+  .reschedule-note { font-size: 11px; color: var(--muted); margin-top: 3px; font-style: italic; }
+  .hire-type-tag { display: inline-block; font-size: 10px; padding: 1px 7px; border-radius: 4px; background: #f1f5f9; color: #475569; margin-left: 8px; vertical-align: middle; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; }
+  .pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; }
+  .pill-success { background: var(--success-bg); color: var(--success); }
+  .pill-warning { background: var(--warning-bg); color: var(--warning); }
+  .pill-danger { background: var(--danger-bg); color: var(--danger); }
+  .pill-info { background: var(--info-bg); color: var(--info); }
+  .pill-purple { background: var(--purple-bg); color: var(--purple); }
+  .pill-muted { background: #f1f5f9; color: var(--muted); }
+  .pill-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .progress { width: 100%; height: 8px; background: #f1f5f9; border-radius: 4px; overflow: hidden; }
+  .progress-bar { height: 100%; background: var(--primary); border-radius: 4px; transition: width 0.3s; }
+  .progress-bar.success { background: var(--success); }
+  .progress-bar.warning { background: var(--warning); }
+  .progress-bar.danger { background: var(--danger); }
+  .view { display: none; }
+  .view.active { display: block; }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.55); display: none; align-items: center; justify-content: center; z-index: 100; padding: 20px; }
+  .modal-overlay.show { display: flex; }
+  .modal { background: white; border-radius: 12px; width: 100%; max-width: 540px; max-height: 90vh; overflow-y: auto; box-shadow: var(--shadow-lg); }
+  .modal-header { padding: 18px 22px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+  .modal-header h3 { font-size: 17px; font-weight: 600; }
+  .modal-body { padding: 22px; }
+  .modal-footer { padding: 14px 22px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 10px; background: #f8fafc; }
+  .form-group { margin-bottom: 16px; }
+  .form-group label { display: block; font-size: 12px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+  .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; font-family: inherit; }
+  .form-group input:focus, .form-group select:focus, .form-group textarea:focus { outline: 2px solid var(--primary); outline-offset: -1px; border-color: transparent; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .empty-state { padding: 60px 20px; text-align: center; color: var(--muted); }
+  .empty-state h4 { font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+  .toast { position: fixed; bottom: 24px; right: 24px; background: var(--text); color: white; padding: 12px 18px; border-radius: 8px; box-shadow: var(--shadow-lg); font-size: 13px; transform: translateY(100px); opacity: 0; transition: all 0.3s; z-index: 200; }
+  .toast.show { transform: translateY(0); opacity: 1; }
+  .checklist { list-style: none; }
+  .checklist li { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px dashed var(--border); font-size: 13px; }
+  .checklist li:last-child { border-bottom: none; }
+  .checklist input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--primary); cursor: pointer; }
+  .checklist label { cursor: pointer; flex: 1; }
+  .checklist li.done label { text-decoration: line-through; color: var(--muted); }
+  .grid-2 { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; }
+  @media (max-width: 1100px) { .grid-2 { grid-template-columns: 1fr; } }
+  @media (max-width: 768px) {
+    .sidebar { width: 70px; }
+    .sidebar .brand h1, .sidebar .brand p, .sidebar .nav-section-title,
+    .sidebar .nav-item span:not(.icon):not(.badge), .sidebar .user-info { display: none; }
+    .main { margin-left: 70px; padding: 18px; }
+    .form-row { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="brand">
+    <div class="brand-logo">G</div>
+    <div>
+      <h1>GoTeam</h1>
+      <p>User Management</p>
+    </div>
+  </div>
+  <p class="nav-section-title">Workspace</p>
+  <button class="nav-item active" data-view="onboarding">
+    <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg></span>
+    <span>Onboarding</span>
+    <span class="badge" id="onboardingBadge">8</span>
+  </button>
+  <button class="nav-item" data-view="offboarding">
+    <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="17" y1="11" x2="23" y2="11"/></svg></span>
+    <span>Offboarding</span>
+  </button>
+  <button class="nav-item" data-view="licensing">
+    <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 10h10M7 14h6"/></svg></span>
+    <span>Licensing</span>
+  </button>
+  <div class="sidebar-footer">
+    <div class="avatar" id="sbAvatar">RM</div>
+    <div class="user-info">
+      <p id="sbName">Rudy Maneja</p>
+      <p id="sbStatus">Not signed in to MS365</p>
+    </div>
+    <button class="nav-item" id="sbAuthBtn" style="margin-top:8px;padding:6px 10px;font-size:11px;" onclick="msalSignInOrOut()" title="Sign in to Microsoft Graph">
+      <span class="icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg></span>
+      <span id="sbAuthLabel">Sign In</span>
+    </button>
+    <button class="nav-item" style="padding:6px 10px;font-size:11px;" onclick="openModal('msSettingsModal')" title="Azure AD configuration">
+      <span class="icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
+      <span>MS365 Settings</span>
+    </button>
+  </div>
+</aside>
+
+<main class="main">
+
+  <!-- ONBOARDING -->
+  <section class="view active" id="view-onboarding">
+    <div class="page-header">
+      <div class="page-title">
+        <h2>Onboarding</h2>
+        <p>Track and manage new starters across all client accounts <span style="display:inline-flex;align-items:center;gap:4px;margin-left:8px;padding:2px 8px;background:#f1f5f9;border-radius:10px;font-size:11px;font-weight:600;color:var(--muted);"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Data as of <span id="dataAsOf">May 11, 2026 (refreshed)</span></span></p>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-secondary" onclick="openRefreshModal()" title="Pull the latest CLEAR-A-PATH emails and update the dashboard">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          Refresh from Email
+        </button>
+        <button class="btn btn-secondary" onclick="exportCSV('onboarding')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Export
+        </button>
+        <button class="btn btn-primary" onclick="openModal('addHireModal')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add New Hire
+        </button>
+      </div>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card"><div class="label">Total Starters</div><div class="value" id="statTotalNew">8</div><div class="change up">From email + manual entries</div></div>
+      <div class="stat-card"><div class="label">Pending Setup</div><div class="value" id="statPending">6</div><div class="change">Accounts not yet provisioned</div></div>
+      <div class="stat-card"><div class="label">In Progress</div><div class="value" id="statInProgress">2</div><div class="change">Setup underway</div></div>
+      <div class="stat-card"><div class="label">Completed</div><div class="value" id="statCompleted">0</div><div class="change">Fully onboarded this week</div></div>
+    </div>
+
+    <div class="panel" style="background:transparent;border:none;box-shadow:none;padding:0;">
+      <div class="panel-header" style="background:white;border:1px solid var(--border);border-radius:10px;margin-bottom:14px;">
+        <div class="panel-title">All New Starters</div>
+        <div class="panel-tools">
+          <input type="text" class="search-input" id="hireSearch" placeholder="Search starters..." oninput="renderHires()" />
+          <select class="filter-select" id="hireStatusFilter" onchange="renderHires()">
+            <option value="">All statuses</option>
+            <option value="Pending">Pending</option>
+            <option value="In Progress">In Progress</option>
+            <option value="Completed">Completed</option>
+          </select>
+          <select class="filter-select" id="hireCompanyFilter" onchange="renderHires()">
+            <option value="">All companies</option>
+          </select>
+        </div>
+      </div>
+      <div id="bulkBar" style="display:none;"></div>
+      <div id="weeklySections"></div>
+    </div>
+
+    
+  </section>
+
+  <!-- OFFBOARDING -->
+  <section class="view" id="view-offboarding">
+    <div class="page-header">
+      <div class="page-title">
+        <h2>Offboarding</h2>
+        <p>Manage departures, exit checklists, and asset returns</p>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-secondary" onclick="exportCSV('offboarding')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Export
+        </button>
+        <button class="btn btn-primary" onclick="openModal('addDepartureModal')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Initiate Offboarding
+        </button>
+      </div>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card"><div class="label">Active Offboardings</div><div class="value" id="offStatActive">2</div><div class="change">Currently in progress</div></div>
+      <div class="stat-card"><div class="label">Total Departures</div><div class="value" id="offStatMonth">5</div><div class="change">From email scans + manual entries</div></div>
+      <div class="stat-card"><div class="label">Pending Asset Returns</div><div class="value" id="offStatAssets">3</div><div class="change">Laptops, headsets, badges</div></div>
+      <div class="stat-card"><div class="label">Completed</div><div class="value" id="offStatDone">3</div><div class="change">Closed out</div></div>
+    </div>
+
+    <div class="panel" style="background:transparent;border:none;box-shadow:none;padding:0;margin-bottom:14px;">
+      <div class="panel-header" style="background:white;border:1px solid var(--border);border-radius:10px;">
+        <div class="panel-title">Departures</div>
+        <div class="panel-tools">
+          <input type="text" class="search-input" id="depSearch" placeholder="Search departures..." oninput="renderDepartures()" />
+          <select class="filter-select" id="depStatusFilter" onchange="renderDepartures()">
+            <option value="">All statuses</option>
+            <option value="Notice Period">Notice Period</option>
+            <option value="Last Day">Last Day</option>
+            <option value="Asset Return">Asset Return</option>
+            <option value="Completed">Completed</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div id="departureWeeklyPager" style="margin-bottom:14px;"></div>
+
+    <div class="grid-2">
+      <div class="panel" id="departuresPanel">
+        <div class="week-header" id="departuresWeekHeader" style="border-radius:10px 10px 0 0;border-bottom:none;"></div>
+        <div style="overflow-x: auto;">
+          <table>
+            <thead>
+              <tr><th>Employee</th><th>Company</th><th>Last Day</th><th>Reason</th><th>Status</th><th>Actions</th></tr>
+            </thead>
+            <tbody id="departuresTbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">Exit Checklist</div>
+          <select class="filter-select" id="checklistEmployee" onchange="renderChecklist()"></select>
+        </div>
+        <div style="padding: 12px 20px 20px;">
+          <ul class="checklist" id="exitChecklist"></ul>
+          <div style="margin-top: 14px;">
+            <div style="display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 6px;">
+              <span>Progress</span><span id="checklistProgress">0%</span>
+            </div>
+            <div class="progress"><div class="progress-bar" id="checklistBar" style="width: 0%;"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- LICENSING -->
+  <section class="view" id="view-licensing">
+    <div class="page-header">
+      <div class="page-title">
+        <h2>Licensing</h2>
+        <p>Software license inventory, seat utilization, and assignments</p>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-secondary" onclick="exportCSV('licensing')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Export
+        </button>
+        <button class="btn btn-primary" onclick="openModal('assignLicenseModal')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Assign License
+        </button>
+      </div>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card"><div class="label">Total Licenses</div><div class="value" id="licStatTotal">240</div><div class="change">Across 6 products</div></div>
+      <div class="stat-card"><div class="label">Assigned Seats</div><div class="value" id="licStatAssigned">187</div><div class="change">78% utilization</div></div>
+      <div class="stat-card"><div class="label">Available</div><div class="value" id="licStatAvail">53</div><div class="change up">Ready to assign</div></div>
+      <div class="stat-card"><div class="label">Monthly Cost</div><div class="value" id="licStatCost">$4,127</div><div class="change">USD/month</div></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title">License Pools</div></div>
+      <div style="overflow-x: auto;">
+        <table>
+          <thead><tr><th>Product</th><th>Vendor</th><th>Seats</th><th>Utilization</th><th>Unit Cost</th><th>Renewal</th><th>Actions</th></tr></thead>
+          <tbody id="licensesTbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">Recent Assignments</div>
+        <input type="text" class="search-input" id="assignSearch" placeholder="Search assignments..." oninput="renderAssignments()" />
+      </div>
+      <div style="overflow-x: auto;">
+        <table>
+          <thead><tr><th>User</th><th>Product</th><th>Assigned</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody id="assignmentsTbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- MODALS -->
+<div class="modal-overlay" id="addHireModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Add New Hire</h3>
+      <button class="btn btn-icon" onclick="closeModal('addHireModal')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group"><label>Full Name</label><input type="text" id="newHireName" placeholder="e.g. Maria Santos" /></div>
+      <div class="form-row">
+        <div class="form-group"><label>Nickname</label><input type="text" id="newHireNickname" placeholder="Maria" /></div>
+        <div class="form-group"><label>Position</label><input type="text" id="newHirePosition" placeholder="Junior Developer" /></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Company</label><input type="text" id="newHireCompany" placeholder="Client name" /></div>
+        <div class="form-group"><label>Start Date</label><input type="date" id="newHireDate" /></div>
+      </div>
+      <div class="form-group"><label>PH Shift Schedule</label><input type="text" id="newHireShift" placeholder="9:00 AM to 6:00 PM" /></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('addHireModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="addHire()">Add Hire</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="addDepartureModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Initiate Offboarding</h3>
+      <button class="btn btn-icon" onclick="closeModal('addDepartureModal')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group"><label>Employee Name</label><input type="text" id="depName" placeholder="Full name" /></div>
+      <div class="form-row">
+        <div class="form-group"><label>Company</label><input type="text" id="depCompany" placeholder="Client name" /></div>
+        <div class="form-group"><label>Last Working Day</label><input type="date" id="depDate" /></div>
+      </div>
+      <div class="form-group"><label>Reason</label>
+        <select id="depReason">
+          <option value="Resignation">Resignation</option>
+          <option value="End of Contract">End of Contract</option>
+          <option value="Termination">Termination</option>
+          <option value="Retirement">Retirement</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('addDepartureModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="addDeparture()">Initiate</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="assignLicenseModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Assign License</h3>
+      <button class="btn btn-icon" onclick="closeModal('assignLicenseModal')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group"><label>User</label><select id="assignUser"></select></div>
+      <div class="form-group"><label>Product</label><select id="assignProduct"></select></div>
+      <div class="form-group"><label>Notes (optional)</label><textarea id="assignNotes" rows="3" placeholder="e.g. Replacing previous license"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('assignLicenseModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="assignLicense()">Assign</button>
+    </div>
+  </div>
+</div>
+
+
+<div class="modal-overlay" id="ms365Modal">
+  <div class="modal modal-wide">
+    <div class="modal-header">
+      <h3 id="ms365ModalTitle">Create Microsoft 365 Account</h3>
+      <button class="btn btn-icon" onclick="closeModal('ms365Modal')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <p style="color:var(--muted);font-size:13px;margin-bottom:14px;">Microsoft 365 admin requires you to create accounts in the admin center directly. Below is the data formatted for M365's CSV bulk-import. Choose your path:</p>
+      <div style="margin-bottom:12px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+          <label style="font-size:12px;font-weight:600;color:var(--text);margin:0;">Generated output</label>
+          <div class="format-toggle" role="group">
+            <button class="format-tab active" data-fmt="csv" onclick="switchMS365Format('csv')">CSV</button>
+            <button class="format-tab" data-fmt="ps1" onclick="switchMS365Format('ps1')">PowerShell</button>
+          </div>
+          <span id="ms365FormatHint" style="font-size:11px;color:var(--muted);">M365 bulk-import format</span>
+        </div>
+        <div class="csv-preview" id="ms365CsvPreview"></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-secondary" onclick="copyMS365Csv()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          <span id="ms365CopyLabel">Copy to Clipboard</span>
+        </button>
+        <button class="btn btn-secondary" onclick="downloadMS365Csv()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span id="ms365DownloadLabel">Download CSV</span>
+        </button>
+        <button class="btn btn-primary" onclick="openMS365AdminBulk()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          Open M365 Admin (Bulk Import)
+        </button>
+        <button class="btn btn-primary" id="ms365PwshAdminBtn" onclick="openPwshAsAdmin()" style="display:none;background:#1e293b;border-color:#1e293b;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          Open PowerShell as Admin
+        </button>
+        <button class="btn btn-primary" id="ms365GraphBtn" onclick="createUsersViaGraph()" style="background:#7c3aed;border-color:#7c3aed;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
+          Create via Graph API
+        </button>
+      </div>
+      <div id="ms365GraphResults" style="display:none;margin-top:14px;padding:12px;background:#0f172a;color:#e2e8f0;border-radius:8px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;line-height:1.6;max-height:280px;overflow-y:auto;"></div>
+      <div style="margin-top:14px;padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#854d0e;line-height:1.5;">
+        <strong>Format notes:</strong> UPN is <code>firstname.lastname@go.team</code> (lowercase). Department is <code>Internal</code> for GoTeam hires, otherwise <code>Morning</code> or <code>Night</code> based on PH shift start time. License SKU is <code>O365_BUSINESS_ESSENTIALS</code> for Internal, <code>DESKLESSPACK</code> for client-assigned. Passwords are 8 alphanumeric chars (no <code>I l 1 O 0</code>), regenerated each time the modal opens — save the CSV before closing. <strong>PowerShell script also enforces MFA</strong> by adding each user to the security group <code>MFA-Enforced Users</code> (configurable; must exist and be targeted by a Conditional Access policy). When PowerShell mode is active, an extra <strong>Open PowerShell as Admin</strong> button appears — click it to copy an elevation command to your clipboard. Press <kbd>Win+R</kbd>, paste with <kbd>Ctrl+V</kbd>, hit Enter, accept UAC — and an elevated PowerShell window opens.
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('ms365Modal')">Close</button>
+      <button class="btn btn-primary" onclick="markMS365Created()" id="ms365MarkBtn">Mark as Created</button>
+    </div>
+  </div>
+</div>
+
+
+<div class="modal-overlay" id="teramindModal">
+  <div class="modal modal-wide">
+    <div class="modal-header">
+      <h3 id="teramindModalTitle">Create Teramind Account</h3>
+      <button class="btn btn-icon" onclick="closeModal('teramindModal')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <p style="color:var(--muted);font-size:13px;margin-bottom:14px;">Teramind account provisioning. The CSV is in Teramind's bulk-import format; the PowerShell script calls the Teramind REST API. Edit the API base URL and key at the top of the script before running.</p>
+      <div style="margin-bottom:12px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
+          <label style="font-size:12px;font-weight:600;color:var(--text);margin:0;">Generated CSV</label>
+          <span style="font-size:11px;color:var(--muted);">Standard CSV format (21 columns)</span>
+          <span style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);background:#f1f5f9;padding:4px 10px;border-radius:8px;">
+            <span id="teramindCounterDisplay">Counter: 25643 (next: GoTeam25644)</span>
+            <button class="btn btn-icon" style="width:22px;height:22px;color:var(--muted);" onclick="setTeramindCounter()" title="Set the password counter">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            </button>
+          </span>
+        </div>
+        <div class="csv-preview" id="teramindPreview"></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-secondary" onclick="copyTeramind()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          Copy to Clipboard
+        </button>
+        <button class="btn btn-secondary" onclick="downloadTeramind()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download CSV
+        </button>
+        <button class="btn btn-primary" onclick="openTeramindAdmin()" style="background:#16a34a;border-color:#16a34a;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          Open Teramind Admin
+        </button>
+        <button class="btn btn-primary" onclick="importTeramindViaAPI()" style="background:#7c3aed;border-color:#7c3aed;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
+          Import via API
+        </button>
+        <button class="btn btn-icon" onclick="configureTeramindAPI()" title="Configure API endpoint and clear stored key" style="color:var(--muted);">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+      </div>
+      <div id="teramindApiResults" style="display:none;margin-top:14px;padding:12px;background:#0f172a;color:#e2e8f0;border-radius:8px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;line-height:1.6;max-height:240px;overflow-y:auto;"></div>
+      <div style="margin-top:14px;padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#854d0e;line-height:1.5;">
+        <strong>Format notes:</strong> Standard CSV (comma-separated, quoted fields, 21 columns) matching your <code>teramind.go.team</code> bulk-import format. Opens cleanly in Excel. Email is <code>firstname.lastname@go.team</code>. ROLE = <code>user</code>. PASSWORD is sequential <code>GoTeam&lt;N&gt;</code> starting from where the last batch ended (use the pencil icon to set the counter). Each modal open advances the counter by N — save the CSV before closing or those numbers are lost. DEPARTMENT is the client company name. Stream/record/web policy flags default to your standard config (stream+record screen=yes, audio=no, web login=yes, GPS=yes).</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('teramindModal')">Close</button>
+      <button class="btn btn-primary" onclick="markTeramindCreated()" style="background:#16a34a;border-color:#16a34a;">Mark as Created</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="msSettingsModal">
+  <div class="modal modal-wide">
+    <div class="modal-header">
+      <h3>Microsoft 365 / Graph API Settings</h3>
+      <button class="btn btn-icon" onclick="closeModal('msSettingsModal')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <p style="color:var(--muted);font-size:13px;margin-bottom:14px;line-height:1.6;">Configure Azure AD app registration for direct Microsoft Graph access. Complete the one-time setup in <a href="https://portal.azure.com" target="_blank" style="color:var(--primary);">Azure portal</a> → <em>Microsoft Entra ID → App registrations</em>, then paste the IDs here. Values are stored in your browser's localStorage on this machine only.</p>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Tenant ID <span style="color:#dc2626;">*</span></label>
+          <input type="text" id="msTenantId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+          <p style="font-size:11px;color:var(--muted);margin-top:4px;">Found on the app's Overview page — "Directory (tenant) ID"</p>
+        </div>
+        <div class="form-group">
+          <label>Client ID (Application ID) <span style="color:#dc2626;">*</span></label>
+          <input type="text" id="msClientId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+          <p style="font-size:11px;color:var(--muted);margin-top:4px;">"Application (client) ID" on the same Overview page</p>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>MFA Security Group Object ID</label>
+          <input type="text" id="msMfaGroupId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+          <p style="font-size:11px;color:var(--muted);margin-top:4px;">Optional — group that triggers MFA Conditional Access. Each created user is added here.</p>
+        </div>
+        <div class="form-group">
+          <label>Default Domain</label>
+          <input type="text" id="msDomain" placeholder="go.team" />
+          <p style="font-size:11px;color:var(--muted);margin-top:4px;">UPN suffix for new accounts (default: <code>go.team</code>)</p>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Business Basic License SKU ID (Internal)</label>
+          <input type="text" id="msSkuInternal" placeholder="3b555118-da6a-4418-894f-7df1e2096870" />
+          <p style="font-size:11px;color:var(--muted);margin-top:4px;">For GoTeam internal staff. Get via Graph: <code>GET /subscribedSkus</code></p>
+        </div>
+        <div class="form-group">
+          <label>F3/Frontline License SKU ID (Client)</label>
+          <input type="text" id="msSkuClient" placeholder="66b55226-6b4f-492c-910c-a3b7a3c9d993" />
+          <p style="font-size:11px;color:var(--muted);margin-top:4px;">For client-assigned staff (DESKLESSPACK / F3)</p>
+        </div>
+      </div>
+      <div style="margin-top:14px;padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#854d0e;line-height:1.5;">
+        <strong>Setup checklist:</strong> 1) Register a Single-Page Application in Azure portal with redirect URI matching this dashboard's URL. 2) Under API Permissions, add delegated scopes: <code>User.ReadWrite.All</code>, <code>Group.ReadWrite.All</code>, <code>Directory.ReadWrite.All</code>, <code>Mail.Read</code>, <code>Organization.Read.All</code>, then <strong>Grant admin consent</strong>. 3) Copy the Tenant ID, Client ID, and (optionally) MFA group Object ID into the fields above. 4) Click Sign In in the sidebar.
+      </div>
+      <div id="msSettingsStatus" style="display:none;margin-top:14px;padding:10px 14px;background:#ecfdf5;border:1px solid #6ee7b7;border-radius:8px;font-size:12px;color:#065f46;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('msSettingsModal')">Cancel</button>
+      <button class="btn btn-secondary" onclick="fetchLicenseSkus()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        Fetch SKU IDs (after sign-in)
+      </button>
+      <button class="btn btn-primary" onclick="saveMSSettings()">Save Settings</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="refreshModal">
+  <div class="modal modal-wide">
+    <div class="modal-header">
+      <h3>Refresh Dashboard from Email</h3>
+      <button class="btn btn-icon" onclick="closeModal('refreshModal')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <p style="color:var(--muted);font-size:13px;margin-bottom:14px;line-height:1.6;">The dashboard's data was last captured on <strong id="refreshLastDate">May 8, 2026</strong>. To pull the latest CLEAR-A-PATH emails (new starters, withdrawals, reschedules) and rewrite this file, just ask Claude in your conversation:</p>
+      <div style="background:#0f172a;color:#e2e8f0;padding:14px 18px;border-radius:10px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;margin-bottom:14px;line-height:1.5;display:flex;align-items:center;justify-content:space-between;gap:10px;">
+        <span id="refreshPrompt">refresh the dashboard</span>
+        <button class="btn btn-secondary" style="padding:5px 12px;font-size:11px;flex-shrink:0;" onclick="copyRefreshPrompt()">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          Copy
+        </button>
+      </div>
+      <div style="font-size:12px;color:var(--muted);line-height:1.7;">
+        <p style="margin:0 0 8px;font-weight:600;color:var(--text);">What happens when you ask:</p>
+        <ol style="margin:0;padding-left:20px;">
+          <li>Claude searches your Outlook for CLEAR-A-PATH emails received since the last refresh</li>
+          <li>Reads each new original email and its PDF attachment to extract Position, Nickname, PH Shift</li>
+          <li>Scans reply threads for withdrawals and reschedules</li>
+          <li>Re-reads the May+ sheets of the Starters Tracker for fresh Employee IDs</li>
+          <li>Rewrites <code>dashboard.html</code> with the merged data and a new "Data as of" date</li>
+          <li>Reload this page in your browser to see the changes</li>
+        </ol>
+      </div>
+      <div style="margin-top:14px;padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#854d0e;line-height:1.5;">
+        <strong>Note:</strong> Your local edits (status changes, MS365 marks, manually-added hires) are saved in browser storage and survive a refresh. Only the seed data — the email-derived hires — gets rewritten.
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('refreshModal')">Close</button>
+      <button class="btn btn-primary" onclick="copyRefreshPrompt(); closeModal('refreshModal');">Copy Prompt &amp; Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="credsPreviewModal">
+  <div class="modal modal-wide">
+    <div class="modal-header">
+      <h3 id="credsPreviewTitle">Credential data preview</h3>
+      <button class="btn btn-icon" onclick="closeModal('credsPreviewModal')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div id="credsClipStatus" style="font-size:12px;margin-bottom:10px;padding:8px 12px;border-radius:6px;"></div>
+      <p style="color:var(--muted);font-size:12px;margin-bottom:8px;">If automatic copy didn't work, select all the text below (Ctrl+A inside it) and Ctrl+C to copy manually.</p>
+      <textarea id="credsPreviewText" readonly style="width:100%;height:240px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;padding:10px;border:1px solid var(--border);border-radius:8px;line-height:1.6;white-space:pre;background:#0f172a;color:#e2e8f0;" onclick="this.select();"></textarea>
+      <div id="credsMissingNote" style="display:none;margin-top:10px;padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#854d0e;line-height:1.5;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="copyCredsPreviewAgain()">Copy to Clipboard Again</button>
+      <button class="btn btn-primary" onclick="window.open(getCredsExcelUrl(), '_blank')">Open Credentials Template</button>
+      <button class="btn btn-secondary" onclick="closeModal('credsPreviewModal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  const STORAGE_KEY = 'goteam-ums-v51';
+  // Updated by Claude on each "refresh the dashboard" run; static between refreshes.
+  const DATA_AS_OF = 'May 21, 2026 (refreshed)';
+
+  // ============================================================
+  // Microsoft Graph / MSAL.js integration
+  // ============================================================
+  const MS_SETTINGS_KEY = 'goteam-ums-mssettings';
+  const GRAPH_SCOPES = [
+    'User.ReadWrite.All',
+    'Group.ReadWrite.All',
+    'Directory.ReadWrite.All',
+    'Mail.Read',
+    'Files.ReadWrite.All',
+    'Sites.ReadWrite.All',
+    'Organization.Read.All'
+  ];
+  let msalInstance = null;
+  let msalAccount = null;
+
+  function getMSSettings() {
+    try { return JSON.parse(localStorage.getItem(MS_SETTINGS_KEY)) || {}; }
+    catch (e) { return {}; }
+  }
+  function saveMSSettings() {
+    const s = {
+      tenantId: document.getElementById('msTenantId').value.trim(),
+      clientId: document.getElementById('msClientId').value.trim(),
+      mfaGroupId: document.getElementById('msMfaGroupId').value.trim(),
+      domain: document.getElementById('msDomain').value.trim() || 'go.team',
+      skuInternal: document.getElementById('msSkuInternal').value.trim(),
+      skuClient: document.getElementById('msSkuClient').value.trim()
+    };
+    if (!s.tenantId || !s.clientId) {
+      showToast('Tenant ID and Client ID are required');
+      return;
+    }
+    localStorage.setItem(MS_SETTINGS_KEY, JSON.stringify(s));
+    msalInstance = null; // force re-init with new config
+    initMSAL();
+    const status = document.getElementById('msSettingsStatus');
+    status.style.display = 'block';
+    status.textContent = 'Settings saved. Click Sign In in the sidebar to authenticate.';
+    setTimeout(() => closeModal('msSettingsModal'), 1200);
+  }
+  function loadMSSettingsIntoForm() {
+    const s = getMSSettings();
+    document.getElementById('msTenantId').value = s.tenantId || '';
+    document.getElementById('msClientId').value = s.clientId || '';
+    document.getElementById('msMfaGroupId').value = s.mfaGroupId || '';
+    document.getElementById('msDomain').value = s.domain || 'go.team';
+    document.getElementById('msSkuInternal').value = s.skuInternal || '';
+    document.getElementById('msSkuClient').value = s.skuClient || '';
+  }
+
+  function diagnoseMSAL() {
+    const issues = [];
+    const s = getMSSettings();
+    if (window.location.protocol === 'file:') {
+      issues.push('Dashboard is opened from disk (file://). Microsoft Graph requires HTTP/HTTPS — host on GitHub Pages, a local web server (e.g., `python -m http.server 8000`), SharePoint, or any web host.');
+    }
+    if (typeof msal === 'undefined') {
+      issues.push('MSAL.js library failed to load. Check your internet connection or browser extensions that may block https://alcdn.msauth.net.');
+    }
+    if (!s.tenantId) issues.push('Tenant ID not saved. Open MS365 Settings, paste the Directory (tenant) ID, and click Save Settings.');
+    if (!s.clientId) issues.push('Client ID not saved. Open MS365 Settings, paste the Application (client) ID, and click Save Settings.');
+    return issues;
+  }
+
+  function initMSAL() {
+    const issues = diagnoseMSAL();
+    if (issues.length > 0) {
+      console.warn('MSAL not ready:\n - ' + issues.join('\n - '));
+      return false;
+    }
+    if (msalInstance) return true;
+    const s = getMSSettings();
+    try {
+      msalInstance = new msal.PublicClientApplication({
+        auth: {
+          clientId: s.clientId,
+          authority: 'https://login.microsoftonline.com/' + s.tenantId,
+          redirectUri: window.location.origin + window.location.pathname
+        },
+        cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: false }
+      });
+    } catch (e) {
+      console.error('MSAL constructor failed:', e);
+      return false;
+    }
+    // Restore previous session if any
+    const accounts = msalInstance.getAllAccounts();
+    if (accounts.length > 0) {
+      msalAccount = accounts[0];
+      updateAuthUI();
+    }
+    return true;
+  }
+
+  async function msalSignInOrOut() {
+    if (!initMSAL()) {
+      const issues = diagnoseMSAL();
+      alert('Cannot sign in:\n\n• ' + issues.join('\n\n• '));
+      openModal('msSettingsModal');
+      return;
+    }
+    if (msalAccount) {
+      // Sign out
+      try {
+        await msalInstance.logoutPopup({ account: msalAccount });
+      } catch (e) {
+        try { await msalInstance.logoutRedirect({ account: msalAccount }); } catch (_) {}
+      }
+      msalAccount = null;
+      updateAuthUI();
+      showToast('Signed out of Microsoft 365');
+    } else {
+      // Sign in
+      try {
+        const result = await msalInstance.loginPopup({ scopes: GRAPH_SCOPES, prompt: 'select_account' });
+        msalAccount = result.account;
+        msalInstance.setActiveAccount(msalAccount);
+        updateAuthUI();
+        showToast('Signed in as ' + msalAccount.username);
+      } catch (e) {
+        console.error(e);
+        showToast('Sign-in failed: ' + (e.message || e));
+      }
+    }
+  }
+
+  function updateAuthUI() {
+    const avatar = document.getElementById('sbAvatar');
+    const name = document.getElementById('sbName');
+    const status = document.getElementById('sbStatus');
+    const label = document.getElementById('sbAuthLabel');
+    if (msalAccount) {
+      const initials = (msalAccount.name || msalAccount.username || 'MS').split(/[\s.@]/).filter(p => p).slice(0, 2).map(p => p[0].toUpperCase()).join('');
+      avatar.textContent = initials;
+      name.textContent = msalAccount.name || msalAccount.username;
+      status.textContent = msalAccount.username;
+      status.style.color = '#10b981';
+      label.textContent = 'Sign Out';
+    } else {
+      avatar.textContent = 'RM';
+      name.textContent = 'Rudy Maneja';
+      status.textContent = 'Not signed in to MS365';
+      status.style.color = '';
+      label.textContent = 'Sign In';
+    }
+  }
+
+  async function getGraphToken() {
+    if (!initMSAL() || !msalAccount) throw new Error('Not signed in. Click Sign In in the sidebar.');
+    try {
+      const r = await msalInstance.acquireTokenSilent({ scopes: GRAPH_SCOPES, account: msalAccount });
+      return r.accessToken;
+    } catch (e) {
+      // Silent failed — fall back to popup
+      const r = await msalInstance.acquireTokenPopup({ scopes: GRAPH_SCOPES, account: msalAccount });
+      return r.accessToken;
+    }
+  }
+
+  async function graphFetch(path, options) {
+    const token = await getGraphToken();
+    const opts = options || {};
+    const url = path.startsWith('http') ? path : ('https://graph.microsoft.com/v1.0' + path);
+    const res = await fetch(url, {
+      method: opts.method || 'GET',
+      headers: Object.assign({
+        'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      }, opts.headers || {}),
+      body: opts.body ? JSON.stringify(opts.body) : undefined
+    });
+    if (!res.ok) {
+      let detail = '';
+      try { detail = JSON.stringify(await res.json()); } catch (_) { detail = await res.text(); }
+      throw new Error('Graph ' + res.status + ': ' + detail.slice(0, 400));
+    }
+    if (res.status === 204) return null;
+    return res.json();
+  }
+
+  // Create selected MS365 users directly via Graph API
+  async function createUsersViaGraph() {
+    if (!msalAccount) {
+      const proceed = confirm('You are not signed in to Microsoft 365.\n\nClick OK to sign in now, then click "Create via Graph API" again.');
+      if (proceed) await msalSignInOrOut();
+      return;
+    }
+    const settings = getMSSettings();
+    if (!ms365Context || !ms365Context.hireIds || ms365Context.hireIds.length === 0) {
+      showToast('No starters selected — close and re-open the modal');
+      return;
+    }
+    const hires = ms365Context.hireIds.map(id => state.hires.find(h => h.id === id)).filter(Boolean);
+    const passwords = ms365Context.passwords || [];
+    if (hires.length === 0) {
+      showToast('No starters found');
+      return;
+    }
+    const results = document.getElementById('ms365GraphResults');
+    results.style.display = 'block';
+    results.innerHTML = '';
+    const log = (msg, color) => {
+      const line = document.createElement('div');
+      line.textContent = msg;
+      if (color) line.style.color = color;
+      results.appendChild(line);
+      results.scrollTop = results.scrollHeight;
+    };
+
+    log('Starting Graph user creation for ' + hires.length + ' starter(s)...', '#60a5fa');
+    let ok = 0, failed = 0;
+    const createdIds = [];
+
+    for (let i = 0; i < hires.length; i++) {
+      const h = hires[i];
+      const first = ms365FirstName(h.starterName);
+      const last = ms365LastName(h.starterName);
+      const upn = (first + '.' + last.replace(/[\s-]+/g, '')).toLowerCase() + '@' + (settings.domain || 'go.team');
+      const display = first + ' ' + last + (ms365Suffix(h.starterName) ? ' ' + ms365Suffix(h.starterName) : '');
+      const isInternal = (h.companyName || '').trim().toLowerCase() === 'goteam';
+      const department = isInternal ? 'Internal' : detectShiftCategory(h.phShiftSchedule);
+      const password = passwords[i];
+      const skuId = isInternal ? settings.skuInternal : settings.skuClient;
+
+      log('[' + (i+1) + '/' + hires.length + '] ' + display + ' (' + upn + ')');
+      try {
+        // 1. Create user
+        const newUser = await graphFetch('/users', {
+          method: 'POST',
+          body: {
+            accountEnabled: true,
+            displayName: display,
+            givenName: first,
+            surname: last + (ms365Suffix(h.starterName) ? ' ' + ms365Suffix(h.starterName) : ''),
+            mailNickname: upn.split('@')[0],
+            userPrincipalName: upn,
+            jobTitle: h.position || '',
+            department: department,
+            officeLocation: h.companyName || '',
+            usageLocation: 'PH',
+            employeeId: h.hcId || '',
+            passwordProfile: { forceChangePasswordNextSignIn: true, password: password }
+          }
+        });
+        log('    [OK] Created — id=' + newUser.id, '#22c55e');
+        createdIds.push(newUser.id);
+
+        // 2. Assign license
+        if (skuId) {
+          try {
+            await graphFetch('/users/' + newUser.id + '/assignLicense', {
+              method: 'POST',
+              body: { addLicenses: [{ disabledPlans: [], skuId: skuId }], removeLicenses: [] }
+            });
+            log('    [OK] License assigned (' + (isInternal ? 'Internal' : 'Client') + ')', '#22c55e');
+          } catch (e) {
+            log('    [WARN] License skipped — ' + e.message.slice(0, 120), '#fbbf24');
+          }
+        } else {
+          log('    [SKIP] No SKU ID configured for ' + (isInternal ? 'Internal' : 'Client'), '#fbbf24');
+        }
+
+        // 3. Add to MFA group
+        if (settings.mfaGroupId) {
+          try {
+            await graphFetch('/groups/' + settings.mfaGroupId + '/members/$ref', {
+              method: 'POST',
+              body: { '@odata.id': 'https://graph.microsoft.com/v1.0/directoryObjects/' + newUser.id }
+            });
+            log('    [OK] Added to MFA group', '#22c55e');
+          } catch (e) {
+            log('    [WARN] MFA group skipped — ' + e.message.slice(0, 120), '#fbbf24');
+          }
+        }
+
+        ok++;
+      } catch (e) {
+        log('    [FAIL] ' + e.message.slice(0, 200), '#ef4444');
+        failed++;
+      }
+    }
+
+    log('', null);
+    log('=== Complete: ' + ok + ' created, ' + failed + ' failed ===', ok > 0 ? '#22c55e' : '#ef4444');
+    if (ok > 0) {
+      showToast(ok + ' MS365 account(s) created via Graph');
+      // Mark created in state
+      hires.forEach((h, i) => {
+        if (i < createdIds.length) {
+          const realHire = state.hires.find(x => x.id === h.id);
+          if (realHire) {
+            realHire.ms365 = realHire.ms365 || {};
+            realHire.ms365.created = true;
+            realHire.ms365.password = passwords[i];
+            realHire.ms365.createdAt = new Date().toISOString();
+            realHire.ms365.graphId = createdIds[i];
+          }
+        }
+      });
+      save();
+      renderHires();
+    }
+  }
+
+  async function fetchLicenseSkus() {
+    if (!msalAccount) {
+      showToast('Sign in first via the sidebar');
+      return;
+    }
+    try {
+      const r = await graphFetch('/subscribedSkus');
+      const status = document.getElementById('msSettingsStatus');
+      status.style.display = 'block';
+      status.style.background = '#eff6ff';
+      status.style.borderColor = '#93c5fd';
+      status.style.color = '#1e40af';
+      const lines = ['Available SKUs in your tenant:'];
+      (r.value || []).forEach(sku => {
+        lines.push('  ' + sku.skuPartNumber + ' = ' + sku.skuId);
+      });
+      lines.push('');
+      lines.push('Copy the SKU IDs above into the two fields.');
+      status.innerHTML = '<pre style="margin:0;font-size:11px;white-space:pre-wrap;">' + lines.join('\n') + '</pre>';
+    } catch (e) {
+      showToast('Failed to fetch SKUs: ' + e.message);
+    }
+  }
+  // ============================================================
+  // End Microsoft Graph integration
+  // ============================================================
+
+  // ============================================================
+  // Seed data — loaded from dashboard-seed.js (gitignored, optional).
+  // On a public deploy where dashboard-seed.js is missing, these default
+  // to empty arrays and the user populates the dashboard via:
+  //   - Add New Hire button
+  //   - Refresh-from-Email (via Claude conversation)
+  //   - Phase 2: direct read from SharePoint Lists via Graph
+  // ============================================================
+  const __SEED = (typeof window !== 'undefined' && window.__GOTEAM_SEED__) || {};
+
+  // Re-define defaultExitChecklist in case the seed file failed to load
+  // (it also defines this function and assigns to window.defaultExitChecklist).
+  function defaultExitChecklist(opts) {
+    opts = opts || {};
+    const items = ["Knowledge transfer","Disable email & SSO accounts","Revoke software licenses","Return laptop & peripherals","Return company badge","Final payslip processed","Exit interview completed","Manager sign-off"];
+    return items.map(label => ({ label, done: opts.all ? true : !!opts[label] }));
+  }
+
+  const seedHires       = __SEED.hires       || [];
+  const seedDepartures  = __SEED.departures  || [];
+  const seedLicenses    = __SEED.licenses    || [];
+  const seedAssignments = __SEED.assignments || [];
+
+
+  function load() {
+    try { const saved = localStorage.getItem(STORAGE_KEY); if (saved) {
+      const s = JSON.parse(saved);
+      s.selectedHires = new Set(); // selection is session-only
+      return s;
+    } } catch (e) {}
+    return { hires: seedHires, departures: seedDepartures, licenses: seedLicenses, assignments: seedAssignments, selectedHires: new Set() };
+  }
+  function save() {
+    try {
+      const { selectedHires, ...persist } = state;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(persist));
+    } catch (e) {}
+  }
+
+  let state = load();
+  if (!state.selectedHires) state.selectedHires = new Set();
+
+  document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const view = btn.dataset.view;
+      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      document.getElementById('view-' + view).classList.add('active');
+    });
+  });
+
+  function initials(name) {
+    const parts = (name || '').replace(/[^A-Za-z\s]/g, '').trim().split(/\s+/);
+    return ((parts[0] || '')[0] || '') + ((parts[parts.length - 1] || '')[0] || '');
+  }
+  function avatarColor(name) {
+    const colors = ['#2563eb','#7c3aed','#0ea5e9','#16a34a','#f59e0b','#dc2626','#ec4899','#14b8a6'];
+    let h = 0;
+    for (const c of (name || '')) h = (h * 31 + c.charCodeAt(0)) % colors.length;
+    return colors[h];
+  }
+  function statusPill(status) {
+    const map = { 'Pending':'pill-warning','In Progress':'pill-info','Completed':'pill-success','Active':'pill-success','Withdrawn':'pill-danger','Notice Period':'pill-warning','Last Day':'pill-purple','Asset Return':'pill-info','Pending Revoke':'pill-danger' };
+    const cls = map[status] || 'pill-muted';
+    return '<span class="pill ' + cls + '"><span class="pill-dot"></span>' + status + '</span>';
+  }
+  function formatDate(d) {
+    if (!d) return '—';
+    const date = new Date(d);
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg; t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 2200);
+  }
+
+  // ===== Week helpers (Mon-Sun) =====
+  function startOfWeek(dateStr) {
+    const d = new Date(dateStr + 'T00:00:00');
+    const day = d.getDay(); // 0=Sun..6=Sat
+    const diff = (day === 0 ? -6 : 1 - day); // shift to Monday
+    d.setDate(d.getDate() + diff);
+    return d;
+  }
+  function weekKey(dateStr) {
+    const monday = startOfWeek(dateStr);
+    const yyyy = monday.getFullYear();
+    const mm = String(monday.getMonth() + 1).padStart(2, '0');
+    const dd = String(monday.getDate()).padStart(2, '0');
+    return yyyy + '-' + mm + '-' + dd;
+  }
+  function weekLabel(dateStr) {
+    const monday = startOfWeek(dateStr);
+    const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
+    const fmt = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return 'Week of ' + fmt(monday) + ' – ' + fmt(sunday) + ', ' + monday.getFullYear();
+  }
+
+  function hireRowHtml(h) {
+    const rescheduleBadge = h.rescheduledFrom ? '<span class="pill pill-purple pill-tiny" style="margin-left:6px" title="' + (h.rescheduleNote || '') + '">RESCHEDULED</span>' : '';
+    const rescheduleNote  = h.rescheduledFrom ? '<div class="reschedule-note">Was ' + formatDate(h.rescheduledFrom) + ' → moved to ' + formatDate(h.startDate) + '</div>' : '';
+    const withdrawnBadge  = h.status === 'Withdrawn' ? '<span class="pill pill-danger pill-tiny" style="margin-left:6px">WITHDRAWN</span>' : '';
+    const withdrawnNote   = h.status === 'Withdrawn' ? '<div class="reschedule-note" style="color:var(--danger)">Withdrew ' + (h.withdrawnDate ? 'on ' + formatDate(h.withdrawnDate) : '') + (h.withdrawnReason ? ' — ' + h.withdrawnReason : '') + '</div>' : '';
+    const rowStyle = h.status === 'Withdrawn' ? ' style="opacity:0.65;background:#fef2f2"' : '';
+    const hireTypeTag = h.hireType ? '<span class="hire-type-tag">' + h.hireType + '</span>' : '';
+    const isSelected = state.selectedHires.has(h.id);
+    const ms365Done = h.ms365Created;
+    const teramindDone = h.teramindCreated;
+    return '\
+        <tr' + rowStyle + '>\
+          <td class="col-checkbox"><input type="checkbox" class="row-checkbox" ' + (isSelected ? 'checked' : '') + ' onchange="toggleHireSelection(' + h.id + ')"></td>\
+          <td>' + (h.hcId ? '<span class="id-chip">' + h.hcId + '</span>' : '<span style="color:#cbd5e1;font-size:12px">—</span>') + '</td>\
+          <td>\
+            <div class="user-cell">\
+              <div class="avatar" style="background:' + avatarColor(h.starterName) + '">' + initials(h.starterName) + '</div>\
+              <div>\
+                <div class="name">' + h.starterName + hireTypeTag + '</div>\
+                <div class="sub">' + (h.nickname || '<span style="color:#cbd5e1">no nickname</span>') + '</div>\
+              </div>\
+            </div>\
+          </td>\
+          <td>' + (h.position || '<span style="color:#cbd5e1">—</span>') + '</td>\
+          <td>' + h.companyName + '</td>\
+          <td><span style="font-size:12px;color:var(--muted)">' + (h.phShiftSchedule || '<span style="color:#cbd5e1">—</span>') + '</span></td>\
+          <td>' + formatDate(h.startDate) + rescheduleBadge + withdrawnBadge + rescheduleNote + withdrawnNote + '</td>\
+          <td>' + statusPill(h.status) + '</td>\
+          <td>\
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">\
+              <button class="btn-ms365' + (ms365Done ? ' created' : '') + '" onclick="openMS365Modal(' + h.id + ')" title="' + (ms365Done ? 'Account already created' : 'Create Microsoft 365 account') + '">\
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></svg>\
+                ' + (ms365Done ? 'Created' : 'MS365') + '\
+              </button>\
+              <button class="btn-teramind' + (teramindDone ? ' created' : '') + '" onclick="openTeramindModal(' + h.id + ')" title="' + (teramindDone ? 'Teramind account already created' : 'Create Teramind account') + '">\
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>\
+                ' + (teramindDone ? 'Created' : 'Teramind') + '\
+              </button>\
+              <button class="btn btn-icon" onclick="exportCredentials(' + h.id + ')" title="Open credential sheet in printable window" style="color:#7c3aed;">\
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>\
+              </button>\
+              <button class="btn btn-icon" onclick="copyCredsForExcel(' + h.id + ', true)" title="Copy for Excel + open Book 22 in new tab" style="color:#16a34a;">\
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg>\
+              </button>\
+              <select class="filter-select" style="font-size:12px;padding:5px 26px 5px 8px" onchange="updateHireStatus(' + h.id + ', this.value)">\
+                <option ' + (h.status==='Pending'?'selected':'') + '>Pending</option>\
+                <option ' + (h.status==='In Progress'?'selected':'') + '>In Progress</option>\
+                <option ' + (h.status==='Completed'?'selected':'') + '>Completed</option>\
+              </select>\
+              <button class="btn btn-icon" onclick="removeHire(' + h.id + ')" title="Remove">\
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>\
+              </button>\
+            </div>\
+          </td>\
+        </tr>';
+  }
+
+  function renderHires() {
+    const search = document.getElementById('hireSearch').value.toLowerCase();
+    const status = document.getElementById('hireStatusFilter').value;
+    const company = document.getElementById('hireCompanyFilter').value;
+
+    // Active hires (not withdrawn) — filtered
+    const active = state.hires.filter(h => {
+      const matchSearch = !search || h.starterName.toLowerCase().includes(search) || (h.position||'').toLowerCase().includes(search) || h.companyName.toLowerCase().includes(search) || (h.hcId && String(h.hcId).toLowerCase().includes(search));
+      const matchStatus = !status || h.status === status;
+      const matchCompany = !company || h.companyName === company;
+      return matchSearch && matchStatus && matchCompany;
+    });
+
+    // Group by week
+    const groups = {};
+    active.forEach(h => {
+      const key = weekKey(h.startDate);
+      if (!groups[key]) groups[key] = { label: weekLabel(h.startDate), hires: [], hasWithdrawn: false };
+      groups[key].hires.push(h);
+      if (h.status === 'Withdrawn') groups[key].hasWithdrawn = true;
+    });
+    const sortedKeys = Object.keys(groups).sort();
+
+    const container = document.getElementById('weeklySections');
+    if (sortedKeys.length === 0) {
+      container.innerHTML = '<div class="panel"><div class="empty-state"><h4>No starters match your filters</h4><p>Try clearing search or filter selection.</p></div></div>';
+      return;
+    }
+
+    // Pick the active week. Default = week containing today (or earliest with data, or last)
+    if (!state.activeWeekKey || !groups[state.activeWeekKey]) {
+      const today = new Date();
+      const todayKey = weekKey(today.toISOString().slice(0, 10));
+      if (groups[todayKey]) state.activeWeekKey = todayKey;
+      else state.activeWeekKey = sortedKeys[0];
+    }
+
+    // Compute "Week N of <Month>" labels for each key
+    function monthWeekLabel(key) {
+      const monday = new Date(key + 'T00:00:00');
+      const month = monday.toLocaleDateString('en-US', { month: 'short' });
+      // Week N = which Monday in the month is this? Find the first Monday of monday's month
+      const first = new Date(monday.getFullYear(), monday.getMonth(), 1);
+      let firstMonday = new Date(first);
+      const day = first.getDay();
+      const offset = (day === 0 ? 1 : (day === 1 ? 0 : 8 - day));
+      firstMonday.setDate(first.getDate() + offset);
+      const weekN = Math.floor((monday - firstMonday) / (7 * 24 * 60 * 60 * 1000)) + 1;
+      const monthYear = monday.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+      return { week: 'Wk ' + weekN, month: monthYear, monthShort: month };
+    }
+
+    // Build the pager — group by month
+    let lastMonth = null;
+    const pagerHtml = sortedKeys.map(k => {
+      const g = groups[k];
+      const lbl = monthWeekLabel(k);
+      let parts = '';
+      if (lbl.month !== lastMonth) {
+        parts += '<span class="week-pager-month">' + lbl.month + '</span>';
+        lastMonth = lbl.month;
+      }
+      const isActive = k === state.activeWeekKey;
+      const dateRange = g.label.replace('Week of ', '');
+      parts += '<button class="week-pager-btn' + (isActive ? ' active' : '') + (g.hasWithdrawn ? ' has-withdrawn' : '') +
+        '" onclick="switchWeek(\'' + k + '\')" title="' + g.label + '">' +
+        lbl.week + ' <span class="count">' + g.hires.length + '</span></button>';
+      return parts;
+    }).join('');
+
+    // Render: pager + the active week's table
+    const activeGroup = groups[state.activeWeekKey];
+    activeGroup.hires.sort((a, b) => (a.startDate.localeCompare(b.startDate)) || a.starterName.localeCompare(b.starterName));
+
+    container.innerHTML =
+      '<div class="week-pager">' + pagerHtml + '</div>' +
+      '<div class="week-section">' +
+        '<div class="week-header">' +
+          '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>' +
+          activeGroup.label +
+          '<span class="week-count">' + activeGroup.hires.length + ' starter' + (activeGroup.hires.length === 1 ? '' : 's') + '</span>' +
+        '</div>' +
+        '<div class="panel">' +
+          '<div style="overflow-x:auto"><table><thead><tr>' +
+            '<th class="col-checkbox"><input type="checkbox" class="row-checkbox" onchange="toggleSelectAllInWeek(this)" id="selectAllInWeek" title="Select all in this week"></th><th>Employee ID</th><th>Employee Name</th><th>Position</th><th>Company</th><th>PH Shift</th><th>Start Date</th><th>Status</th><th>Actions</th>' +
+          '</tr></thead><tbody>' + activeGroup.hires.map(hireRowHtml).join('') + '</tbody></table></div>' +
+        '</div>' +
+      '</div>';
+
+    updateOnboardingStats();
+    populateCompanyFilter();
+    renderBulkBar();
+  }
+
+
+  function switchWeek(key) {
+    state.activeWeekKey = key;
+    save();
+    renderHires();
+  }
+
+  // ============ BULK SELECTION + MS365 ============
+  let ms365Context = { hireIds: [], csv: '' };
+
+  function toggleHireSelection(id) {
+    if (state.selectedHires.has(id)) state.selectedHires.delete(id);
+    else state.selectedHires.add(id);
+    renderHires();
+  }
+  function toggleSelectAllInWeek(cb) {
+    // Find the current active week's hires that are visible
+    const search = document.getElementById('hireSearch').value.toLowerCase();
+    const status = document.getElementById('hireStatusFilter').value;
+    const company = document.getElementById('hireCompanyFilter').value;
+    const visibleInWeek = state.hires.filter(h => {
+      if (weekKey(h.startDate) !== state.activeWeekKey) return false;
+      if (search && !h.starterName.toLowerCase().includes(search) && !(h.position||'').toLowerCase().includes(search) && !h.companyName.toLowerCase().includes(search)) return false;
+      if (status && h.status !== status) return false;
+      if (company && h.companyName !== company) return false;
+      return true;
+    });
+    if (cb.checked) visibleInWeek.forEach(h => state.selectedHires.add(h.id));
+    else visibleInWeek.forEach(h => state.selectedHires.delete(h.id));
+    renderHires();
+  }
+  function clearSelection() {
+    state.selectedHires.clear();
+    renderHires();
+  }
+  function renderBulkBar() {
+    const bar = document.getElementById('bulkBar');
+    const n = state.selectedHires.size;
+    if (n === 0) { bar.style.display = 'none'; return; }
+    bar.style.display = '';
+    bar.innerHTML = '<div class="bulk-bar">' +
+      '<span class="count-badge">' + n + '</span>' +
+      '<span class="label">' + (n === 1 ? 'starter selected' : 'starters selected') + '</span>' +
+      '<span class="spacer"></span>' +
+      '<button class="btn-bulk-action" onclick="openMS365Modal(\'bulk\')">' +
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></svg>' +
+        ' Create MS365' +
+      '</button>' +
+      '<button class="btn-bulk-action" onclick="openTeramindModal(\'bulk\')" style="background:#f0fdf4;color:#166534;">' +
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>' +
+        ' Create Teramind' +
+      '</button>' +
+      '<button class="btn-bulk-action" onclick="exportCredentials(\'bulk\')" style="background:#faf5ff;color:#6b21a8;">' +
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>' +
+        ' Export Credentials' +
+      '</button>' +
+      '<button class="btn-bulk-action" onclick="copyCredsForExcel(\'bulk\', true)" style="background:#dcfce7;color:#166534;">' +
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/><line x1="3" y1="9" x2="21" y2="9"/></svg>' +
+        ' Copy for Excel' +
+      '</button>' +
+      '<button class="btn-clear" onclick="clearSelection()">Clear</button>' +
+    '</div>';
+  }
+
+  function ms365Username(starterName) {
+    const parts = String(starterName || '').replace(/[^A-Za-z\s]/g, '').trim().split(/\s+/);
+    if (parts.length < 2) return parts.join('').toLowerCase() + '@go.team';
+    const first = parts[0].toLowerCase();
+    const last = parts[parts.length - 1].toLowerCase();
+    return first + '.' + last + '@go.team';
+  }
+  function ms365FirstName(starterName) {
+    const parts = String(starterName || '').replace(/[^A-Za-z\s]/g, '').trim().split(/\s+/);
+    return parts[0] || '';
+  }
+  // Known generational/honorific suffixes that appear AFTER the last name
+  // (so they shouldn't be treated as the last name themselves).
+  const NAME_SUFFIXES = new Set(['ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii',
+                                  'jr', 'jr.', 'sr', 'sr.', 'jnr', 'snr',
+                                  'esq', 'esq.', 'phd', 'phd.', 'md', 'md.']);
+  function ms365Suffix(starterName) {
+    const tokens = String(starterName || '').trim().split(/\s+/).filter(t => t.length);
+    if (tokens.length < 3) return '';
+    const lastToken = tokens[tokens.length - 1].toLowerCase().replace(/\./g, '');
+    if (NAME_SUFFIXES.has(lastToken) || NAME_SUFFIXES.has(lastToken + '.')) {
+      return tokens[tokens.length - 1];
+    }
+    return '';
+  }
+  function ms365LastName(starterName) {
+    let tokens = String(starterName || '').trim().split(/\s+/).filter(t => t.length);
+    if (tokens.length < 2) return '';
+    // If the last token is a known suffix (II, III, Jr., etc.), drop it before parsing.
+    // Recurse to allow stacked suffixes like "Jr. PhD" — rare but defensive.
+    while (tokens.length >= 3) {
+      const last = tokens[tokens.length - 1].toLowerCase().replace(/\./g, '');
+      if (NAME_SUFFIXES.has(last) || NAME_SUFFIXES.has(last + '.')) {
+        tokens = tokens.slice(0, -1);
+      } else {
+        break;
+      }
+    }
+    if (tokens.length < 2) return '';
+    // Strategy 1: look for a middle initial — last name is everything AFTER it
+    for (let i = 1; i < tokens.length - 1; i++) {
+      if (/^[A-Za-z]\.?$/.test(tokens[i])) {
+        return tokens.slice(i + 1).map(t => t.replace(/\./g, '')).join(' ');
+      }
+    }
+    // Strategy 2: no middle initial — walk back to absorb compound-name prefixes
+    const prefixes = new Set(['de','la','del','della','van','von','der','di','da','le','dela','mac','mc','o','san','santa','santos']);
+    let start = tokens.length - 1;
+    for (let i = tokens.length - 2; i >= 1; i--) {
+      const w = tokens[i].toLowerCase().replace(/\./g, '');
+      if (prefixes.has(w)) start = i;
+      else break;
+    }
+    return tokens.slice(start).map(t => t.replace(/\./g, '')).join(' ');
+  }
+  // Password gen — 8 alphanumeric, excluding ambiguous I, l, 1, O, 0
+  // Guarantees ≥1 uppercase, ≥1 lowercase, ≥1 digit (M365 password policy)
+  function generateMS365Password() {
+    const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';   // no I, no O
+    const lower = 'abcdefghijkmnopqrstuvwxyz';   // no l
+    const digit = '23456789';                    // no 0, no 1
+    const all = upper + lower + digit;
+    const pick = (s) => s.charAt(Math.floor(Math.random() * s.length));
+    const pwd = [pick(upper), pick(lower), pick(digit)];
+    while (pwd.length < 8) pwd.push(pick(all));
+    // Fisher-Yates shuffle
+    for (let i = pwd.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pwd[i], pwd[j]] = [pwd[j], pwd[i]];
+    }
+    return pwd.join('');
+  }
+  // Detect Morning vs Night from shift-start time. Morning = starts 5 AM - 11:59 AM.
+  function detectShiftCategory(shiftStr) {
+    if (!shiftStr) return 'Morning';
+    const m = String(shiftStr).match(/(\d+)(?::(\d+))?\s*([APap][Mm])/);
+    if (!m) return 'Morning';
+    let hour = parseInt(m[1], 10);
+    const ampm = m[3].toUpperCase();
+    if (ampm === 'PM' && hour !== 12) hour += 12;
+    if (ampm === 'AM' && hour === 12) hour = 0;
+    return (hour >= 5 && hour < 12) ? 'Morning' : 'Night';
+  }
+  function buildMS365Csv(hires, passwords) {
+    const headers = ['FirstName','LastName','DisplayName','UserPrincipalName','JobTitle','Department','Office','LicenseSku','Password','UsageLocation','EmployeeID'];
+    const rows = [headers];
+    hires.forEach((h, i) => {
+      const first = ms365FirstName(h.starterName);
+      const last = ms365LastName(h.starterName);
+      const display = first + ' ' + last + (ms365Suffix(h.starterName) ? ' ' + ms365Suffix(h.starterName) : '');
+      const upn = (first + '.' + last.replace(/[\s-]+/g, '')).toLowerCase() + '@go.team';
+      const isInternal = (h.companyName || '').trim().toLowerCase() === 'goteam';
+      const department = isInternal ? 'Internal' : detectShiftCategory(h.phShiftSchedule);
+      const license = (department === 'Internal') ? 'O365_BUSINESS_ESSENTIALS' : 'DESKLESSPACK';
+      const password = passwords[i];
+      rows.push([
+        first,
+        last,
+        display,
+        upn,
+        h.position || '',
+        department,
+        h.companyName || '',
+        license,
+        password,
+        'PH',
+        h.hcId || ''
+      ]);
+    });
+    return rows.map(r => r.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(',')).join('\n');
+  }
+
+  // PowerShell escape: backtick is the escape char in double-quoted strings
+  function psEscape(s) {
+    return String(s == null ? '' : s).replace(/`/g, '``').replace(/\$/g, '`$').replace(/"/g, '`"');
+  }
+
+  function buildMS365PowerShell(hires, passwords) {
+    const ts = new Date().toISOString();
+    const lines = [];
+    lines.push('# Microsoft 365 User Creation Script');
+    lines.push('# Generated by GoTeam User Management Dashboard');
+    lines.push('# Generated: ' + ts);
+    lines.push('# Starters: ' + hires.length);
+    lines.push('#');
+    lines.push('# Prerequisites: NONE — this script self-installs the Microsoft Graph submodules');
+    lines.push('# (CurrentUser scope, no admin required for install) and prompts for tenant');
+    lines.push('# admin sign-in via interactive browser. You only need internet access and an');
+    lines.push('# account with: User.ReadWrite.All, Group.ReadWrite.All, Directory.AccessAsUser.All.');
+    lines.push('#');
+    lines.push('# WARNING: This script contains plaintext initial passwords.');
+    lines.push('#   - Do NOT commit to source control.');
+    lines.push('#   - Users will be forced to change password on first sign-in.');
+    lines.push('');
+    // MFA enforcement: prereq lookup + configurable group name
+    // ===== Bootstrap: Ensure Microsoft Graph submodules are installed and connected =====
+    lines.push('# Wrap entire script in try/finally so the window NEVER closes silently —');
+    lines.push('# any error is shown, and Read-Host pauses the window before exit.');
+    lines.push('try {');
+    lines.push('# ----- Bootstrap (auto-install / auto-connect) -----');
+    lines.push('$ErrorActionPreference = \'Stop\'');
+    lines.push('Write-Host \'Checking Microsoft Graph PowerShell modules...\' -ForegroundColor Cyan');
+    lines.push('$requiredModules = @(\'Microsoft.Graph.Authentication\', \'Microsoft.Graph.Users\', \'Microsoft.Graph.Users.Actions\', \'Microsoft.Graph.Groups\', \'Microsoft.Graph.Identity.DirectoryManagement\')');
+    lines.push('foreach ($m in $requiredModules) {');
+    lines.push('    if (-not (Get-Module -ListAvailable -Name $m)) {');
+    lines.push('        Write-Host ("  Installing {0} (one-time, ~30s)..." -f $m) -ForegroundColor Yellow');
+    lines.push('        try {');
+    lines.push('            if (-not (Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue)) {');
+    lines.push('                Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser | Out-Null');
+    lines.push('            }');
+    lines.push('            Install-Module -Name $m -Scope CurrentUser -Force -AllowClobber -Repository PSGallery');
+    lines.push('        } catch {');
+    lines.push('            Write-Host ("  Failed to install {0}: {1}" -f $m, $_.Exception.Message) -ForegroundColor Red');
+    lines.push('            Write-Host \'  Try manually: Install-Module Microsoft.Graph -Scope CurrentUser -Force\' -ForegroundColor Red');
+    lines.push('            throw');
+    lines.push('        }');
+    lines.push('    }');
+    lines.push('    Import-Module $m -ErrorAction Stop');
+    lines.push('}');
+    lines.push('Write-Host \'  Modules ready.\' -ForegroundColor Green');
+    lines.push('');
+    lines.push('# Connect to Microsoft Graph (interactive sign-in if not already connected)');
+    lines.push('try { $ctx = Get-MgContext } catch { $ctx = $null }');
+    lines.push('if (-not $ctx) {');
+    lines.push('    Write-Host \'Connecting to Microsoft Graph — a browser window will open for sign-in...\' -ForegroundColor Cyan');
+    lines.push('    Connect-MgGraph -Scopes "User.ReadWrite.All","Organization.Read.All","Directory.AccessAsUser.All","Group.ReadWrite.All"');
+    lines.push('    $ctx = Get-MgContext');
+    lines.push('}');
+    lines.push('Write-Host ("Signed in as: {0} ({1})" -f $ctx.Account, $ctx.TenantId) -ForegroundColor Green');
+    lines.push('');
+    lines.push('# ----- MFA Enforcement -----');
+    lines.push('# Each new user is added to a security group that is the target of a Conditional Access policy');
+    lines.push('# requiring multi-factor authentication. PREREQ: that group + CA policy must already exist.');
+    lines.push('# Edit $mfaGroupName below if your tenant uses a different group name.');
+    lines.push('$mfaGroupName = "MFA-Enforced Users"');
+    lines.push('$mfaGroup = Get-MgGroup -Filter ("displayName eq \'" + $mfaGroupName + "\'") -ErrorAction SilentlyContinue | Select-Object -First 1');
+    lines.push('if (-not $mfaGroup) {');
+    lines.push('    Write-Warning ("MFA group \'{0}\' not found in tenant. Users will be created but NOT enforced for MFA." -f $mfaGroupName)');
+    lines.push('    Write-Warning (" Create the group and a Conditional Access policy that requires MFA on its members, then re-run.")');
+    lines.push('}');
+    lines.push('');
+    lines.push('$users = @(');
+    hires.forEach((h, i) => {
+      const first = ms365FirstName(h.starterName);
+      const last = ms365LastName(h.starterName);
+      const display = first + ' ' + last;
+      const upn = (first + '.' + last.replace(/[\s-]+/g, '')).toLowerCase() + '@go.team';
+      const isInternal = (h.companyName || '').trim().toLowerCase() === 'goteam';
+      const department = isInternal ? 'Internal' : detectShiftCategory(h.phShiftSchedule);
+      const license = (department === 'Internal') ? 'O365_BUSINESS_ESSENTIALS' : 'DESKLESSPACK';
+      const password = passwords[i];
+      const sep = (i < hires.length - 1) ? ',' : '';
+      lines.push('    [PSCustomObject]@{');
+      lines.push('        FirstName         = "' + psEscape(first) + '"');
+      lines.push('        LastName          = "' + psEscape(last) + '"');
+      lines.push('        DisplayName       = "' + psEscape(display) + '"');
+      lines.push('        UserPrincipalName = "' + psEscape(upn) + '"');
+      lines.push('        JobTitle          = "' + psEscape(h.position || '') + '"');
+      lines.push('        Department        = "' + psEscape(department) + '"');
+      lines.push('        Office            = "' + psEscape(h.companyName || '') + '"');
+      lines.push('        LicenseSku        = "' + psEscape(license) + '"');
+      lines.push('        Password          = "' + psEscape(password) + '"');
+      lines.push('        UsageLocation     = "PH"');
+      lines.push('        EmployeeID        = "' + psEscape(h.hcId || '') + '"');
+      lines.push('    }' + sep);
+    });
+    lines.push(')');
+    lines.push('');
+    lines.push('foreach ($u in $users) {');
+    lines.push('    $passwordProfile = @{');
+    lines.push('        Password                      = $u.Password');
+    lines.push('        ForceChangePasswordNextSignIn = $true');
+    lines.push('    }');
+    lines.push('    $params = @{');
+    lines.push('        AccountEnabled    = $true');
+    lines.push('        DisplayName       = $u.DisplayName');
+    lines.push('        MailNickname      = $u.UserPrincipalName.Split(\'@\')[0]');
+    lines.push('        UserPrincipalName = $u.UserPrincipalName');
+    lines.push('        PasswordProfile   = $passwordProfile');
+    lines.push('        GivenName         = $u.FirstName');
+    lines.push('        Surname           = $u.LastName');
+    lines.push('        JobTitle          = $u.JobTitle');
+    lines.push('        Department        = $u.Department');
+    lines.push('        OfficeLocation    = $u.Office');
+    lines.push('        EmployeeId        = $u.EmployeeID');
+    lines.push('        UsageLocation     = $u.UsageLocation');
+    lines.push('    }');
+    lines.push('    try {');
+    lines.push('        $newUser = New-MgUser @params');
+    lines.push('        Write-Host ("[OK] Created: {0} ({1})" -f $u.DisplayName, $u.UserPrincipalName) -ForegroundColor Green');
+    lines.push('        $sku = Get-MgSubscribedSku | Where-Object SkuPartNumber -EQ $u.LicenseSku');
+    lines.push('        if ($sku) {');
+    lines.push('            Set-MgUserLicense -UserId $newUser.Id -AddLicenses @{SkuId = $sku.SkuId} -RemoveLicenses @()');
+    lines.push('            Write-Host ("     License {0} assigned" -f $u.LicenseSku) -ForegroundColor Cyan');
+    lines.push('        } else {');
+    lines.push('            Write-Warning ("License SKU {0} not found in tenant" -f $u.LicenseSku)');
+    lines.push('        }');
+    lines.push('        # Enforce MFA by adding to the security group targeted by your CA policy');
+    lines.push('        if ($mfaGroup) {');
+    lines.push('            try {');
+    lines.push('                New-MgGroupMember -GroupId $mfaGroup.Id -DirectoryObjectId $newUser.Id -ErrorAction Stop');
+    lines.push('                Write-Host ("     MFA enforced via \'{0}\'" -f $mfaGroupName) -ForegroundColor Cyan');
+    lines.push('            } catch {');
+    lines.push('                if ($_.Exception.Message -match "already exist" -or $_.Exception.Message -match "One or more added object references already exist") {');
+    lines.push('                    Write-Host ("     MFA enforced (already in \'{0}\')" -f $mfaGroupName) -ForegroundColor Cyan');
+    lines.push('                } else {');
+    lines.push('                    Write-Warning ("     Could not add to MFA group: {0}" -f $_.Exception.Message)');
+    lines.push('                }');
+    lines.push('            }');
+    lines.push('        }');
+    lines.push('    } catch {');
+    lines.push('        Write-Host ("[FAIL] {0}: {1}" -f $u.DisplayName, $_.Exception.Message) -ForegroundColor Red');
+    lines.push('    }');
+    lines.push('}');
+    lines.push('');
+    lines.push('Write-Host "" ');
+    lines.push('Write-Host "========================================" -ForegroundColor Cyan');
+    lines.push('Write-Host ("Script complete. Created/processed {0} starter(s)." -f $users.Count) -ForegroundColor Cyan');
+    lines.push('Write-Host "========================================" -ForegroundColor Cyan');
+    lines.push('}');
+    lines.push('catch {');
+    lines.push('    Write-Host ""');
+    lines.push('    Write-Host "========================================" -ForegroundColor Red');
+    lines.push('    Write-Host "FATAL ERROR — script halted before completion:" -ForegroundColor Red');
+    lines.push('    Write-Host ("  {0}" -f $_.Exception.Message) -ForegroundColor Red');
+    lines.push('    Write-Host ""');
+    lines.push('    Write-Host "Stack trace:" -ForegroundColor DarkGray');
+    lines.push('    Write-Host $_.ScriptStackTrace -ForegroundColor DarkGray');
+    lines.push('    Write-Host "========================================" -ForegroundColor Red');
+    lines.push('}');
+    lines.push('finally {');
+    lines.push('    Write-Host ""');
+    lines.push('    Write-Host "Press Enter to close this window..." -ForegroundColor Yellow');
+    lines.push('    [void](Read-Host)');
+    lines.push('}');
+    return lines.join('\n');
+  }
+
+  function switchMS365Format(fmt) {
+    ms365Context.format = fmt;
+    const isPS = (fmt === 'ps1');
+    document.getElementById('ms365CsvPreview').textContent = isPS ? ms365Context.script : ms365Context.csv;
+    document.getElementById('ms365CopyLabel').textContent = isPS ? 'Copy PowerShell' : 'Copy to Clipboard';
+    document.getElementById('ms365DownloadLabel').textContent = isPS ? 'Download .ps1' : 'Download CSV';
+    document.getElementById('ms365FormatHint').textContent = isPS ? 'PowerShell (Microsoft.Graph SDK)' : 'M365 bulk-import format';
+    document.getElementById('ms365PwshAdminBtn').style.display = isPS ? '' : 'none';
+    document.querySelectorAll('.format-tab').forEach(b => b.classList.toggle('active', b.dataset.fmt === fmt));
+  }
+
+  function openMS365Modal(id) {
+    let hires;
+    let title;
+    if (id === 'bulk') {
+      hires = state.hires.filter(h => state.selectedHires.has(h.id));
+      title = 'Create ' + hires.length + ' Microsoft 365 Account' + (hires.length === 1 ? '' : 's');
+    } else {
+      const h = state.hires.find(x => x.id === id);
+      if (!h) return;
+      hires = [h];
+      title = 'Create Microsoft 365 Account — ' + h.starterName;
+    }
+    if (hires.length === 0) { alert('No starters selected'); return; }
+    // Pre-generate one password per hire, used by both CSV and PowerShell so they match.
+    const passwords = hires.map(() => generateMS365Password());
+    const csv = buildMS365Csv(hires, passwords);
+    const script = buildMS365PowerShell(hires, passwords);
+    ms365Context = { hireIds: hires.map(h => h.id), csv, script, format: 'csv', passwords };
+    document.getElementById('ms365ModalTitle').textContent = title;
+    document.getElementById('ms365CsvPreview').textContent = csv;
+    document.getElementById('ms365CopyLabel').textContent = 'Copy to Clipboard';
+    document.getElementById('ms365DownloadLabel').textContent = 'Download CSV';
+    document.getElementById('ms365FormatHint').textContent = 'M365 bulk-import format';
+    document.getElementById('ms365PwshAdminBtn').style.display = 'none';
+    document.querySelectorAll('.format-tab').forEach(b => b.classList.toggle('active', b.dataset.fmt === 'csv'));
+    openModal('ms365Modal');
+  }
+  function copyMS365Csv() {
+    const isPS = (ms365Context.format === 'ps1');
+    const text = isPS ? ms365Context.script : ms365Context.csv;
+    const label = isPS ? 'PowerShell script copied' : 'CSV copied';
+    navigator.clipboard.writeText(text).then(() => {
+      showToast(label);
+    }).catch(() => {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta); ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      showToast(label);
+    });
+  }
+  function downloadMS365Csv() {
+    const n = ms365Context.hireIds.length;
+    const isPS = (ms365Context.format === 'ps1');
+    const text = isPS ? ms365Context.script : ms365Context.csv;
+    const ext = isPS ? 'ps1' : 'csv';
+    const mime = isPS ? 'text/plain' : 'text/csv';
+    const blob = new Blob([text], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'ms365-bulk-' + n + '-users.' + ext; a.click();
+    URL.revokeObjectURL(url);
+    showToast('Downloaded .' + ext + ' for ' + n + ' starter' + (n === 1 ? '' : 's'));
+  }
+  function openMS365AdminBulk() {
+    window.open('https://admin.microsoft.com/Adminportal/Home#/users', '_blank');
+    showToast('Opening Microsoft 365 admin in new tab');
+  }
+  // ============ TERAMIND ============
+  let teramindContext = { hireIds: [], csv: '' };
+
+  // Teramind password convention: "GoTeam<N>" where N is a sequential counter.
+  // Last assigned was GoTeam25643, so the next batch begins at 25644 and increments by 1 per user.
+  // The counter persists in localStorage so passwords never collide across modal opens or page reloads.
+  function nextTeramindPassword() {
+    if (!state.teramindPwdCounter || state.teramindPwdCounter < 25643) state.teramindPwdCounter = 25643;
+    state.teramindPwdCounter += 1;
+    return 'GoTeam' + state.teramindPwdCounter;
+  }
+  function buildTeramindCsv(hires, passwords) {
+    const headers = [
+      'FIRST NAME','LAST NAME','EMAIL','ROLE','POSITION','PASSWORD','WAGE','TIMEOUT','ON TIMEOUT',
+      'DEPARTMENT','TELEPHONE','STREAM SCREEN','RECORD SCREEN','STREAM AUDIO','RECORD AUDIO',
+      'ALLOW WEB LOGIN','STREAM 16BIT COLOR','ALLOW MANUAL TIME','ALLOW WEB CLOCK','TRACK GPS','ALLOW HISTORY PLAYBACK'
+    ];
+    const rows = [headers];
+    hires.forEach((h, i) => {
+      const first = ms365FirstName(h.starterName);
+      const last = ms365LastName(h.starterName);
+      const email = (first + '.' + last.replace(/[\s-]+/g, '')).toLowerCase() + '@go.team';
+      rows.push([
+        first, last, email, 'user', h.position || '', passwords[i],
+        '', '', '', h.companyName || '', '',
+        'yes', 'yes', 'no', 'no', 'yes', 'no', 'no', 'no', 'yes', 'no'
+      ]);
+    });
+    // Comma-separated with quoted fields — Excel opens this natively as columns,
+    // and Teramind's bulk-import accepts standard CSV format.
+    return rows.map(r => r.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(',')).join('\n');
+  }
+
+
+  function openTeramindModal(id) {
+    let hires, title;
+    if (id === 'bulk') {
+      hires = state.hires.filter(h => state.selectedHires.has(h.id));
+      title = 'Create ' + hires.length + ' Teramind Account' + (hires.length === 1 ? '' : 's');
+    } else {
+      const h = state.hires.find(x => x.id === id);
+      if (!h) return;
+      hires = [h];
+      title = 'Create Teramind Account — ' + h.starterName;
+    }
+    if (hires.length === 0) { alert('No starters selected'); return; }
+    // Pre-generate sequential passwords once
+    const passwords = hires.map(() => nextTeramindPassword());
+    save();  // persist the advanced counter immediately
+    const csv = buildTeramindCsv(hires, passwords);
+    teramindContext = { hireIds: hires.map(h => h.id), csv, passwords };
+    document.getElementById('teramindModalTitle').textContent = title;
+    document.getElementById('teramindPreview').textContent = csv;
+    updateTeramindCounterDisplay();
+    openModal('teramindModal');
+  }
+
+  function updateTeramindCounterDisplay() {
+    const el = document.getElementById('teramindCounterDisplay');
+    if (!el) return;
+    const c = state.teramindPwdCounter || 25643;
+    el.textContent = 'Counter: ' + c + ' (next: GoTeam' + (c + 1) + ')';
+  }
+  function setTeramindCounter() {
+    const current = state.teramindPwdCounter || 25643;
+    const input = prompt(
+      'Set the NEXT Teramind password number.\n\n' +
+      'Current counter: ' + current + '\n' +
+      'Next password (currently): GoTeam' + (current + 1) + '\n\n' +
+      'Enter the number you want the NEXT password to start at\n' +
+      '(e.g., 26000 means the next assigned will be GoTeam26000):',
+      String(current + 1)
+    );
+    if (input === null) return;
+    const next = parseInt(String(input).trim(), 10);
+    if (!Number.isFinite(next) || next < 1) {
+      alert('Invalid number. Please enter a positive integer.');
+      return;
+    }
+    // The counter stores the LAST assigned. nextTeramindPassword() does counter++ then returns.
+    // So to make the NEXT call return GoTeam<next>, we set counter to (next - 1).
+    state.teramindPwdCounter = next - 1;
+    // If the modal is currently showing pre-generated passwords for some hires, regenerate
+    if (teramindContext && teramindContext.hireIds && teramindContext.hireIds.length > 0) {
+      const ids = teramindContext.hireIds;
+      const hires = state.hires.filter(h => ids.includes(h.id))
+                              .sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
+      const passwords = hires.map(() => nextTeramindPassword());
+      teramindContext.passwords = passwords;
+      teramindContext.csv = buildTeramindCsv(hires, passwords);
+      document.getElementById('teramindPreview').textContent = teramindContext.csv;
+    }
+    save();
+    updateTeramindCounterDisplay();
+    showToast('Counter updated. Next password: GoTeam' + next);
+  }
+  function copyTeramind() {
+    navigator.clipboard.writeText(teramindContext.csv).then(() => showToast('CSV copied')).catch(() => {
+      const ta = document.createElement('textarea');
+      ta.value = teramindContext.csv; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(ta);
+      showToast('CSV copied');
+    });
+  }
+  function downloadTeramind() {
+    const n = teramindContext.hireIds.length;
+    const blob = new Blob([teramindContext.csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'teramind-bulk-' + n + '-users.csv'; a.click();
+    URL.revokeObjectURL(url);
+    showToast('Downloaded CSV for ' + n + ' starter' + (n === 1 ? '' : 's'));
+  }
+  function openTeramindAdmin() {
+    window.open('https://teramind.go.team/', '_blank');
+    showToast('Opening Teramind admin in new tab');
+  }
+  // ============ TERAMIND API IMPORT ============
+  // Stores in sessionStorage (clears on tab close) — never localStorage by default.
+  function getTeramindApiKey() {
+    let key = sessionStorage.getItem('teramindApiKey');
+    if (!key) {
+      key = prompt(
+        'Enter your Teramind API key.\n\n' +
+        'Get one from teramind.go.team -> Settings -> API.\n' +
+        'Stored only in this browser tab\'s sessionStorage (cleared when you close the tab).'
+      );
+      if (!key) return null;
+      key = key.trim();
+      if (!key) return null;
+      sessionStorage.setItem('teramindApiKey', key);
+    }
+    return key;
+  }
+  function getTeramindApiUrl() {
+    return sessionStorage.getItem('teramindApiUrl') || 'https://teramind.go.team/api/v2/employees';
+  }
+  function configureTeramindAPI() {
+    const currentUrl = getTeramindApiUrl();
+    const currentKeySet = !!sessionStorage.getItem('teramindApiKey');
+    const choice = prompt(
+      'Teramind API configuration\n\n' +
+      'Current endpoint: ' + currentUrl + '\n' +
+      'API key stored: ' + (currentKeySet ? 'yes' : 'no') + '\n\n' +
+      'What do you want to do? Type one of:\n' +
+      '  url       — change the API endpoint\n' +
+      '  key       — re-enter the API key\n' +
+      '  forget    — clear the stored API key\n' +
+      '  cancel    — close this'
+    );
+    if (!choice) return;
+    const c = choice.trim().toLowerCase();
+    if (c === 'url') {
+      const newUrl = prompt('Enter the Teramind API endpoint URL:', currentUrl);
+      if (newUrl) sessionStorage.setItem('teramindApiUrl', newUrl.trim());
+    } else if (c === 'key') {
+      sessionStorage.removeItem('teramindApiKey');
+      getTeramindApiKey();
+    } else if (c === 'forget') {
+      sessionStorage.removeItem('teramindApiKey');
+      showToast('API key cleared from session');
+    }
+  }
+
+  function teramindLog(html) {
+    const el = document.getElementById('teramindApiResults');
+    el.style.display = 'block';
+    el.innerHTML += html + '<br>';
+    el.scrollTop = el.scrollHeight;
+  }
+  function teramindClearLog() {
+    const el = document.getElementById('teramindApiResults');
+    el.innerHTML = '';
+  }
+
+  async function importTeramindViaAPI() {
+    if (!teramindContext.hireIds || teramindContext.hireIds.length === 0) {
+      alert('No starters selected.'); return;
+    }
+    if (!confirm('Create ' + teramindContext.hireIds.length + ' Teramind account' + (teramindContext.hireIds.length === 1 ? '' : 's') + ' via the API?\n\nNote: this calls the Teramind API directly from your browser. If your tenant doesn\'t allow CORS from null origins, the request will fail and the error will appear below the buttons. Existing CSV download is unaffected — you can still use it as a fallback.')) return;
+
+    const apiKey = getTeramindApiKey();
+    if (!apiKey) { showToast('No API key — import cancelled'); return; }
+    const apiUrl = getTeramindApiUrl();
+
+    const ids = teramindContext.hireIds;
+    const hires = state.hires.filter(h => ids.includes(h.id))
+                            .sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
+    const passwords = teramindContext.passwords;
+
+    teramindClearLog();
+    teramindLog('<span style="color:#fbbf24">▶ Starting import — ' + hires.length + ' user' + (hires.length === 1 ? '' : 's') + '</span>');
+    teramindLog('<span style="color:#94a3b8">  Endpoint: ' + apiUrl + '</span>');
+    teramindLog('');
+
+    let ok = 0, fail = 0, corsHit = false;
+    for (let i = 0; i < hires.length; i++) {
+      const h = hires[i];
+      const first = ms365FirstName(h.starterName);
+      const last = ms365LastName(h.starterName);
+      const email = (first + '.' + last.replace(/[\s-]+/g, '')).toLowerCase() + '@go.team';
+      const body = {
+        first_name: first,
+        last_name: last,
+        email: email,
+        role: 'user',
+        position: h.position || '',
+        password: passwords[i],
+        department: h.companyName || '',
+        stream_screen: true,
+        record_screen: true,
+        stream_audio: false,
+        record_audio: false,
+        allow_web_login: true,
+        track_gps: true
+      };
+      try {
+        const resp = await fetch(apiUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + apiKey,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify(body)
+        });
+        if (resp.ok) {
+          ok++;
+          teramindLog('<span style="color:#22c55e">✓</span> ' + h.starterName + ' <span style="color:#94a3b8">(' + email + ')</span>');
+        } else {
+          fail++;
+          let errBody = '';
+          try { errBody = await resp.text(); } catch (e) {}
+          teramindLog('<span style="color:#ef4444">✗</span> ' + h.starterName + ' <span style="color:#fca5a5">[HTTP ' + resp.status + ']</span> ' + (errBody.slice(0, 200) || resp.statusText));
+        }
+      } catch (err) {
+        fail++;
+        const isCors = /CORS|Failed to fetch|NetworkError|ERR_NETWORK|blocked by/i.test(err.message);
+        if (isCors) corsHit = true;
+        teramindLog('<span style="color:#ef4444">✗</span> ' + h.starterName + ' <span style="color:#fca5a5">[network/CORS]</span> ' + err.message);
+      }
+    }
+
+    teramindLog('');
+    teramindLog('<span style="color:#22c55e">' + ok + ' created</span>, <span style="color:#ef4444">' + fail + ' failed</span>');
+    if (corsHit) {
+      teramindLog('');
+      teramindLog('<span style="color:#fbbf24">⚠ CORS error detected.</span> Your browser is blocking the request. Likely your Teramind tenant');
+      teramindLog('  doesn\'t allow cross-origin calls from a file:// page. Workarounds:');
+      teramindLog('  • Use the Download CSV button and upload through Teramind\'s admin UI (always works).');
+      teramindLog('  • Run a local server proxy that re-issues the request server-side (no CORS).');
+      teramindLog('  • Have your Teramind admin add an Access-Control-Allow-Origin header for null/file://.');
+    }
+    if (ok > 0) {
+      // Auto-mark as created for successful ones — we don't track which specific ones succeeded vs failed in this simple log
+      // Conservatively only mark when ALL succeeded
+      if (fail === 0) {
+        const now = new Date().toISOString();
+        teramindContext.hireIds.forEach((id, i) => {
+          const h = state.hires.find(x => x.id === id);
+          if (h) {
+            h.teramindCreated = true;
+            h.teramindPassword = teramindContext.passwords[i];
+            h.teramindCreatedAt = now;
+          }
+        });
+        save(); renderHires();
+        teramindLog('<span style="color:#22c55e">✓ Marked all ' + ok + ' starter(s) as Teramind-created.</span>');
+      }
+    }
+  }
+
+  function markTeramindCreated() {
+    const now = new Date().toISOString();
+    teramindContext.hireIds.forEach((id, i) => {
+      const h = state.hires.find(x => x.id === id);
+      if (h) {
+        h.teramindCreated = true;
+        h.teramindPassword = teramindContext.passwords[i];
+        h.teramindCreatedAt = now;
+      }
+    });
+    save();
+    closeModal('teramindModal');
+    renderHires();
+    showToast('Marked ' + teramindContext.hireIds.length + ' starter' + (teramindContext.hireIds.length === 1 ? '' : 's') + ' as Teramind-created');
+  }
+
+  // ============ EXPORT CREDENTIALS ============
+  function fmtCredDate(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    const m = d.getMonth() + 1;
+    const day = d.getDate();
+    const y = d.getFullYear();
+    let h = d.getHours();
+    const min = String(d.getMinutes()).padStart(2, '0');
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12; if (h === 0) h = 12;
+    return m + '/' + day + '/' + y + ' | ' + h + ':' + min + ' ' + ampm;
+  }
+  function fmtStartDate(d) {
+    if (!d) return '—';
+    return new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  }
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function buildCredentialCard(h) {
+    const first = ms365FirstName(h.starterName);
+    const last = ms365LastName(h.starterName);
+    const email = (first + '.' + last.replace(/[\s-]+/g, '')).toLowerCase() + '@go.team';
+    const ms365Pwd = h.ms365Password || '— not yet created —';
+    const ms365Date = fmtCredDate(h.ms365CreatedAt);
+    const teramindPwd = h.teramindPassword || '— not yet created —';
+    const teramindDate = fmtCredDate(h.teramindCreatedAt);
+
+    return `
+<table class="cred-card">
+  <tr class="hdr">
+    <td colspan="2"><strong>Start Date:</strong> ${escapeHtml(fmtStartDate(h.startDate))}</td>
+    <td colspan="2"><strong>Team Member Name:</strong> ${escapeHtml(h.starterName)}</td>
+    <td colspan="2"><strong>Client Name:</strong> ${escapeHtml(h.companyName || '')}</td>
+  </tr>
+
+  <tr class="row-pc">
+    <td rowspan="2" class="label">PC Log-on Password</td>
+    <td colspan="3" class="instr"><em>This is your computer log-on password. (Login your account in Other Users and input your username or email and password)</em></td>
+    <td class="meta"><strong>Date/Time Created:</strong></td>
+    <td class="meta">${escapeHtml(ms365Date)}</td>
+  </tr>
+  <tr class="row-pc">
+    <td class="field-label">Username/Email:</td>
+    <td colspan="2" class="field-value email">${escapeHtml(email)}</td>
+    <td class="field-label">Password:</td>
+    <td colspan="2" class="field-value pwd">${escapeHtml(ms365Pwd)}</td>
+  </tr>
+
+  <tr class="row-ms">
+    <td rowspan="3" class="label">Microsoft 365</td>
+    <td colspan="3" class="instr"><em>Login to: <a href="https://outlook.office.com/">https://outlook.office.com/</a> &nbsp;and Teams: <a href="https://teams.microsoft.com/">https://teams.microsoft.com/</a></em></td>
+    <td class="meta"><strong>Date/Time Created:</strong></td>
+    <td class="meta">${escapeHtml(ms365Date)}</td>
+  </tr>
+  <tr class="row-ms">
+    <td class="field-label">Email:</td>
+    <td colspan="4" class="field-value email">${escapeHtml(email)}</td>
+  </tr>
+  <tr class="row-ms">
+    <td class="field-label">Password:</td>
+    <td colspan="4" class="field-value pwd">${escapeHtml(ms365Pwd)}</td>
+  </tr>
+
+  <tr class="row-tm">
+    <td rowspan="3" class="label">Teramind</td>
+    <td colspan="3" class="instr"><em>Login using the provided account in the Teramind app. (Please click on the advanced tab and manual type the server <a href="https://teramind.go.team">teramind.go.team</a> before logging in)</em></td>
+    <td class="meta"><strong>Date/Time Created:</strong></td>
+    <td class="meta">${escapeHtml(teramindDate)}</td>
+  </tr>
+  <tr class="row-tm">
+    <td class="field-label">Email:</td>
+    <td colspan="4" class="field-value email">${escapeHtml(email)}</td>
+  </tr>
+  <tr class="row-tm">
+    <td class="field-label">Password:</td>
+    <td colspan="4" class="field-value pwd">${escapeHtml(teramindPwd)}</td>
+  </tr>
+
+  <tr class="row-okrx">
+    <td rowspan="2" class="label">DoThis.to &amp; OKRx</td>
+    <td colspan="5" class="instr">Please refer to this guide for your <a href="#">DoThis.to</a> access.</td>
+  </tr>
+  <tr class="row-okrx">
+    <td colspan="5" class="instr">Please refer to this guide for your <a href="#">OKRx</a> access.</td>
+  </tr>
+
+  <tr class="row-gt">
+    <td class="label">GoTeam App</td>
+    <td class="field-label">Username:</td>
+    <td colspan="4" class="instr">Use your OKRx Login Credentials</td>
+  </tr>
+
+  <tr class="row-lp">
+    <td rowspan="3" class="label">LastPass</td>
+    <td colspan="5" class="instr"><em>Login to <a href="https://www.lastpass.com">www.lastpass.com</a> and please <strong>create an account</strong> and use the email below.</em></td>
+  </tr>
+  <tr class="row-lp">
+    <td class="field-label">Username:</td>
+    <td colspan="2" class="instr">Register using your @go.team email account</td>
+    <td class="field-label">Password:</td>
+    <td class="placeholder"><strong>CREATE YOUR OWN PASSWORD</strong></td>
+  </tr>
+
+  <tr class="row-gr">
+    <td rowspan="3" class="label">Grammarly</td>
+    <td colspan="5" class="instr"><em>Register first on the site and use the details below. Then to add on the browser, login to the website, <a href="https://www.grammarly.com">www.grammarly.com</a> and <strong>click on 'Apps' then select 'Install' for Chrome</strong></em></td>
+  </tr>
+  <tr class="row-gr">
+    <td class="field-label">Username:</td>
+    <td colspan="2" class="instr">Register using your @go.team email account</td>
+    <td class="field-label">Password:</td>
+    <td class="placeholder"><strong>CREATE YOUR OWN PASSWORD</strong></td>
+  </tr>
+</table>
+`;
+  }
+
+  function exportCredentials(idsOrId) {
+    let ids;
+    if (idsOrId === 'bulk') {
+      ids = Array.from(state.selectedHires);
+      if (ids.length === 0) { alert('No starters selected. Use the checkboxes first.'); return; }
+    } else if (typeof idsOrId === 'number') {
+      ids = [idsOrId];
+    } else {
+      ids = idsOrId;
+    }
+    const hires = state.hires.filter(h => ids.includes(h.id));
+    if (hires.length === 0) return;
+
+    // Warn if any are missing creds
+    const missing = hires.filter(h => !h.ms365Password && !h.teramindPassword);
+    if (missing.length > 0) {
+      if (!confirm(missing.length + ' starter(s) have no MS365 or Teramind credentials saved yet. The card will show "— not yet created —" for those fields.\n\nContinue anyway?')) return;
+    }
+
+    const cards = hires.map(buildCredentialCard).join('<div class="page-break"></div>');
+    const docHtml = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Credentials — ' + escapeHtml(hires.map(h => h.starterName).join(', ').slice(0, 80)) + '</title><style>' +
+      'body { font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif; background: #f5f7fb; padding: 24px; color: #0f172a; }' +
+      '.toolbar { max-width: 1100px; margin: 0 auto 16px; display: flex; gap: 8px; }' +
+      '.toolbar button { padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid #e2e8f0; background: white; font-family: inherit; }' +
+      '.toolbar button.primary { background: #2563eb; color: white; border-color: #2563eb; }' +
+      '.cred-card { width: 1100px; max-width: 100%; margin: 0 auto 24px; border-collapse: collapse; background: white; box-shadow: 0 4px 12px rgba(0,0,0,0.08); border: 1px solid #cbd5e1; }' +
+      '.cred-card td { padding: 7px 12px; border: 1px solid #cbd5e1; font-size: 12px; vertical-align: middle; }' +
+      '.cred-card .hdr td { background: #0f172a; color: white; padding: 10px 12px; font-size: 13px; }' +
+      '.cred-card .label { font-weight: 700; text-align: center; width: 160px; vertical-align: middle; }' +
+      '.cred-card .row-pc .label, .cred-card .row-pc td { background: #e9d5ff; }' +
+      '.cred-card .row-ms .label, .cred-card .row-ms td { background: #ddd6fe; }' +
+      '.cred-card .row-tm .label, .cred-card .row-tm td { background: #fed7aa; }' +
+      '.cred-card .row-okrx .label, .cred-card .row-okrx td { background: #bbf7d0; }' +
+      '.cred-card .row-gt .label, .cred-card .row-gt td { background: #d1fae5; }' +
+      '.cred-card .row-lp .label, .cred-card .row-lp td { background: #fecaca; }' +
+      '.cred-card .row-gr .label, .cred-card .row-gr td { background: #fbcfe8; }' +
+      '.cred-card .instr { font-style: italic; color: #1e293b; }' +
+      '.cred-card .field-label { font-weight: 600; }' +
+      '.cred-card .field-value.email a, .cred-card a { color: #1d4ed8; }' +
+      '.cred-card .pwd { font-family: ui-monospace, SF Mono, Menlo, Consolas, monospace; font-weight: 600; }' +
+      '.cred-card .meta { font-size: 11px; }' +
+      '.cred-card .placeholder { background: white !important; font-size: 11px; color: #475569; }' +
+      '.page-break { page-break-after: always; height: 0; }' +
+      '@media print { body { background: white; padding: 0; } .toolbar { display: none; } .cred-card { box-shadow: none; margin: 0 0 12px; } }' +
+      '</style></head><body>' +
+      '<div class="toolbar">' +
+        '<button class="primary" onclick="window.print()">Print / Save as PDF</button>' +
+        '<button onclick="window.close()">Close</button>' +
+        '<span style="margin-left:auto;align-self:center;font-size:12px;color:#64748b;">' + hires.length + ' credential card' + (hires.length === 1 ? '' : 's') + '</span>' +
+      '</div>' +
+      cards +
+      '</body></html>';
+
+    const w = window.open('', '_blank');
+    if (!w) { alert('Popup blocked. Please allow popups for this page and try again.'); return; }
+    w.document.open();
+    w.document.write(docHtml);
+    w.document.close();
+    showToast('Generated ' + hires.length + ' credential card' + (hires.length === 1 ? '' : 's'));
+  }
+
+  // ============ COPY CREDENTIALS FOR EXCEL ============
+  // Sparse 8-row × 8-column data block. Values land in A1, A2, C2, D4/D6/D8, H3/H5/H7, H4/H6/H8.
+  // All other cells are empty so the user's existing template's labels/colors/instructions
+  // remain untouched when pasted with "Paste Special > Skip Blanks". Regular paste also works
+  // but will overwrite the cells in the destination's empty positions.
+  function buildCredentialDataRows(h) {
+    const first = ms365FirstName(h.starterName);
+    const last = ms365LastName(h.starterName);
+    const email = (first + '.' + last.replace(/[\s-]+/g, '')).toLowerCase() + '@go.team';
+    const ms365Pwd = h.ms365Password || '';
+    // If a password exists but no createdAt is recorded (account provisioned outside
+    // the dashboard via PowerShell script), stamp NOW and persist it so subsequent
+    // exports show the same date/time consistently.
+    if (h.ms365Password && !h.ms365CreatedAt) {
+      h.ms365CreatedAt = new Date().toISOString();
+    }
+    if (h.teramindPassword && !h.teramindCreatedAt) {
+      h.teramindCreatedAt = new Date().toISOString();
+    }
+    if ((h.ms365Password && h.ms365CreatedAt) || (h.teramindPassword && h.teramindCreatedAt)) {
+      save();
+    }
+    const ms365Date = h.ms365CreatedAt ? fmtCredDate(h.ms365CreatedAt) : '';
+    const teramindPwd = h.teramindPassword || '';
+    const teramindDate = h.teramindCreatedAt ? fmtCredDate(h.teramindCreatedAt) : '';
+    const startDate = fmtStartDate(h.startDate);
+
+    // Columns: A=0, B=1, C=2, D=3, E=4, F=5, G=6, H=7
+    return [
+      ['Start Date: ' + startDate,            '', '',                                       '',    '', '', '', ''],
+      ['Team Member Name: ' + h.starterName,  '', 'Client Name: ' + (h.companyName || ''),  '',    '', '', '', ''],
+      ['',                                    '', '',                                       '',    '', '', '', ms365Date],
+      ['',                                    '', '',                                       email, '', '', '', ms365Pwd],
+      ['',                                    '', '',                                       '',    '', '', '', ms365Date],
+      ['',                                    '', '',                                       email, '', '', '', ms365Pwd],
+      ['',                                    '', '',                                       '',    '', '', '', teramindDate],
+      ['',                                    '', '',                                       email, '', '', '', teramindPwd]
+    ];
+  }
+
+  function rowsToExcelHtml(rows) {
+    // Minimal styling — let Excel preserve destination cell formatting.
+    return '<table border="0" cellspacing="0" cellpadding="0">' +
+      rows.map(r => '<tr>' + r.map(c => '<td>' + escapeHtml(c) + '</td>').join('') + '</tr>').join('') +
+      '</table>';
+  }
+  function rowsToTsv(rows) {
+    return rows.map(r => r.join('\t')).join('\n');
+  }
+
+  function buildCredentialCardInline(h) {
+    // Kept for the "Export Credentials" printable window (styled version stays the same)
+    const first = ms365FirstName(h.starterName);
+    const last = ms365LastName(h.starterName);
+    const email = (first + '.' + last.replace(/[\s-]+/g, '')).toLowerCase() + '@go.team';
+    const ms365Pwd = h.ms365Password || '— not yet created —';
+    const ms365Date = fmtCredDate(h.ms365CreatedAt);
+    const teramindPwd = h.teramindPassword || '— not yet created —';
+    const teramindDate = fmtCredDate(h.teramindCreatedAt);
+    const tStyle = 'border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:11px;width:1100px;';
+    const cellStyle = 'border:1px solid #cbd5e1;padding:6px 10px;vertical-align:middle;';
+    const hdr = 'background:#0f172a;color:#ffffff;font-weight:bold;padding:8px 10px;border:1px solid #0f172a;';
+    return [
+      '<table style="' + tStyle + '">',
+        '<tr><td colspan="8" style="' + hdr + '"><b>Start Date:</b> ' + escapeHtml(fmtStartDate(h.startDate)) + '</td></tr>',
+        '<tr><td colspan="2" style="' + hdr + '"><b>Team Member Name:</b> ' + escapeHtml(h.starterName) + '</td><td colspan="6" style="' + hdr + '"><b>Client Name:</b> ' + escapeHtml(h.companyName || '') + '</td></tr>',
+        '<tr><td colspan="3" style="' + cellStyle + 'background:#e9d5ff;"><b>PC Log-on Password</b> &nbsp; <em>This is your computer log-on password.</em></td><td colspan="4" style="' + cellStyle + 'background:#e9d5ff;"><b>Date/Time Created:</b></td><td style="' + cellStyle + 'background:#e9d5ff;">' + escapeHtml(ms365Date) + '</td></tr>',
+        '<tr><td style="' + cellStyle + 'background:#e9d5ff;">Username/Email:</td><td colspan="2" style="' + cellStyle + 'background:#e9d5ff;"></td><td style="' + cellStyle + 'background:#e9d5ff;">' + escapeHtml(email) + '</td><td colspan="2" style="' + cellStyle + 'background:#e9d5ff;">Password:</td><td style="' + cellStyle + 'background:#e9d5ff;"></td><td style="' + cellStyle + 'background:#e9d5ff;font-family:monospace;font-weight:bold;">' + escapeHtml(ms365Pwd) + '</td></tr>',
+        '<tr><td colspan="3" style="' + cellStyle + 'background:#ddd6fe;"><b>Microsoft 365</b> &nbsp; <em>Login to: outlook.office.com / teams.microsoft.com</em></td><td colspan="4" style="' + cellStyle + 'background:#ddd6fe;"><b>Date/Time Created:</b></td><td style="' + cellStyle + 'background:#ddd6fe;">' + escapeHtml(ms365Date) + '</td></tr>',
+        '<tr><td style="' + cellStyle + 'background:#ddd6fe;">Email:</td><td colspan="2" style="' + cellStyle + 'background:#ddd6fe;"></td><td style="' + cellStyle + 'background:#ddd6fe;">' + escapeHtml(email) + '</td><td colspan="2" style="' + cellStyle + 'background:#ddd6fe;">Password:</td><td style="' + cellStyle + 'background:#ddd6fe;"></td><td style="' + cellStyle + 'background:#ddd6fe;font-family:monospace;font-weight:bold;">' + escapeHtml(ms365Pwd) + '</td></tr>',
+        '<tr><td colspan="3" style="' + cellStyle + 'background:#fed7aa;"><b>Teramind</b> &nbsp; <em>Server: teramind.go.team</em></td><td colspan="4" style="' + cellStyle + 'background:#fed7aa;"><b>Date/Time Created:</b></td><td style="' + cellStyle + 'background:#fed7aa;">' + escapeHtml(teramindDate) + '</td></tr>',
+        '<tr><td style="' + cellStyle + 'background:#fed7aa;">Email:</td><td colspan="2" style="' + cellStyle + 'background:#fed7aa;"></td><td style="' + cellStyle + 'background:#fed7aa;">' + escapeHtml(email) + '</td><td colspan="2" style="' + cellStyle + 'background:#fed7aa;">Password:</td><td style="' + cellStyle + 'background:#fed7aa;"></td><td style="' + cellStyle + 'background:#fed7aa;font-family:monospace;font-weight:bold;">' + escapeHtml(teramindPwd) + '</td></tr>',
+      '</table>'
+    ].join('');
+  }
+
+    function getCredsExcelUrl() {
+    return state.credsExcelUrl || 'https://goteam1-my.sharepoint.com/:x:/r/personal/rudy_maneja_go_team/Documents/Credentials%20Template.xlsx?web=1&action=edit';
+  }
+  function setCredsExcelUrl() {
+    const current = getCredsExcelUrl();
+    const next = prompt('Enter the SharePoint Excel URL where credentials should be pasted:', current);
+    if (!next) return;
+    state.credsExcelUrl = next.trim();
+    save();
+    showToast('SharePoint URL updated');
+  }
+
+  let credsPreviewContext = { html: '', tsv: '', missing: [] };
+  async function copyCredsForExcel(idsOrId, alsoOpen) {
+    let ids;
+    if (idsOrId === 'bulk') {
+      ids = Array.from(state.selectedHires);
+      if (ids.length === 0) { alert('No starters selected. Use the checkboxes first.'); return; }
+    } else {
+      ids = [idsOrId];
+    }
+    const hires = state.hires.filter(h => ids.includes(h.id));
+    if (hires.length === 0) return;
+
+    // Detect missing-credentials cases so we can warn the user
+    const missing = [];
+    hires.forEach(h => {
+      const m = [];
+      if (!h.ms365Password) m.push('MS365 password');
+      if (!h.teramindPassword) m.push('Teramind password');
+      if (m.length) missing.push({ name: h.starterName, fields: m });
+    });
+
+    // Build sparse data rows
+    const allRows = [];
+    hires.forEach((h, i) => {
+      const rows = buildCredentialDataRows(h);
+      rows.forEach(r => allRows.push(r));
+      if (i < hires.length - 1) allRows.push(['', '', '', '', '', '', '', '']);
+    });
+    const cardsHtml = rowsToExcelHtml(allRows);
+    const tsv = rowsToTsv(allRows);
+
+    credsPreviewContext = { html: cardsHtml, tsv: tsv, missing: missing };
+
+    // Try to copy to clipboard automatically
+    let copyStatus = 'pending';
+    let copyMsg = '';
+    try {
+      if (window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {
+        const item = new ClipboardItem({
+          'text/html': new Blob([cardsHtml], { type: 'text/html' }),
+          'text/plain': new Blob([tsv], { type: 'text/plain' })
+        });
+        await navigator.clipboard.write([item]);
+        copyStatus = 'ok';
+        copyMsg = '✓ Copied to clipboard. Switch to the Credentials Template tab and Ctrl+V into your target cell.';
+      } else {
+        throw new Error('ClipboardItem API not supported in this browser');
+      }
+    } catch (e) {
+      // Fallback: contenteditable + execCommand
+      try {
+        const div = document.createElement('div');
+        div.contentEditable = 'true';
+        div.innerHTML = cardsHtml;
+        div.style.position = 'fixed';
+        div.style.left = '-9999px';
+        document.body.appendChild(div);
+        const range = document.createRange();
+        range.selectNodeContents(div);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        document.execCommand('copy');
+        sel.removeAllRanges();
+        document.body.removeChild(div);
+        copyStatus = 'fallback';
+        copyMsg = '✓ Copied via fallback method. Switch to Excel and Ctrl+V. (If paste is empty, copy manually from the text box below.)';
+      } catch (e2) {
+        copyStatus = 'fail';
+        copyMsg = '⚠ Auto-copy failed (' + (e.message || e) + '). Please select the text below and Ctrl+C to copy manually.';
+      }
+    }
+
+    // Always show the preview modal so the user can verify what was copied + manually re-copy if needed
+    document.getElementById('credsPreviewTitle').textContent = 'Credential data — ' + (hires.length === 1 ? hires[0].starterName : hires.length + ' starters');
+    document.getElementById('credsPreviewText').value = tsv;
+    const statusEl = document.getElementById('credsClipStatus');
+    if (copyStatus === 'ok' || copyStatus === 'fallback') {
+      statusEl.style.background = '#dcfce7'; statusEl.style.color = '#166534'; statusEl.style.border = '1px solid #86efac';
+    } else {
+      statusEl.style.background = '#fee2e2'; statusEl.style.color = '#991b1b'; statusEl.style.border = '1px solid #fca5a5';
+    }
+    statusEl.textContent = copyMsg;
+
+    const missingEl = document.getElementById('credsMissingNote');
+    if (missing.length > 0) {
+      missingEl.style.display = '';
+      missingEl.innerHTML = '<strong>Missing credentials:</strong> ' +
+        missing.map(m => m.name + ' (' + m.fields.join(', ') + ')').join('; ') +
+        '. Those cells will be empty in the paste — mark the starter as MS365/Teramind Created first if you want passwords + dates to populate.';
+    } else {
+      missingEl.style.display = 'none';
+    }
+
+    openModal('credsPreviewModal');
+
+    if (alsoOpen) {
+      window.open(getCredsExcelUrl(), '_blank');
+    }
+  }
+  async function copyCredsPreviewAgain() {
+    try {
+      if (window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {
+        const item = new ClipboardItem({
+          'text/html': new Blob([credsPreviewContext.html], { type: 'text/html' }),
+          'text/plain': new Blob([credsPreviewContext.tsv], { type: 'text/plain' })
+        });
+        await navigator.clipboard.write([item]);
+        showToast('Copied to clipboard');
+      } else {
+        document.getElementById('credsPreviewText').select();
+        document.execCommand('copy');
+        showToast('Copied to clipboard');
+      }
+    } catch (e) {
+      document.getElementById('credsPreviewText').select();
+      try { document.execCommand('copy'); showToast('Copied (fallback)'); }
+      catch (e2) { alert('Copy failed: ' + e.message); }
+    }
+  }
+
+  // ============ REFRESH FROM EMAIL ============
+  function openRefreshModal() {
+    document.getElementById('dataAsOf').textContent = DATA_AS_OF;
+    document.getElementById('refreshLastDate').textContent = DATA_AS_OF;
+    openModal('refreshModal');
+  }
+  function copyRefreshPrompt() {
+    const prompt = 'refresh the dashboard';
+    navigator.clipboard.writeText(prompt).then(() => {
+      showToast('Prompt copied — paste into your Claude conversation');
+    }).catch(() => {
+      const ta = document.createElement('textarea');
+      ta.value = prompt; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(ta);
+      showToast('Prompt copied');
+    });
+  }
+
+  function openPwshAsAdmin() {
+    // Browser sandbox blocks direct process launch. Closest one-click flow without a download:
+    // copy elevation command, prompt user to paste into Win+R Run dialog (Ctrl+V, Enter, accept UAC).
+    const cmd = 'powershell -Command "Start-Process powershell -Verb RunAs"';
+    const finish = () => showAdminLaunchInstructions();
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(cmd).then(finish).catch(() => {
+        const ta = document.createElement('textarea');
+        ta.value = cmd; document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); } catch (e) {}
+        document.body.removeChild(ta);
+        finish();
+      });
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = cmd; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(ta);
+      finish();
+    }
+  }
+  function showAdminLaunchInstructions() {
+    // Remove any previous overlay
+    const prev = document.getElementById('adminLaunchOverlay');
+    if (prev) prev.remove();
+    const ov = document.createElement('div');
+    ov.id = 'adminLaunchOverlay';
+    ov.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#0f172a;color:white;padding:24px 28px;border-radius:14px;box-shadow:0 24px 60px rgba(0,0,0,0.55);z-index:400;max-width:440px;font-family:inherit;';
+    ov.innerHTML =
+      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;"><span style="background:#fbbf24;color:#0f172a;width:32px;height:32px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:18px;">⚡</span><h3 style="margin:0;font-size:16px;font-weight:700;color:white;">Elevation command copied</h3></div>' +
+      '<p style="margin:0 0 14px;color:#cbd5e1;font-size:13px;line-height:1.6;">Browsers can\'t open elevated PowerShell directly (sandbox restriction). The command is on your clipboard now — three keystrokes to launch:</p>' +
+      '<ol style="margin:0 0 16px 22px;padding:0;color:#e2e8f0;font-size:13px;line-height:2;">' +
+        '<li>Press <kbd style="background:#1e293b;border:1px solid #334155;padding:2px 8px;border-radius:5px;font-family:ui-monospace,Menlo,monospace;font-size:12px;">Win</kbd> + <kbd style="background:#1e293b;border:1px solid #334155;padding:2px 8px;border-radius:5px;font-family:ui-monospace,Menlo,monospace;font-size:12px;">R</kbd> to open the Run dialog</li>' +
+        '<li>Press <kbd style="background:#1e293b;border:1px solid #334155;padding:2px 8px;border-radius:5px;font-family:ui-monospace,Menlo,monospace;font-size:12px;">Ctrl</kbd> + <kbd style="background:#1e293b;border:1px solid #334155;padding:2px 8px;border-radius:5px;font-family:ui-monospace,Menlo,monospace;font-size:12px;">V</kbd> to paste, then <kbd style="background:#1e293b;border:1px solid #334155;padding:2px 8px;border-radius:5px;font-family:ui-monospace,Menlo,monospace;font-size:12px;">Enter</kbd></li>' +
+        '<li>Click <strong>Yes</strong> on the Windows UAC prompt</li>' +
+      '</ol>' +
+      '<div style="background:#1e293b;color:#cbd5e1;padding:10px 12px;border-radius:8px;font-family:ui-monospace,Menlo,monospace;font-size:11px;margin-bottom:14px;word-break:break-all;">powershell -Command "Start-Process powershell -Verb RunAs"</div>' +
+      '<div style="display:flex;gap:8px;">' +
+        '<button onclick="document.getElementById(\'adminLaunchOverlay\').remove()" style="flex:1;background:white;color:#0f172a;border:none;padding:9px;border-radius:8px;font-weight:600;cursor:pointer;font-family:inherit;font-size:13px;">Got it</button>' +
+        '<button onclick="navigator.clipboard.writeText(this.dataset.cmd);showToast(\'Re-copied\');" data-cmd=\'powershell -Command "Start-Process powershell -Verb RunAs"\' style="background:transparent;color:white;border:1px solid rgba(255,255,255,0.25);padding:9px 14px;border-radius:8px;cursor:pointer;font-family:inherit;font-size:13px;">Copy again</button>' +
+      '</div>';
+    document.body.appendChild(ov);
+    // Auto-dismiss after 25s of inactivity
+    setTimeout(() => { const e = document.getElementById('adminLaunchOverlay'); if (e) e.remove(); }, 25000);
+  }
+  function markMS365Created() {
+    const now = new Date().toISOString();
+    ms365Context.hireIds.forEach((id, i) => {
+      const h = state.hires.find(x => x.id === id);
+      if (h) {
+        h.ms365Created = true;
+        h.ms365Password = ms365Context.passwords[i];
+        h.ms365CreatedAt = now;
+      }
+    });
+    save();
+    closeModal('ms365Modal');
+    renderHires();
+    showToast('Marked ' + ms365Context.hireIds.length + ' starter' + (ms365Context.hireIds.length === 1 ? '' : 's') + ' as MS365-created');
+  }
+
+
+  function updateOnboardingStats() {
+    document.getElementById('statTotalNew').textContent = state.hires.length;
+    document.getElementById('statPending').textContent = state.hires.filter(h => h.status === 'Pending').length;
+    document.getElementById('statInProgress').textContent = state.hires.filter(h => h.status === 'In Progress').length;
+    const completedEl = document.getElementById('statCompleted');
+    completedEl.textContent = state.hires.filter(h => h.status === 'Withdrawn').length;
+    const completedLabel = completedEl.parentElement.querySelector('.label');
+    if (completedLabel) completedLabel.textContent = 'Withdrawn';
+    const completedChange = completedEl.parentElement.querySelector('.change');
+    if (completedChange) completedChange.textContent = 'Withdrew or rescinded';
+    document.getElementById('onboardingBadge').textContent = state.hires.filter(h => h.status !== 'Completed' && h.status !== 'Withdrawn').length;
+  }
+  function populateCompanyFilter() {
+    const sel = document.getElementById('hireCompanyFilter');
+    const current = sel.value;
+    const companies = [...new Set(state.hires.map(h => h.companyName))].sort();
+    sel.innerHTML = '<option value="">All companies</option>' + companies.map(c => '<option ' + (current === c ? 'selected' : '') + '>' + c + '</option>').join('');
+  }
+  function updateHireStatus(id, status) {
+    const h = state.hires.find(x => x.id === id);
+    if (h) { h.status = status; save(); renderHires(); showToast('Status updated for ' + h.nickname); }
+  }
+  function removeHire(id) {
+    const h = state.hires.find(x => x.id === id);
+    if (!h) return;
+    if (!confirm('Remove ' + h.starterName + ' from onboarding list?')) return;
+    state.hires = state.hires.filter(x => x.id !== id);
+    save(); renderHires();
+    showToast('Removed ' + h.nickname);
+  }
+  function addHire() {
+    const name = document.getElementById('newHireName').value.trim();
+    const nickname = document.getElementById('newHireNickname').value.trim();
+    const position = document.getElementById('newHirePosition').value.trim();
+    const company = document.getElementById('newHireCompany').value.trim();
+    const date = document.getElementById('newHireDate').value;
+    const shift = document.getElementById('newHireShift').value.trim();
+    if (!name || !position || !company || !date) { alert('Please fill in name, position, company, and start date.'); return; }
+    const newId = Math.max(0, ...state.hires.map(h => h.id)) + 1;
+    state.hires.push({ id: newId, starterName: name, nickname: nickname || name.split(' ')[0], position, companyName: company, phShiftSchedule: shift || 'TBD', startDate: date, status: 'Pending' });
+    save();
+    renderHires();
+    populateAssignDropdowns();
+    closeModal('addHireModal');
+    showToast('Added ' + (nickname || name));
+    ['newHireName','newHireNickname','newHirePosition','newHireCompany','newHireDate','newHireShift'].forEach(id => document.getElementById(id).value = '');
+  }
+
+  function switchOffboardingWeek(key) {
+    state.activeOffboardingWeekKey = key;
+    save();
+    renderDepartures();
+  }
+
+  function renderDepartures() {
+    const search = (document.getElementById('depSearch').value || '').toLowerCase();
+    const status = document.getElementById('depStatusFilter').value || '';
+    const filtered = state.departures.filter(d => {
+      const ms = !search || d.name.toLowerCase().includes(search) || d.company.toLowerCase().includes(search);
+      const mst = !status || d.status === status;
+      return ms && mst;
+    });
+
+    const pagerEl = document.getElementById('departureWeeklyPager');
+    const headerEl = document.getElementById('departuresWeekHeader');
+    const tbody = document.getElementById('departuresTbody');
+
+    if (filtered.length === 0) {
+      pagerEl.innerHTML = '';
+      headerEl.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>All departures<span class="week-count">0</span>';
+      tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><h4>No departures</h4><p>Adjust filters or initiate a new offboarding.</p></div></td></tr>';
+      updateOffboardingStats();
+      populateChecklistEmployee();
+      return;
+    }
+
+    // Group by week of lastDay
+    const groups = {};
+    filtered.forEach(d => {
+      const key = weekKey(d.lastDay);
+      if (!groups[key]) groups[key] = { label: weekLabel(d.lastDay), departures: [] };
+      groups[key].departures.push(d);
+    });
+    const sortedKeys = Object.keys(groups).sort();
+
+    if (!state.activeOffboardingWeekKey || !groups[state.activeOffboardingWeekKey]) {
+      const today = new Date();
+      const todayKey = weekKey(today.toISOString().slice(0, 10));
+      if (groups[todayKey]) state.activeOffboardingWeekKey = todayKey;
+      else {
+        // Pick the closest upcoming week, or the most recent past week
+        const future = sortedKeys.filter(k => k >= todayKey);
+        state.activeOffboardingWeekKey = future.length ? future[0] : sortedKeys[sortedKeys.length - 1];
+      }
+    }
+
+    function monthWeekLabel(key) {
+      const monday = new Date(key + 'T00:00:00');
+      const first = new Date(monday.getFullYear(), monday.getMonth(), 1);
+      let firstMonday = new Date(first);
+      const day = first.getDay();
+      const offset = (day === 0 ? 1 : (day === 1 ? 0 : 8 - day));
+      firstMonday.setDate(first.getDate() + offset);
+      const weekN = Math.floor((monday - firstMonday) / (7 * 24 * 60 * 60 * 1000)) + 1;
+      const monthYear = monday.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+      return { week: 'Wk ' + weekN, month: monthYear };
+    }
+
+    let lastMonth = null;
+    const pagerHtml = sortedKeys.map(k => {
+      const g = groups[k];
+      const lbl = monthWeekLabel(k);
+      let parts = '';
+      if (lbl.month !== lastMonth) {
+        parts += '<span class="week-pager-month">' + lbl.month + '</span>';
+        lastMonth = lbl.month;
+      }
+      const isActive = k === state.activeOffboardingWeekKey;
+      parts += '<button class="week-pager-btn' + (isActive ? ' active' : '') + '" onclick="switchOffboardingWeek(\'' + k + '\')" title="' + g.label + '">' +
+        lbl.week + ' <span class="count">' + g.departures.length + '</span></button>';
+      return parts;
+    }).join('');
+    pagerEl.innerHTML = '<div class="week-pager">' + pagerHtml + '</div>';
+
+    const activeGroup = groups[state.activeOffboardingWeekKey];
+    activeGroup.departures.sort((a, b) => (a.lastDay.localeCompare(b.lastDay)) || a.name.localeCompare(b.name));
+
+    headerEl.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>' + activeGroup.label + '<span class="week-count">' + activeGroup.departures.length + ' departure' + (activeGroup.departures.length === 1 ? '' : 's') + '</span>';
+
+    {
+      tbody.innerHTML = activeGroup.departures.map(d => '\
+        <tr>\
+          <td>\
+            <div class="user-cell">\
+              <div class="avatar" style="background:' + avatarColor(d.name) + '">' + initials(d.name) + '</div>\
+              <div><div class="name">' + d.name + '</div></div>\
+            </div>\
+          </td>\
+          <td>' + d.company + '</td>\
+          <td>' + formatDate(d.lastDay) + (d.lastDayEstimated ? ' <span style="font-size:10px;color:var(--muted);background:#fef3c7;padding:1px 5px;border-radius:4px;margin-left:4px;" title="Last day estimated from notice date — not explicitly stated in email">est.</span>' : '') + (d.originalLastDay ? '<div class="reschedule-note">Changed from ' + formatDate(d.originalLastDay) + (d.lastDayNote ? ' — ' + d.lastDayNote : '') + '</div>' : '') + (d.retractionDate ? '<div class="reschedule-note" style="color:var(--success);">Resignation retracted ' + formatDate(d.retractionDate) + (d.retractionNote ? ' — ' + d.retractionNote : '') + '</div>' : '') + '</td>\
+          <td><span style="font-size:12px;color:var(--muted)">' + d.reason + '</span></td>\
+          <td>' + statusPill(d.status) + '</td>\
+          <td>\
+            <select class="filter-select" style="font-size:12px;padding:5px 26px 5px 8px" onchange="updateDepartureStatus(' + d.id + ', this.value)">\
+              <option ' + (d.status==='Notice Period'?'selected':'') + '>Notice Period</option>\
+              <option ' + (d.status==='Last Day'?'selected':'') + '>Last Day</option>\
+              <option ' + (d.status==='Asset Return'?'selected':'') + '>Asset Return</option>\
+              <option ' + (d.status==='Completed'?'selected':'') + '>Completed</option>\
+            </select>\
+          </td>\
+        </tr>').join('');
+    }
+    updateOffboardingStats();
+    populateChecklistEmployee();
+  }
+  function updateOffboardingStats() {
+    const active = state.departures.filter(d => d.status !== 'Completed').length;
+    const done = state.departures.filter(d => d.status === 'Completed').length;
+    const assets = state.departures.filter(d => d.status === 'Asset Return').length;
+    document.getElementById('offStatActive').textContent = active;
+    document.getElementById('offStatMonth').textContent = state.departures.length;
+    document.getElementById('offStatAssets').textContent = assets;
+    document.getElementById('offStatDone').textContent = done;
+  }
+  function updateDepartureStatus(id, status) {
+    const d = state.departures.find(x => x.id === id);
+    if (d) { d.status = status; save(); renderDepartures(); showToast('Status updated for ' + d.name); }
+  }
+  function addDeparture() {
+    const name = document.getElementById('depName').value.trim();
+    const company = document.getElementById('depCompany').value.trim();
+    const lastDay = document.getElementById('depDate').value;
+    const reason = document.getElementById('depReason').value;
+    if (!name || !company || !lastDay) { alert('Please fill in all fields.'); return; }
+    const newId = Math.max(0, ...state.departures.map(d => d.id)) + 1;
+    state.departures.push({ id: newId, name, company, lastDay, reason, status: 'Notice Period', checklist: defaultExitChecklist() });
+    save(); renderDepartures();
+    closeModal('addDepartureModal');
+    showToast('Initiated offboarding for ' + name);
+    ['depName','depCompany','depDate'].forEach(id => document.getElementById(id).value = '');
+  }
+  function populateChecklistEmployee() {
+    const sel = document.getElementById('checklistEmployee');
+    const current = sel.value;
+    const opts = state.departures.map(d => '<option value="' + d.id + '" ' + (String(d.id) === current ? 'selected' : '') + '>' + d.name + '</option>');
+    sel.innerHTML = opts.join('');
+    renderChecklist();
+  }
+  function renderChecklist() {
+    const sel = document.getElementById('checklistEmployee');
+    const id = parseInt(sel.value);
+    const dep = state.departures.find(d => d.id === id);
+    const ul = document.getElementById('exitChecklist');
+    if (!dep) { ul.innerHTML = '<li><span style="color:var(--muted)">No departure selected</span></li>'; return; }
+    ul.innerHTML = dep.checklist.map((item, i) => '<li class="' + (item.done ? 'done' : '') + '"><input type="checkbox" id="chk-' + id + '-' + i + '" ' + (item.done ? 'checked' : '') + ' onchange="toggleChecklistItem(' + id + ', ' + i + ')"><label for="chk-' + id + '-' + i + '">' + item.label + '</label></li>').join('');
+    const total = dep.checklist.length;
+    const doneCount = dep.checklist.filter(c => c.done).length;
+    const pct = Math.round((doneCount / total) * 100);
+    document.getElementById('checklistProgress').textContent = pct + '%';
+    const bar = document.getElementById('checklistBar');
+    bar.style.width = pct + '%';
+    bar.className = 'progress-bar' + (pct === 100 ? ' success' : pct >= 50 ? '' : ' warning');
+  }
+  function toggleChecklistItem(depId, i) {
+    const dep = state.departures.find(d => d.id === depId);
+    if (!dep) return;
+    dep.checklist[i].done = !dep.checklist[i].done;
+    save(); renderChecklist();
+  }
+
+  function renderLicenses() {
+    const tbody = document.getElementById('licensesTbody');
+    tbody.innerHTML = state.licenses.map(l => {
+      const pct = Math.round((l.used / l.total) * 100);
+      const barClass = pct >= 90 ? 'danger' : pct >= 75 ? 'warning' : 'success';
+      return '\
+        <tr>\
+          <td><div class="name">' + l.product + '</div></td>\
+          <td><span style="color:var(--muted)">' + l.vendor + '</span></td>\
+          <td><strong>' + l.used + '</strong> / ' + l.total + '</td>\
+          <td style="min-width:160px"><div style="display:flex;gap:8px;align-items:center"><div class="progress" style="flex:1"><div class="progress-bar ' + barClass + '" style="width:' + pct + '%"></div></div><span style="font-size:12px;color:var(--muted);min-width:36px;text-align:right">' + pct + '%</span></div></td>\
+          <td>$' + l.unitCost.toFixed(2) + '</td>\
+          <td><span style="font-size:12px;color:var(--muted)">' + formatDate(l.renewal) + '</span></td>\
+          <td><button class="btn btn-secondary" style="padding:5px 10px;font-size:12px" onclick="addSeats(' + l.id + ')">+ Seats</button></td>\
+        </tr>';
+    }).join('');
+    updateLicensingStats();
+  }
+  function updateLicensingStats() {
+    const total = state.licenses.reduce((s, l) => s + l.total, 0);
+    const used = state.licenses.reduce((s, l) => s + l.used, 0);
+    const cost = state.licenses.reduce((s, l) => s + l.used * l.unitCost, 0);
+    document.getElementById('licStatTotal').textContent = total;
+    document.getElementById('licStatAssigned').textContent = used;
+    document.getElementById('licStatAvail').textContent = total - used;
+    document.getElementById('licStatCost').textContent = '$' + cost.toLocaleString('en-US', { maximumFractionDigits: 0 });
+  }
+  function addSeats(licenseId) {
+    const n = parseInt(prompt('How many seats to add?', '5'));
+    if (!n || n < 1) return;
+    const l = state.licenses.find(x => x.id === licenseId);
+    if (l) { l.total += n; save(); renderLicenses(); showToast('Added ' + n + ' seats to ' + l.product); }
+  }
+  function renderAssignments() {
+    const search = (document.getElementById('assignSearch').value || '').toLowerCase();
+    const filtered = state.assignments.filter(a => !search || a.user.toLowerCase().includes(search) || a.product.toLowerCase().includes(search));
+    const tbody = document.getElementById('assignmentsTbody');
+    if (filtered.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><h4>No assignments</h4></div></td></tr>';
+    } else {
+      tbody.innerHTML = filtered.map(a => '\
+        <tr>\
+          <td>\
+            <div class="user-cell">\
+              <div class="avatar" style="background:' + avatarColor(a.user) + '">' + initials(a.user) + '</div>\
+              <div><div class="name">' + a.user + '</div></div>\
+            </div>\
+          </td>\
+          <td>' + a.product + '</td>\
+          <td>' + formatDate(a.assigned) + '</td>\
+          <td>' + statusPill(a.status) + '</td>\
+          <td><button class="btn btn-icon" onclick="revokeAssignment(' + a.id + ')" title="Revoke"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg></button></td>\
+        </tr>').join('');
+    }
+  }
+  function revokeAssignment(id) {
+    const a = state.assignments.find(x => x.id === id);
+    if (!a) return;
+    if (!confirm('Revoke ' + a.product + ' license from ' + a.user + '?')) return;
+    const lic = state.licenses.find(l => l.product === a.product);
+    if (lic && lic.used > 0) lic.used -= 1;
+    state.assignments = state.assignments.filter(x => x.id !== id);
+    save(); renderLicenses(); renderAssignments();
+    showToast('License revoked');
+  }
+  function populateAssignDropdowns() {
+    const userSel = document.getElementById('assignUser');
+    const prodSel = document.getElementById('assignProduct');
+    const users = [...new Set([...state.hires.map(h => h.starterName), ...state.assignments.map(a => a.user)])].sort();
+    userSel.innerHTML = users.map(u => '<option>' + u + '</option>').join('');
+    prodSel.innerHTML = state.licenses.map(l => '<option ' + (l.used >= l.total ? 'disabled' : '') + '>' + l.product + ' (' + (l.total - l.used) + ' avail)</option>').join('');
+  }
+  function assignLicense() {
+    const user = document.getElementById('assignUser').value;
+    const productLabel = document.getElementById('assignProduct').value;
+    const product = productLabel.replace(/\s*\(\d+ avail\)$/, '');
+    if (!user || !product) return;
+    const lic = state.licenses.find(l => l.product === product);
+    if (!lic || lic.used >= lic.total) { alert('No seats available for ' + product); return; }
+    lic.used += 1;
+    const newId = Math.max(0, ...state.assignments.map(a => a.id)) + 1;
+    state.assignments.unshift({ id: newId, user, product, assigned: new Date().toISOString().slice(0, 10), status: 'Active' });
+    save(); renderLicenses(); renderAssignments(); populateAssignDropdowns();
+    closeModal('assignLicenseModal');
+    showToast('Assigned ' + product + ' to ' + user);
+  }
+
+  function openModal(id) {
+    if (id === 'msSettingsModal') {
+      try { loadMSSettingsIntoForm(); } catch (e) {}
+    }
+    document.getElementById(id).classList.add('show');
+  }
+  function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+  document.querySelectorAll('.modal-overlay').forEach(o => {
+    o.addEventListener('click', e => { if (e.target === o) o.classList.remove('show'); });
+  });
+
+  function exportCSV(view) {
+    let rows = [], filename = '';
+    if (view === 'onboarding') {
+      filename = 'onboarding.csv';
+      rows = [['Employee ID','Employee Name','Nickname','Position','Company','PH Shift','Start Date','Status']];
+      state.hires.forEach(h => rows.push([h.hcId || '', h.starterName, h.nickname, h.position, h.companyName, h.phShiftSchedule, h.startDate, h.status]));
+    } else if (view === 'offboarding') {
+      filename = 'offboarding.csv';
+      rows = [['Name','Company','Last Day','Reason','Status']];
+      state.departures.forEach(d => rows.push([d.name, d.company, d.lastDay, d.reason, d.status]));
+    } else if (view === 'licensing') {
+      filename = 'licensing.csv';
+      rows = [['Product','Vendor','Used','Total','Unit Cost','Renewal']];
+      state.licenses.forEach(l => rows.push([l.product, l.vendor, l.used, l.total, l.unitCost, l.renewal]));
+    }
+    const csv = rows.map(r => r.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+    showToast('Exported ' + filename);
+  }
+
+  // Sync the in-page "Data as of" pill from the constant
+  const dataAsOfEl = document.getElementById('dataAsOf');
+  if (dataAsOfEl) dataAsOfEl.textContent = DATA_AS_OF;
+
+  renderHires();
+  renderDepartures();
+  renderLicenses();
+  renderAssignments();
+  populateAssignDropdowns();
+
+  // Initialize MSAL if settings exist (restores prior sign-in silently)
+  try { initMSAL(); updateAuthUI(); } catch (e) { console.warn('MSAL init skipped:', e); }
+</script>
+</body>
+</html>

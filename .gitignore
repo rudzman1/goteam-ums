@@ -1,0 +1,22 @@
+# Local seed data — contains starter names, employee IDs, departure reasons.
+# Never commit this to a public repository.
+dashboard-seed.js
+
+# Existing local files in this folder that contain PII (historical backups,
+# email exports, intermediate JSON, etc.) — all gitignored.
+dashboard-backup.html
+new_hires_*.json
+*-credentials.xlsx
+*-credentials.csv
+
+# Local development
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Backup files Claude or your editor might create
+*.bak
+*.tmp
+dashboard.html.bak
