@@ -39,6 +39,7 @@ The dashboard signs into your Microsoft 365 tenant to create users via Graph. Se
    - `Mail.Read`
    - `Files.ReadWrite.All`
    - `Sites.ReadWrite.All`
+   - `Sites.Manage.All` (required to create SharePoint lists)
    - `Organization.Read.All`
 
    Click **Grant admin consent** (requires a Global Admin or Privileged Role Administrator).

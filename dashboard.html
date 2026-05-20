@@ -668,7 +668,7 @@
         </div>
       </div>
       <div style="margin-top:14px;padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#854d0e;line-height:1.5;">
-        <strong>Setup checklist:</strong> 1) Register a Single-Page Application in Azure portal with redirect URI matching this dashboard's URL. 2) Under API Permissions, add delegated scopes: <code>User.ReadWrite.All</code>, <code>Group.ReadWrite.All</code>, <code>Directory.ReadWrite.All</code>, <code>Mail.Read</code>, <code>Sites.ReadWrite.All</code>, <code>Organization.Read.All</code>, then <strong>Grant admin consent</strong>. 3) Copy the Tenant ID, Client ID, and (optionally) MFA group Object ID into the fields above. 4) Click Sign In in the sidebar.
+        <strong>Setup checklist:</strong> 1) Register a Single-Page Application in Azure portal with redirect URI matching this dashboard's URL. 2) Under API Permissions, add delegated scopes: <code>User.ReadWrite.All</code>, <code>Group.ReadWrite.All</code>, <code>Directory.ReadWrite.All</code>, <code>Mail.Read</code>, <code>Sites.ReadWrite.All</code>, <code>Sites.Manage.All</code>, <code>Organization.Read.All</code>, then <strong>Grant admin consent</strong>. 3) Copy the Tenant ID, Client ID, and (optionally) MFA group Object ID into the fields above. 4) Click Sign In in the sidebar.
       </div>
 
       <!-- ============ SHAREPOINT BACKEND ============ -->
@@ -776,7 +776,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-  const STORAGE_KEY = 'goteam-ums-v52';
+  const STORAGE_KEY = 'goteam-ums-v53';
   // Updated by Claude on each "refresh the dashboard" run; static between refreshes.
   const DATA_AS_OF = 'May 21, 2026 (refreshed)';
 
@@ -791,6 +791,7 @@
     'Mail.Read',
     'Files.ReadWrite.All',
     'Sites.ReadWrite.All',
+    'Sites.Manage.All',          // required to create lists & columns
     'Organization.Read.All'
   ];
   let msalInstance = null;
@@ -1246,14 +1247,21 @@
 
     try {
       // 1. Resolve site ID
-      spLog('Resolving site: ' + siteUrl);
-      const siteId = await resolveSharePointSiteId(siteUrl);
+      spLog('Step 1/3: Resolving site ID...');
+      let siteId;
+      try {
+        siteId = await resolveSharePointSiteId(siteUrl);
+      } catch (e) {
+        throw new Error('Step 1 (site resolution) failed — usually means Sites.Read.All permission missing or site URL wrong. Detail: ' + e.message);
+      }
       settings.siteId = siteId;
       spLog('  [OK] Site ID: ' + siteId.substring(0, 60) + '...', '#22c55e');
 
       // 2. Check which lists already exist
-      spLog('Checking existing lists...');
-      const existing = await graphFetch('/sites/' + siteId + '/lists?$select=id,displayName');
+      spLog('Step 2/3: Checking existing lists...');
+      const existing = await graphFetch('/sites/' + siteId + '/lists?$select=id,displayName').catch(e => {
+        throw new Error('Step 2 (list query) failed — usually means Sites.ReadWrite.All missing. Detail: ' + e.message);
+      });
       const existingMap = {};
       (existing.value || []).forEach(l => { existingMap[l.displayName] = l.id; });
 
@@ -1265,7 +1273,7 @@
           spLog('  [SKIP] List "' + listName + '" already exists — id=' + existingMap[listName].substring(0, 16) + '...', '#fbbf24');
           continue;
         }
-        spLog('  Creating list "' + listName + '"...');
+        spLog('  Step 3/3: Creating list "' + listName + '"...');
         const created = await graphFetch('/sites/' + siteId + '/lists', {
           method: 'POST',
           body: {
@@ -1273,6 +1281,8 @@
             description: 'GoTeam User Management Dashboard — auto-provisioned',
             list: { template: 'genericList' }
           }
+        }).catch(e => {
+          throw new Error('Step 3 (list creation) failed — usually means Sites.Manage.All permission missing OR you do not have Contribute/Edit access to this SharePoint site. Detail: ' + e.message);
         });
         settings.listIds[key] = created.id;
         spLog('    [OK] Created — id=' + created.id.substring(0, 16) + '...', '#22c55e');
