@@ -776,7 +776,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-  const STORAGE_KEY = 'goteam-ums-v53';
+  const STORAGE_KEY = 'goteam-ums-v54';
   // Updated by Claude on each "refresh the dashboard" run; static between refreshes.
   const DATA_AS_OF = 'May 21, 2026 (refreshed)';
 
@@ -1220,13 +1220,35 @@
   }
 
   async function resolveSharePointSiteId(siteUrl) {
-    // Convert https://goteam1.sharepoint.com/sites/HR-Operations into a Graph site lookup.
-    const m = siteUrl.match(/^https?:\/\/([^/]+)\/sites\/([^/?#]+)/i);
-    if (!m) throw new Error('Site URL must look like https://<tenant>.sharepoint.com/sites/<site-name>');
-    const hostname = m[1];
-    const sitePath = m[2];
-    const r = await graphFetch('/sites/' + hostname + ':/sites/' + sitePath);
-    return r.id; // composite ID like "hostname,siteCollectionId,siteId"
+    // Accept many forms:
+    //   https://tenant.sharepoint.com/sites/HR
+    //   https://tenant.sharepoint.com/sites/HR/
+    //   https://tenant.sharepoint.com/sites/HR/SitePages/Home.aspx
+    //   https://tenant.sharepoint.com/teams/MyTeam
+    //   https://tenant.sharepoint.com           (root site)
+    let u;
+    try {
+      u = new URL(String(siteUrl || '').trim());
+    } catch (e) {
+      throw new Error('Site URL is not a valid URL. Expected something like https://goteam1.sharepoint.com/sites/HR-Operations');
+    }
+    if (!/\.sharepoint\.com$/i.test(u.hostname)) {
+      throw new Error('Site URL must be a sharepoint.com URL. Got hostname: ' + u.hostname);
+    }
+    const hostname = u.hostname;
+    const parts = u.pathname.split('/').filter(p => p.length > 0);
+
+    if (parts.length === 0) {
+      // Root site
+      const r = await graphFetch('/sites/' + hostname);
+      return r.id;
+    }
+    if (parts.length >= 2 && (parts[0].toLowerCase() === 'sites' || parts[0].toLowerCase() === 'teams')) {
+      const relPath = parts[0] + '/' + parts[1];
+      const r = await graphFetch('/sites/' + hostname + ':/' + relPath);
+      return r.id;
+    }
+    throw new Error('Unrecognized SharePoint URL pattern. Expected https://<tenant>.sharepoint.com/sites/<name> or .../teams/<name>. Got path: ' + u.pathname);
   }
 
   async function provisionSharePointLists() {
