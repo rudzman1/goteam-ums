@@ -668,8 +668,41 @@
         </div>
       </div>
       <div style="margin-top:14px;padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#854d0e;line-height:1.5;">
-        <strong>Setup checklist:</strong> 1) Register a Single-Page Application in Azure portal with redirect URI matching this dashboard's URL. 2) Under API Permissions, add delegated scopes: <code>User.ReadWrite.All</code>, <code>Group.ReadWrite.All</code>, <code>Directory.ReadWrite.All</code>, <code>Mail.Read</code>, <code>Organization.Read.All</code>, then <strong>Grant admin consent</strong>. 3) Copy the Tenant ID, Client ID, and (optionally) MFA group Object ID into the fields above. 4) Click Sign In in the sidebar.
+        <strong>Setup checklist:</strong> 1) Register a Single-Page Application in Azure portal with redirect URI matching this dashboard's URL. 2) Under API Permissions, add delegated scopes: <code>User.ReadWrite.All</code>, <code>Group.ReadWrite.All</code>, <code>Directory.ReadWrite.All</code>, <code>Mail.Read</code>, <code>Sites.ReadWrite.All</code>, <code>Organization.Read.All</code>, then <strong>Grant admin consent</strong>. 3) Copy the Tenant ID, Client ID, and (optionally) MFA group Object ID into the fields above. 4) Click Sign In in the sidebar.
       </div>
+
+      <!-- ============ SHAREPOINT BACKEND ============ -->
+      <hr style="margin:20px 0;border:none;border-top:1px solid #e2e8f0;" />
+      <h4 style="font-size:14px;font-weight:700;color:var(--text);margin:0 0 8px;">SharePoint Backend (Optional)</h4>
+      <p style="color:var(--muted);font-size:13px;margin-bottom:14px;line-height:1.6;">Store dashboard data in a SharePoint site instead of browser localStorage. Enables multi-device access and team-wide visibility. Provisioning is a one-time step — the dashboard creates four lists (Hires, Departures, Licenses, Assignments) in the site you specify.</p>
+      <div class="form-row">
+        <div class="form-group" style="grid-column: span 2;">
+          <label>SharePoint Site URL</label>
+          <input type="text" id="msSiteUrl" placeholder="https://goteam1.sharepoint.com/sites/HR-Operations" />
+          <p style="font-size:11px;color:var(--muted);margin-top:4px;">The full URL of the SharePoint site where the dashboard's lists will live. Sign-in user needs Contribute access to this site.</p>
+        </div>
+      </div>
+      <div id="spListStatus" style="display:none;margin-top:8px;padding:10px 14px;background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;font-size:12px;color:#1e40af;line-height:1.5;"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+        <button class="btn btn-secondary" onclick="provisionSharePointLists()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M2 12h20"/></svg>
+          Provision Lists in This Site
+        </button>
+        <button class="btn btn-secondary" onclick="migrateToSharePoint()" id="spMigrateBtn" style="display:none;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          Migrate Current Data to SharePoint
+        </button>
+        <button class="btn btn-secondary" onclick="syncFromSharePoint()" id="spSyncBtn" style="display:none;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          Pull from SharePoint
+        </button>
+        <button class="btn btn-secondary" onclick="pushChangesToSharePoint()" id="spPushBtn" style="display:none;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+          Push Local Changes
+        </button>
+      </div>
+      <div id="spProvisionLog" style="display:none;margin-top:10px;padding:12px;background:#0f172a;color:#e2e8f0;border-radius:8px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;line-height:1.6;max-height:240px;overflow-y:auto;"></div>
+
       <div id="msSettingsStatus" style="display:none;margin-top:14px;padding:10px 14px;background:#ecfdf5;border:1px solid #6ee7b7;border-radius:8px;font-size:12px;color:#065f46;"></div>
     </div>
     <div class="modal-footer">
@@ -743,7 +776,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-  const STORAGE_KEY = 'goteam-ums-v51';
+  const STORAGE_KEY = 'goteam-ums-v52';
   // Updated by Claude on each "refresh the dashboard" run; static between refreshes.
   const DATA_AS_OF = 'May 21, 2026 (refreshed)';
 
@@ -768,13 +801,17 @@
     catch (e) { return {}; }
   }
   function saveMSSettings() {
+    const existing = getMSSettings();
     const s = {
       tenantId: document.getElementById('msTenantId').value.trim(),
       clientId: document.getElementById('msClientId').value.trim(),
       mfaGroupId: document.getElementById('msMfaGroupId').value.trim(),
       domain: document.getElementById('msDomain').value.trim() || 'go.team',
       skuInternal: document.getElementById('msSkuInternal').value.trim(),
-      skuClient: document.getElementById('msSkuClient').value.trim()
+      skuClient: document.getElementById('msSkuClient').value.trim(),
+      siteUrl: document.getElementById('msSiteUrl').value.trim(),
+      siteId: existing.siteId || null,
+      listIds: existing.listIds || null
     };
     if (!s.tenantId || !s.clientId) {
       showToast('Tenant ID and Client ID are required');
@@ -796,6 +833,16 @@
     document.getElementById('msDomain').value = s.domain || 'go.team';
     document.getElementById('msSkuInternal').value = s.skuInternal || '';
     document.getElementById('msSkuClient').value = s.skuClient || '';
+    document.getElementById('msSiteUrl').value = s.siteUrl || '';
+    // Show migrate/sync buttons if SharePoint is already provisioned
+    if (s.siteId && s.listIds) {
+      document.getElementById('spMigrateBtn').style.display = 'inline-flex';
+      document.getElementById('spSyncBtn').style.display = 'inline-flex';
+      document.getElementById('spPushBtn').style.display = 'inline-flex';
+      const status = document.getElementById('spListStatus');
+      status.style.display = 'block';
+      status.innerHTML = '<strong>SharePoint backend active.</strong> Lists provisioned in <code>' + (s.siteUrl || 'configured site') + '</code>. Dashboard auto-pulls on sign-in. Click <strong>Push Local Changes</strong> after edits.';
+    }
   }
 
   function diagnoseMSAL() {
@@ -867,6 +914,8 @@
         msalInstance.setActiveAccount(msalAccount);
         updateAuthUI();
         showToast('Signed in as ' + msalAccount.username);
+        // Auto-pull data if SharePoint backend is configured
+        autoSyncFromSharePoint();
       } catch (e) {
         console.error(e);
         showToast('Sign-in failed: ' + (e.message || e));
@@ -1076,6 +1125,520 @@
       showToast('Failed to fetch SKUs: ' + e.message);
     }
   }
+
+  // ============================================================
+  // SharePoint Lists backend (Phase 2)
+  // ============================================================
+  // Settings:
+  //   msSettings.siteUrl      — user-provided site URL
+  //   msSettings.siteId       — resolved via Graph (set after provisioning)
+  //   msSettings.listIds      — { hires, departures, licenses, assignments }
+  // State sync model:
+  //   - On dashboard load, if listIds are configured + signed in → fetch all 4 lists,
+  //     overwrite local state, render.
+  //   - On any state mutation, if listIds configured → fire-and-forget upsert/delete.
+  //   - localStorage acts as offline cache; SharePoint is source of truth.
+
+  const SP_LIST_NAMES = {
+    hires: 'GoTeam-Hires',
+    departures: 'GoTeam-Departures',
+    licenses: 'GoTeam-Licenses',
+    assignments: 'GoTeam-Assignments'
+  };
+
+  // Column schemas — Graph creates these on the list at provisioning time.
+  // SharePoint reserves several names (Status, ID, Title); we use safe aliases.
+  const SP_LIST_SCHEMAS = {
+    hires: [
+      // Title acts as StarterName (built-in required column)
+      { name: 'Nickname',         text: {} },
+      { name: 'Position',         text: { allowMultipleLines: false } },
+      { name: 'PhShiftSchedule',  text: {} },
+      { name: 'CompanyName',      text: {} },
+      { name: 'HireType',         text: {} },
+      { name: 'StartDate',        dateTime: { format: 'dateOnly' } },
+      { name: 'HireStatus',       text: {} },
+      { name: 'HcId',             text: {} },
+      { name: 'WithdrawnDate',    dateTime: { format: 'dateOnly' } },
+      { name: 'WithdrawnReason',  text: { allowMultipleLines: true } },
+      { name: 'RescheduledFrom',  dateTime: { format: 'dateOnly' } },
+      { name: 'RescheduleNote',   text: { allowMultipleLines: true } },
+      { name: 'RescheduleDate',   dateTime: { format: 'dateOnly' } },
+      { name: 'StarterNotes',     text: { allowMultipleLines: true } },
+      { name: 'MS365Created',     boolean: {} },
+      { name: 'MS365Password',    text: {} },
+      { name: 'MS365CreatedAt',   text: {} },
+      { name: 'MS365GraphId',     text: {} },
+      { name: 'TeramindCreated',  boolean: {} },
+      { name: 'TeramindPassword', text: {} },
+      { name: 'TeramindCreatedAt',text: {} },
+      { name: 'TeramindUserId',   text: {} },
+      { name: 'LocalId',          number: {} }
+    ],
+    departures: [
+      // Title = Name
+      { name: 'Company',          text: {} },
+      { name: 'LastDay',          dateTime: { format: 'dateOnly' } },
+      { name: 'DepReason',        text: {} },
+      { name: 'NoticeDate',       dateTime: { format: 'dateOnly' } },
+      { name: 'DepStatus',        text: {} },
+      { name: 'TmId',             text: {} },
+      { name: 'LastDayEstimated', boolean: {} },
+      { name: 'OriginalLastDay',  dateTime: { format: 'dateOnly' } },
+      { name: 'LastDayNote',      text: { allowMultipleLines: true } },
+      { name: 'NoteLabel',        text: { allowMultipleLines: true } },
+      { name: 'ChecklistJson',    text: { allowMultipleLines: true } },
+      { name: 'LocalId',          number: {} }
+    ],
+    licenses: [
+      // Title = Product
+      { name: 'Vendor',     text: {} },
+      { name: 'TotalCount', number: {} },
+      { name: 'UsedCount',  number: {} },
+      { name: 'UnitCost',   number: {} },
+      { name: 'Renewal',    dateTime: { format: 'dateOnly' } },
+      { name: 'LocalId',    number: {} }
+    ],
+    assignments: [
+      // Title = User
+      { name: 'AssignProduct', text: {} },
+      { name: 'AssignedDate',  dateTime: { format: 'dateOnly' } },
+      { name: 'AssignStatus',  text: {} },
+      { name: 'LocalId',       number: {} }
+    ]
+  };
+
+  function spLog(msg, color) {
+    const el = document.getElementById('spProvisionLog');
+    el.style.display = 'block';
+    const line = document.createElement('div');
+    line.textContent = msg;
+    if (color) line.style.color = color;
+    el.appendChild(line);
+    el.scrollTop = el.scrollHeight;
+  }
+
+  async function resolveSharePointSiteId(siteUrl) {
+    // Convert https://goteam1.sharepoint.com/sites/HR-Operations into a Graph site lookup.
+    const m = siteUrl.match(/^https?:\/\/([^/]+)\/sites\/([^/?#]+)/i);
+    if (!m) throw new Error('Site URL must look like https://<tenant>.sharepoint.com/sites/<site-name>');
+    const hostname = m[1];
+    const sitePath = m[2];
+    const r = await graphFetch('/sites/' + hostname + ':/sites/' + sitePath);
+    return r.id; // composite ID like "hostname,siteCollectionId,siteId"
+  }
+
+  async function provisionSharePointLists() {
+    if (!msalAccount) {
+      showToast('Sign in first via the sidebar');
+      return;
+    }
+    const siteUrl = document.getElementById('msSiteUrl').value.trim();
+    if (!siteUrl) {
+      showToast('Enter a SharePoint Site URL first');
+      return;
+    }
+
+    const settings = getMSSettings();
+    settings.siteUrl = siteUrl;
+    document.getElementById('spProvisionLog').innerHTML = '';
+    spLog('Provisioning SharePoint backend...', '#60a5fa');
+
+    try {
+      // 1. Resolve site ID
+      spLog('Resolving site: ' + siteUrl);
+      const siteId = await resolveSharePointSiteId(siteUrl);
+      settings.siteId = siteId;
+      spLog('  [OK] Site ID: ' + siteId.substring(0, 60) + '...', '#22c55e');
+
+      // 2. Check which lists already exist
+      spLog('Checking existing lists...');
+      const existing = await graphFetch('/sites/' + siteId + '/lists?$select=id,displayName');
+      const existingMap = {};
+      (existing.value || []).forEach(l => { existingMap[l.displayName] = l.id; });
+
+      settings.listIds = settings.listIds || {};
+      for (const key of Object.keys(SP_LIST_NAMES)) {
+        const listName = SP_LIST_NAMES[key];
+        if (existingMap[listName]) {
+          settings.listIds[key] = existingMap[listName];
+          spLog('  [SKIP] List "' + listName + '" already exists — id=' + existingMap[listName].substring(0, 16) + '...', '#fbbf24');
+          continue;
+        }
+        spLog('  Creating list "' + listName + '"...');
+        const created = await graphFetch('/sites/' + siteId + '/lists', {
+          method: 'POST',
+          body: {
+            displayName: listName,
+            description: 'GoTeam User Management Dashboard — auto-provisioned',
+            list: { template: 'genericList' }
+          }
+        });
+        settings.listIds[key] = created.id;
+        spLog('    [OK] Created — id=' + created.id.substring(0, 16) + '...', '#22c55e');
+
+        // Add custom columns
+        for (const col of SP_LIST_SCHEMAS[key]) {
+          try {
+            await graphFetch('/sites/' + siteId + '/lists/' + created.id + '/columns', {
+              method: 'POST',
+              body: col
+            });
+          } catch (e) {
+            // Column might already exist or be a reserved name; log and continue
+            spLog('      [warn] Column "' + col.name + '" — ' + e.message.slice(0, 100), '#fbbf24');
+          }
+        }
+        spLog('    [OK] Schema configured (' + SP_LIST_SCHEMAS[key].length + ' columns)', '#22c55e');
+      }
+
+      // 3. Save settings
+      localStorage.setItem(MS_SETTINGS_KEY, JSON.stringify(settings));
+      spLog('', null);
+      spLog('=== Provisioning complete ===', '#22c55e');
+      spLog('Settings saved. Now click "Migrate Current Data to SharePoint" to upload your local data.', '#60a5fa');
+
+      document.getElementById('spMigrateBtn').style.display = 'inline-flex';
+      document.getElementById('spSyncBtn').style.display = 'inline-flex';
+      document.getElementById('spPushBtn').style.display = 'inline-flex';
+      showToast('SharePoint Lists provisioned');
+    } catch (e) {
+      spLog('[FAIL] ' + e.message, '#ef4444');
+      console.error(e);
+    }
+  }
+
+  // -------- Item shape conversions --------
+  function hireToSP(h) {
+    return {
+      Title: h.starterName || '',
+      Nickname: h.nickname || '',
+      Position: h.position || '',
+      PhShiftSchedule: h.phShiftSchedule || '',
+      CompanyName: h.companyName || '',
+      HireType: h.hireType || '',
+      StartDate: h.startDate || null,
+      HireStatus: h.status || '',
+      HcId: h.hcId || '',
+      WithdrawnDate: h.withdrawnDate || null,
+      WithdrawnReason: h.withdrawnReason || '',
+      RescheduledFrom: h.rescheduledFrom || null,
+      RescheduleNote: h.rescheduleNote || '',
+      RescheduleDate: h.rescheduleDate || null,
+      StarterNotes: h.notes || '',
+      MS365Created: !!(h.ms365 && h.ms365.created),
+      MS365Password: (h.ms365 && h.ms365.password) || '',
+      MS365CreatedAt: (h.ms365 && h.ms365.createdAt) || '',
+      MS365GraphId: (h.ms365 && h.ms365.graphId) || '',
+      TeramindCreated: !!(h.teramind && h.teramind.created),
+      TeramindPassword: (h.teramind && h.teramind.password) || '',
+      TeramindCreatedAt: (h.teramind && h.teramind.createdAt) || '',
+      TeramindUserId: (h.teramind && h.teramind.userId) || '',
+      LocalId: h.id || 0
+    };
+  }
+  function spToHire(item) {
+    const f = item.fields || {};
+    return {
+      id: f.LocalId || parseInt(item.id, 10),
+      spId: item.id,
+      starterName: f.Title || '',
+      nickname: f.Nickname || '',
+      position: f.Position || '',
+      phShiftSchedule: f.PhShiftSchedule || '',
+      companyName: f.CompanyName || '',
+      hireType: f.HireType || '',
+      startDate: f.StartDate ? f.StartDate.slice(0, 10) : '',
+      status: f.HireStatus || 'Pending',
+      hcId: f.HcId || '',
+      withdrawnDate: f.WithdrawnDate ? f.WithdrawnDate.slice(0, 10) : null,
+      withdrawnReason: f.WithdrawnReason || '',
+      rescheduledFrom: f.RescheduledFrom ? f.RescheduledFrom.slice(0, 10) : null,
+      rescheduleNote: f.RescheduleNote || '',
+      rescheduleDate: f.RescheduleDate ? f.RescheduleDate.slice(0, 10) : null,
+      notes: f.StarterNotes || '',
+      ms365: { created: !!f.MS365Created, password: f.MS365Password || '', createdAt: f.MS365CreatedAt || '', graphId: f.MS365GraphId || '' },
+      teramind: { created: !!f.TeramindCreated, password: f.TeramindPassword || '', createdAt: f.TeramindCreatedAt || '', userId: f.TeramindUserId || '' }
+    };
+  }
+  function departureToSP(d) {
+    return {
+      Title: d.name || '',
+      Company: d.company || '',
+      LastDay: d.lastDay || null,
+      DepReason: d.reason || '',
+      NoticeDate: d.noticeDate || null,
+      DepStatus: d.status || '',
+      TmId: d.tmId || '',
+      LastDayEstimated: !!d.lastDayEstimated,
+      OriginalLastDay: d.originalLastDay || null,
+      LastDayNote: d.lastDayNote || '',
+      NoteLabel: d.noteLabel || '',
+      ChecklistJson: JSON.stringify(d.checklist || []),
+      LocalId: d.id || 0
+    };
+  }
+  function spToDeparture(item) {
+    const f = item.fields || {};
+    let checklist = [];
+    try { checklist = JSON.parse(f.ChecklistJson || '[]'); } catch (_) {}
+    return {
+      id: f.LocalId || parseInt(item.id, 10),
+      spId: item.id,
+      name: f.Title || '',
+      company: f.Company || '',
+      lastDay: f.LastDay ? f.LastDay.slice(0, 10) : '',
+      reason: f.DepReason || '',
+      noticeDate: f.NoticeDate ? f.NoticeDate.slice(0, 10) : '',
+      status: f.DepStatus || 'Notice Period',
+      tmId: f.TmId || '',
+      lastDayEstimated: !!f.LastDayEstimated,
+      originalLastDay: f.OriginalLastDay ? f.OriginalLastDay.slice(0, 10) : null,
+      lastDayNote: f.LastDayNote || '',
+      noteLabel: f.NoteLabel || '',
+      checklist: checklist.length ? checklist : defaultExitChecklist()
+    };
+  }
+  function licenseToSP(l) {
+    return {
+      Title: l.product || '',
+      Vendor: l.vendor || '',
+      TotalCount: l.total || 0,
+      UsedCount: l.used || 0,
+      UnitCost: l.unitCost || 0,
+      Renewal: l.renewal || null,
+      LocalId: l.id || 0
+    };
+  }
+  function spToLicense(item) {
+    const f = item.fields || {};
+    return {
+      id: f.LocalId || parseInt(item.id, 10),
+      spId: item.id,
+      product: f.Title || '',
+      vendor: f.Vendor || '',
+      total: f.TotalCount || 0,
+      used: f.UsedCount || 0,
+      unitCost: f.UnitCost || 0,
+      renewal: f.Renewal ? f.Renewal.slice(0, 10) : ''
+    };
+  }
+  function assignmentToSP(a) {
+    return {
+      Title: a.user || '',
+      AssignProduct: a.product || '',
+      AssignedDate: a.assigned || null,
+      AssignStatus: a.status || 'Active',
+      LocalId: a.id || 0
+    };
+  }
+  function spToAssignment(item) {
+    const f = item.fields || {};
+    return {
+      id: f.LocalId || parseInt(item.id, 10),
+      spId: item.id,
+      user: f.Title || '',
+      product: f.AssignProduct || '',
+      assigned: f.AssignedDate ? f.AssignedDate.slice(0, 10) : '',
+      status: f.AssignStatus || 'Active'
+    };
+  }
+
+  async function migrateToSharePoint() {
+    const settings = getMSSettings();
+    if (!settings.siteId || !settings.listIds) {
+      showToast('Provision Lists first');
+      return;
+    }
+    if (!confirm('Upload your current dashboard data to SharePoint?\n\n' +
+                 'Hires: ' + state.hires.length + '\n' +
+                 'Departures: ' + state.departures.length + '\n' +
+                 'Licenses: ' + state.licenses.length + '\n' +
+                 'Assignments: ' + state.assignments.length + '\n\n' +
+                 'Existing items in the lists will NOT be overwritten or duplicated — items are matched by name (Title).')) return;
+
+    document.getElementById('spProvisionLog').innerHTML = '';
+    spLog('Starting migration...', '#60a5fa');
+
+    const tasks = [
+      { key: 'hires', items: state.hires, toSP: hireToSP, label: 'hire' },
+      { key: 'departures', items: state.departures, toSP: departureToSP, label: 'departure' },
+      { key: 'licenses', items: state.licenses, toSP: licenseToSP, label: 'license' },
+      { key: 'assignments', items: state.assignments, toSP: assignmentToSP, label: 'assignment' }
+    ];
+
+    for (const t of tasks) {
+      const listId = settings.listIds[t.key];
+      spLog('Uploading ' + t.items.length + ' ' + t.label + '(s)...');
+
+      // Get existing items to dedupe by Title
+      const existing = await graphFetch('/sites/' + settings.siteId + '/lists/' + listId + '/items?$expand=fields($select=Title,LocalId)&$top=999');
+      const existingTitles = new Set((existing.value || []).map(i => i.fields && i.fields.Title));
+
+      let ok = 0, skip = 0, fail = 0;
+      for (const item of t.items) {
+        const fields = t.toSP(item);
+        if (existingTitles.has(fields.Title)) { skip++; continue; }
+        try {
+          await graphFetch('/sites/' + settings.siteId + '/lists/' + listId + '/items', {
+            method: 'POST',
+            body: { fields: fields }
+          });
+          ok++;
+        } catch (e) {
+          fail++;
+          spLog('  [FAIL] ' + fields.Title + ' — ' + e.message.slice(0, 100), '#ef4444');
+        }
+      }
+      spLog('  [DONE] ' + t.label + ': ' + ok + ' uploaded, ' + skip + ' already existed, ' + fail + ' failed', ok > 0 ? '#22c55e' : '#fbbf24');
+    }
+
+    spLog('', null);
+    spLog('=== Migration complete ===', '#22c55e');
+    showToast('Migration to SharePoint complete');
+  }
+
+  async function syncFromSharePoint() {
+    const settings = getMSSettings();
+    if (!settings.siteId || !settings.listIds) {
+      showToast('SharePoint not configured');
+      return;
+    }
+    if (!msalAccount) {
+      showToast('Sign in first');
+      return;
+    }
+    document.getElementById('spProvisionLog').innerHTML = '';
+    spLog('Syncing from SharePoint...', '#60a5fa');
+
+    try {
+      const baseUrl = '/sites/' + settings.siteId + '/lists/';
+      const [hires, departures, licenses, assignments] = await Promise.all([
+        graphFetch(baseUrl + settings.listIds.hires + '/items?$expand=fields&$top=999'),
+        graphFetch(baseUrl + settings.listIds.departures + '/items?$expand=fields&$top=999'),
+        graphFetch(baseUrl + settings.listIds.licenses + '/items?$expand=fields&$top=999'),
+        graphFetch(baseUrl + settings.listIds.assignments + '/items?$expand=fields&$top=999')
+      ]);
+
+      state.hires = (hires.value || []).map(spToHire);
+      state.departures = (departures.value || []).map(spToDeparture);
+      state.licenses = (licenses.value || []).map(spToLicense);
+      state.assignments = (assignments.value || []).map(spToAssignment);
+      state.selectedHires = new Set();
+      save();
+
+      // Re-render everything
+      renderHires();
+      renderDepartures();
+      renderLicenses();
+      renderAssignments();
+      populateAssignDropdowns();
+
+      spLog('  Loaded ' + state.hires.length + ' hire(s)', '#22c55e');
+      spLog('  Loaded ' + state.departures.length + ' departure(s)', '#22c55e');
+      spLog('  Loaded ' + state.licenses.length + ' license(s)', '#22c55e');
+      spLog('  Loaded ' + state.assignments.length + ' assignment(s)', '#22c55e');
+      spLog('=== Sync complete ===', '#22c55e');
+      showToast('Synced from SharePoint');
+    } catch (e) {
+      spLog('[FAIL] ' + e.message, '#ef4444');
+      console.error(e);
+    }
+  }
+
+  async function pushChangesToSharePoint() {
+    const settings = getMSSettings();
+    if (!settings.siteId || !settings.listIds) {
+      showToast('SharePoint not configured');
+      return;
+    }
+    if (!msalAccount) {
+      showToast('Sign in first');
+      return;
+    }
+    if (!confirm('Push all local changes to SharePoint?\n\n' +
+                 'New items (no SharePoint ID) will be CREATED.\n' +
+                 'Existing items will be UPDATED.\n' +
+                 'Items deleted locally are NOT removed from SharePoint — delete them manually if needed.')) return;
+
+    document.getElementById('spProvisionLog').innerHTML = '';
+    spLog('Pushing local changes to SharePoint...', '#60a5fa');
+
+    const baseUrl = '/sites/' + settings.siteId + '/lists/';
+    const tasks = [
+      { key: 'hires', items: state.hires, toSP: hireToSP, label: 'hire' },
+      { key: 'departures', items: state.departures, toSP: departureToSP, label: 'departure' },
+      { key: 'licenses', items: state.licenses, toSP: licenseToSP, label: 'license' },
+      { key: 'assignments', items: state.assignments, toSP: assignmentToSP, label: 'assignment' }
+    ];
+
+    for (const t of tasks) {
+      const listId = settings.listIds[t.key];
+      spLog('Pushing ' + t.items.length + ' ' + t.label + '(s)...');
+      let created = 0, updated = 0, failed = 0;
+
+      for (const item of t.items) {
+        const fields = t.toSP(item);
+        try {
+          if (item.spId) {
+            // Update existing
+            await graphFetch(baseUrl + listId + '/items/' + item.spId + '/fields', {
+              method: 'PATCH',
+              body: fields
+            });
+            updated++;
+          } else {
+            // Create new — and record its SP ID locally
+            const r = await graphFetch(baseUrl + listId + '/items', {
+              method: 'POST',
+              body: { fields: fields }
+            });
+            item.spId = r.id;
+            created++;
+          }
+        } catch (e) {
+          failed++;
+          spLog('  [FAIL] ' + (fields.Title || '(unnamed)') + ' — ' + e.message.slice(0, 120), '#ef4444');
+        }
+      }
+      spLog('  [DONE] ' + t.label + ': ' + created + ' created, ' + updated + ' updated, ' + failed + ' failed', failed === 0 ? '#22c55e' : '#fbbf24');
+    }
+
+    save(); // persist new spIds to localStorage
+    spLog('', null);
+    spLog('=== Push complete ===', '#22c55e');
+    showToast('Local changes pushed to SharePoint');
+  }
+
+  // Auto-sync on startup if SharePoint is configured + signed in
+  async function autoSyncFromSharePoint() {
+    const settings = getMSSettings();
+    if (!msalAccount || !settings.siteId || !settings.listIds) return;
+    try {
+      const baseUrl = '/sites/' + settings.siteId + '/lists/';
+      const [hires, departures, licenses, assignments] = await Promise.all([
+        graphFetch(baseUrl + settings.listIds.hires + '/items?$expand=fields&$top=999'),
+        graphFetch(baseUrl + settings.listIds.departures + '/items?$expand=fields&$top=999'),
+        graphFetch(baseUrl + settings.listIds.licenses + '/items?$expand=fields&$top=999'),
+        graphFetch(baseUrl + settings.listIds.assignments + '/items?$expand=fields&$top=999')
+      ]);
+      state.hires = (hires.value || []).map(spToHire);
+      state.departures = (departures.value || []).map(spToDeparture);
+      state.licenses = (licenses.value || []).map(spToLicense);
+      state.assignments = (assignments.value || []).map(spToAssignment);
+      state.selectedHires = new Set();
+      save();
+      renderHires();
+      renderDepartures();
+      renderLicenses();
+      renderAssignments();
+      populateAssignDropdowns();
+      console.log('Auto-synced from SharePoint');
+    } catch (e) {
+      console.warn('Auto-sync failed:', e);
+    }
+  }
+
   // ============================================================
   // End Microsoft Graph integration
   // ============================================================
@@ -2846,7 +3409,12 @@
   populateAssignDropdowns();
 
   // Initialize MSAL if settings exist (restores prior sign-in silently)
-  try { initMSAL(); updateAuthUI(); } catch (e) { console.warn('MSAL init skipped:', e); }
+  try {
+    initMSAL();
+    updateAuthUI();
+    // If signed in and SharePoint is configured, pull fresh data
+    if (msalAccount) autoSyncFromSharePoint();
+  } catch (e) { console.warn('MSAL init skipped:', e); }
 </script>
 </body>
 </html>
