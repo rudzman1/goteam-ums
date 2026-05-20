@@ -776,7 +776,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-  const STORAGE_KEY = 'goteam-ums-v54';
+  const STORAGE_KEY = 'goteam-ums-v55';
   // Updated by Claude on each "refresh the dashboard" run; static between refreshes.
   const DATA_AS_OF = 'May 21, 2026 (refreshed)';
 
@@ -1530,6 +1530,35 @@
     showToast('Migration to SharePoint complete');
   }
 
+  // Merge SharePoint items with current local state.
+  // Rule: items in both → SP version wins (SP is source of truth for state).
+  //       items only in SP → added to local.
+  //       items only in local (e.g. new from dashboard-seed.js refresh) → KEPT,
+  //         no spId set so they get CREATED on the next Push.
+  function mergeArrays(localArr, spArr, keyFn) {
+    const spByKey = new Map();
+    spArr.forEach(item => spByKey.set(keyFn(item), item));
+    const localByKey = new Map();
+    localArr.forEach(item => localByKey.set(keyFn(item), item));
+
+    const merged = [];
+    let fromSp = 0, localOnly = 0;
+    spArr.forEach(spItem => { merged.push(spItem); fromSp++; });
+    localArr.forEach(localItem => {
+      if (!spByKey.has(keyFn(localItem))) {
+        const li = Object.assign({}, localItem);
+        delete li.spId; // make sure it pushes as new
+        merged.push(li);
+        localOnly++;
+      }
+    });
+    return { merged, stats: { fromSp, localOnly } };
+  }
+  function hireKey(h)       { return (h.starterName || '').trim().toLowerCase(); }
+  function departureKey(d)  { return (d.name || '').trim().toLowerCase(); }
+  function licenseKey(l)    { return (l.product || '').trim().toLowerCase(); }
+  function assignmentKey(a) { return (a.user || '').trim().toLowerCase() + '|' + (a.product || '').trim().toLowerCase(); }
+
   async function syncFromSharePoint() {
     const settings = getMSSettings();
     if (!settings.siteId || !settings.listIds) {
@@ -1541,7 +1570,7 @@
       return;
     }
     document.getElementById('spProvisionLog').innerHTML = '';
-    spLog('Syncing from SharePoint...', '#60a5fa');
+    spLog('Syncing from SharePoint (merge mode)...', '#60a5fa');
 
     try {
       const baseUrl = '/sites/' + settings.siteId + '/lists/';
@@ -1552,26 +1581,40 @@
         graphFetch(baseUrl + settings.listIds.assignments + '/items?$expand=fields&$top=999')
       ]);
 
-      state.hires = (hires.value || []).map(spToHire);
-      state.departures = (departures.value || []).map(spToDeparture);
-      state.licenses = (licenses.value || []).map(spToLicense);
-      state.assignments = (assignments.value || []).map(spToAssignment);
+      const spHires       = (hires.value       || []).map(spToHire);
+      const spDepartures  = (departures.value  || []).map(spToDeparture);
+      const spLicenses    = (licenses.value    || []).map(spToLicense);
+      const spAssignments = (assignments.value || []).map(spToAssignment);
+
+      const h = mergeArrays(state.hires,       spHires,       hireKey);
+      const d = mergeArrays(state.departures,  spDepartures,  departureKey);
+      const l = mergeArrays(state.licenses,    spLicenses,    licenseKey);
+      const a = mergeArrays(state.assignments, spAssignments, assignmentKey);
+
+      state.hires       = h.merged;
+      state.departures  = d.merged;
+      state.licenses    = l.merged;
+      state.assignments = a.merged;
       state.selectedHires = new Set();
       save();
 
-      // Re-render everything
       renderHires();
       renderDepartures();
       renderLicenses();
       renderAssignments();
       populateAssignDropdowns();
 
-      spLog('  Loaded ' + state.hires.length + ' hire(s)', '#22c55e');
-      spLog('  Loaded ' + state.departures.length + ' departure(s)', '#22c55e');
-      spLog('  Loaded ' + state.licenses.length + ' license(s)', '#22c55e');
-      spLog('  Loaded ' + state.assignments.length + ' assignment(s)', '#22c55e');
-      spLog('=== Sync complete ===', '#22c55e');
-      showToast('Synced from SharePoint');
+      spLog('  Hires: ' + h.stats.fromSp + ' from SP, ' + h.stats.localOnly + ' local-only', '#22c55e');
+      spLog('  Departures: ' + d.stats.fromSp + ' from SP, ' + d.stats.localOnly + ' local-only', '#22c55e');
+      spLog('  Licenses: ' + l.stats.fromSp + ' from SP, ' + l.stats.localOnly + ' local-only', '#22c55e');
+      spLog('  Assignments: ' + a.stats.fromSp + ' from SP, ' + a.stats.localOnly + ' local-only', '#22c55e');
+      const localOnlyTotal = h.stats.localOnly + d.stats.localOnly + l.stats.localOnly + a.stats.localOnly;
+      if (localOnlyTotal > 0) {
+        spLog('=== ' + localOnlyTotal + ' local-only item(s) — click "Push Local Changes" to upload them ===', '#fbbf24');
+      } else {
+        spLog('=== Merge complete — everything is in sync ===', '#22c55e');
+      }
+      showToast('Synced from SharePoint (merge mode)');
     } catch (e) {
       spLog('[FAIL] ' + e.message, '#ef4444');
       console.error(e);
@@ -1642,7 +1685,7 @@
     showToast('Local changes pushed to SharePoint');
   }
 
-  // Auto-sync on startup if SharePoint is configured + signed in
+  // Auto-sync on startup — uses MERGE so new items from dashboard-seed.js are preserved.
   async function autoSyncFromSharePoint() {
     const settings = getMSSettings();
     if (!msalAccount || !settings.siteId || !settings.listIds) return;
@@ -1654,10 +1697,21 @@
         graphFetch(baseUrl + settings.listIds.licenses + '/items?$expand=fields&$top=999'),
         graphFetch(baseUrl + settings.listIds.assignments + '/items?$expand=fields&$top=999')
       ]);
-      state.hires = (hires.value || []).map(spToHire);
-      state.departures = (departures.value || []).map(spToDeparture);
-      state.licenses = (licenses.value || []).map(spToLicense);
-      state.assignments = (assignments.value || []).map(spToAssignment);
+
+      const spHires       = (hires.value       || []).map(spToHire);
+      const spDepartures  = (departures.value  || []).map(spToDeparture);
+      const spLicenses    = (licenses.value    || []).map(spToLicense);
+      const spAssignments = (assignments.value || []).map(spToAssignment);
+
+      const h = mergeArrays(state.hires,       spHires,       hireKey);
+      const d = mergeArrays(state.departures,  spDepartures,  departureKey);
+      const l = mergeArrays(state.licenses,    spLicenses,    licenseKey);
+      const a = mergeArrays(state.assignments, spAssignments, assignmentKey);
+
+      state.hires       = h.merged;
+      state.departures  = d.merged;
+      state.licenses    = l.merged;
+      state.assignments = a.merged;
       state.selectedHires = new Set();
       save();
       renderHires();
@@ -1665,7 +1719,12 @@
       renderLicenses();
       renderAssignments();
       populateAssignDropdowns();
-      console.log('Auto-synced from SharePoint');
+
+      const localOnlyTotal = h.stats.localOnly + d.stats.localOnly + l.stats.localOnly + a.stats.localOnly;
+      console.log('Auto-synced from SharePoint (merge). ' + localOnlyTotal + ' local-only item(s) pending push.');
+      if (localOnlyTotal > 0) {
+        showToast(localOnlyTotal + ' new local item(s) — open MS365 Settings → Push Local Changes to sync');
+      }
     } catch (e) {
       console.warn('Auto-sync failed:', e);
     }
