@@ -54,7 +54,15 @@ The dashboard signs into your Microsoft 365 tenant to create users via Graph. Se
 
 ## Updating data
 
-Talk to Claude in a conversation: "refresh the dashboard". Claude reads your CLEAR-A-PATH inbox and rewrites `dashboard-seed.js` locally. (Phase 2 of the migration will replace this with a SharePoint List backend so the data is shared automatically.)
+Talk to Claude in a conversation: "refresh the dashboard". Claude:
+
+1. Reads CLEAR-A-PATH email endorsements for new starters and offboarding notices
+2. Reads the **GoTeam Starters Tracker & Checklist** spreadsheet (in SharePoint at `/sites/Discovery2/Shared Documents/Onboarding/`) to pull the Employee ID (column B) for each new starter, matched by name
+3. Updates `dashboard-seed.js` with the combined data (starter + Employee ID)
+
+**Every refresh MUST include the Employee ID lookup** — never leave `hcId` blank on a new starter if the Tracker has one. If the Tracker doesn't yet have the ID, note it in the conversation and leave `hcId` undefined so it can be backfilled later.
+
+After the refresh, open the dashboard locally, sign in, and click **Push Local Changes** in MS365 Settings to sync the new starters to SharePoint.
 
 ## Tech
 

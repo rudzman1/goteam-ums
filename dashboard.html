@@ -745,6 +745,33 @@
       <div style="margin-top:14px;padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#854d0e;line-height:1.5;">
         <strong>Note:</strong> Your local edits (status changes, MS365 marks, manually-added hires) are saved in browser storage and survive a refresh. Only the seed data — the email-derived hires — gets rewritten.
       </div>
+
+      <hr style="margin:20px 0;border:none;border-top:1px solid #e2e8f0;" />
+      <h4 style="font-size:14px;font-weight:700;color:var(--text);margin:0 0 8px;">Or: Auto-refresh via Microsoft Graph</h4>
+      <p style="color:var(--muted);font-size:13px;margin-bottom:10px;line-height:1.6;">If you're signed in to Microsoft 365, the dashboard can pull CLEAR-A-PATH emails directly via Graph and propose new starters/departures — no Claude conversation needed. Edge cases (reschedules, retractions, complex offboardings) may still need Claude.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+        <label style="font-size:12px;display:flex;align-items:center;gap:6px;color:var(--muted);">
+          Look back
+          <select id="graphRefreshDays" style="padding:4px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;background:white;">
+            <option value="14">14 days</option>
+            <option value="30" selected>30 days</option>
+            <option value="60">60 days</option>
+            <option value="90">90 days</option>
+          </select>
+        </label>
+        <label style="font-size:12px;display:flex;align-items:center;gap:6px;color:var(--muted);">
+          <input type="checkbox" id="graphRefreshIDs" checked />
+          Lookup Employee IDs from Starters Tracker
+        </label>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-primary" onclick="autoRefreshFromGraph()" style="background:#7c3aed;border-color:#7c3aed;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          Search Outlook for CLEAR-A-PATH
+        </button>
+      </div>
+      <div id="graphRefreshLog" style="display:none;margin-top:10px;padding:12px;background:#0f172a;color:#e2e8f0;border-radius:8px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;line-height:1.6;max-height:280px;overflow-y:auto;"></div>
+      <div id="graphRefreshPreview" style="display:none;margin-top:10px;"></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('refreshModal')">Close</button>
@@ -776,7 +803,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-  const STORAGE_KEY = 'goteam-ums-v55';
+  const STORAGE_KEY = 'goteam-ums-v57';
   // Updated by Claude on each "refresh the dashboard" run; static between refreshes.
   const DATA_AS_OF = 'May 21, 2026 (refreshed)';
 
@@ -1730,6 +1757,385 @@
     }
   }
 
+  // ============================================================
+  // Auto-refresh from Outlook via Graph (Phase 3)
+  // ============================================================
+  // Parses CLEAR-A-PATH email subjects, proposes new starters/departures,
+  // optionally enriches with Employee IDs from the Starters Tracker workbook.
+
+  // GoTeam Starters Tracker file location (cached after first lookup)
+  const TRACKER_FILE_NAME = 'GoTeam Starters Tracker & Checklist Nov 2022 Onwards.xlsx';
+
+  function gfLog(msg, color) {
+    const el = document.getElementById('graphRefreshLog');
+    el.style.display = 'block';
+    const line = document.createElement('div');
+    line.textContent = msg;
+    if (color) line.style.color = color;
+    el.appendChild(line);
+    el.scrollTop = el.scrollHeight;
+  }
+
+  // Parse a CLEAR-A-PATH email subject. Returns { kind, ...fields } or null.
+  function parseClearAPathSubject(subject) {
+    if (!subject) return null;
+    // Strip leading "Re: ", "Fwd: " etc.
+    const cleaned = subject.replace(/^(re:|fwd:|fw:)\s+/i, '').trim();
+    if (!/clear[\s-]?a[\s-]?path/i.test(cleaned)) return null;
+
+    // === New Hire ===
+    // Format: CLEAR-A-PATH: New Hire | <date> | <name> | <company> - <type>
+    let m = cleaned.match(/clear[\s-]?a[\s-]?path:?\s*new\s+hire\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*(.+?)\s*-\s*(expansion|replacement|new\s+client)\s*$/i);
+    if (m) {
+      return {
+        kind: 'hire',
+        startDate: m[1].trim(),
+        starterName: m[2].trim(),
+        companyName: m[3].trim().replace(/\s+/g, ' '),
+        hireType: m[4].trim().replace(/\s+/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+      };
+    }
+
+    // === Departures (many subject patterns) ===
+    // Try to detect reason + names
+    const departurePatterns = [
+      // 30-Day Resignation: ".../30-Day Resignation Notice | Name [| Company]"
+      { re: /clear[\s-]?a[\s-]?path:?\s*30[\s-]day\s+resignation(?:\s+notice)?\s*\|\s*([^|]+?)(?:\s*\|\s*(.+?))?\s*$/i, reason: 'Resignation' },
+      // 30 Days Resignation: "30 Days Resignation | Name | Company"
+      { re: /clear[\s-]?a[\s-]?path:?\s*30\s+days?\s+resignation\s*\|\s*([^|]+?)(?:\s*\|\s*(.+?))?\s*$/i, reason: 'Resignation' },
+      // Immediate Resignation
+      { re: /clear[\s-]?a[\s-]?path:?\s*immediate\s+resignation\s*\|\s*([^|]+?)(?:\s*\|\s*(.+?))?\s*$/i, reason: 'Immediate Resignation' },
+      // Voluntary Resignation
+      { re: /clear[\s-]?a[\s-]?path:?\s*voluntary\s+resignation(?:\s*-\s*[^|]*)?\s*\|\s*([^|]+?)(?:\s*\|\s*(.+?))?\s*$/i, reason: 'Voluntary Resignation' },
+      // EOPE / End of Probationary Employment
+      { re: /clear[\s-]?a[\s-]?path:?\s*(?:end\s+of\s+contract\s*-\s*)?(?:eope|end\s+of\s+probationary\s+employment)[^|]*\|\s*([^|]+?)(?:\s*\|\s*(.+?))?\s*$/i, reason: 'End of Contract' },
+      // End of Contract (various forms)
+      { re: /clear[\s-]?a[\s-]?path:?\s*end\s+of\s+contract[^|]*\|\s*([^|]+?)(?:\s*\|\s*(.+?))?\s*$/i, reason: 'End of Contract' },
+      // End of Contract/MSA: "End of contract/MSA | Company | Name"
+      { re: /clear[\s-]?a[\s-]?path:?\s*end\s+of\s+contract\/msa\s*\|\s*([^|]+?)\s*\|\s*(.+?)\s*$/i, reason: 'End of Contract', swap: true }
+    ];
+
+    for (const p of departurePatterns) {
+      m = cleaned.match(p.re);
+      if (m) {
+        let name = m[1].trim();
+        let company = (m[2] || '').trim();
+        if (p.swap) { const t = name; name = company; company = t; }
+        return { kind: 'departure', name, company, reason: p.reason };
+      }
+    }
+
+    return null;
+  }
+
+  // Fetch the Starters Tracker file ID (cached in MS settings after first lookup).
+  // Uses Microsoft Search API which scans ALL SharePoint sites + OneDrives the
+  // user has access to — finds the Tracker even when it lives in someone else's
+  // site (like /sites/Discovery2/).
+  async function getTrackerFileRef() {
+    let settings = getMSSettings();
+    if (settings.trackerDriveId && settings.trackerItemId) {
+      return { driveId: settings.trackerDriveId, itemId: settings.trackerItemId };
+    }
+
+    // 1. Try Microsoft Search API (broadest reach)
+    try {
+      const r = await graphFetch('/search/query', {
+        method: 'POST',
+        body: {
+          requests: [{
+            entityTypes: ['driveItem'],
+            query: { queryString: 'filename:"' + TRACKER_FILE_NAME + '"' },
+            size: 10
+          }]
+        }
+      });
+      const hitsContainers = r.value && r.value[0] && r.value[0].hitsContainers;
+      const hits = hitsContainers && hitsContainers[0] && hitsContainers[0].hits;
+      if (hits) {
+        for (const hit of hits) {
+          const res = hit.resource || {};
+          if (res.name === TRACKER_FILE_NAME && res.parentReference && res.parentReference.driveId) {
+            settings.trackerDriveId = res.parentReference.driveId;
+            settings.trackerItemId = res.id;
+            localStorage.setItem(MS_SETTINGS_KEY, JSON.stringify(settings));
+            return { driveId: res.parentReference.driveId, itemId: res.id };
+          }
+        }
+      }
+    } catch (_) { /* fall through to legacy searches */ }
+
+    // 2. Fallback: search personal OneDrive
+    try {
+      const r = await graphFetch('/me/drive/root/search(q=\'' + encodeURIComponent(TRACKER_FILE_NAME) + '\')?$select=id,name,parentReference&$top=10');
+      const file = (r.value || []).find(f => f.name === TRACKER_FILE_NAME);
+      if (file) {
+        const driveId = file.parentReference && file.parentReference.driveId;
+        if (driveId) {
+          settings.trackerDriveId = driveId;
+          settings.trackerItemId = file.id;
+          localStorage.setItem(MS_SETTINGS_KEY, JSON.stringify(settings));
+          return { driveId, itemId: file.id };
+        }
+      }
+    } catch (_) {}
+
+    // 3. Fallback: shared with me
+    try {
+      const r2 = await graphFetch('/me/drive/sharedWithMe?$top=999');
+      const file = (r2.value || []).find(f => f.name === TRACKER_FILE_NAME);
+      if (file) {
+        const driveId = file.remoteItem && file.remoteItem.parentReference && file.remoteItem.parentReference.driveId;
+        const itemId = (file.remoteItem && file.remoteItem.id) || file.id;
+        if (driveId && itemId) {
+          settings.trackerDriveId = driveId;
+          settings.trackerItemId = itemId;
+          localStorage.setItem(MS_SETTINGS_KEY, JSON.stringify(settings));
+          return { driveId, itemId };
+        }
+      }
+    } catch (_) {}
+
+    throw new Error('GoTeam Starters Tracker not found via Search API. Open the file once in your browser (visiting it grants implicit access), then retry. If still failing, paste the file URL in MS365 Settings — I can add a manual override.');
+  }
+
+  // Build a Name → Employee ID map by reading recent sheets of the Tracker.
+  async function buildEmployeeIdMap() {
+    const { driveId, itemId } = await getTrackerFileRef();
+    // List worksheets
+    const ws = await graphFetch('/drives/' + driveId + '/items/' + itemId + '/workbook/worksheets?$select=id,name');
+    const sheets = (ws.value || []);
+    // Filter to sheets that look like date ranges (May, Jun, Jul...)
+    const recent = sheets.filter(s => /^(may|jun|jul|aug|sep|apr)\b/i.test(s.name)).slice(0, 8);
+
+    const idMap = new Map(); // lowercase name → id
+    for (const sheet of recent) {
+      try {
+        const range = await graphFetch('/drives/' + driveId + '/items/' + itemId + '/workbook/worksheets/' + encodeURIComponent(sheet.name) + '/usedRange?$select=values');
+        const rows = range.values || [];
+        for (const row of rows) {
+          if (!row || row.length < 3) continue;
+          const id = row[1]; // Column B
+          const name = row[2]; // Column C
+          if (typeof id === 'number' && typeof name === 'string' && name.trim().length > 0) {
+            idMap.set(name.trim().toLowerCase(), String(id));
+          } else if (typeof id === 'string' && /^\d{3,5}$/.test(id) && typeof name === 'string' && name.trim().length > 0) {
+            idMap.set(name.trim().toLowerCase(), id);
+          }
+        }
+      } catch (e) {
+        // skip this sheet
+      }
+    }
+    return idMap;
+  }
+
+  async function autoRefreshFromGraph() {
+    if (!msalAccount) {
+      showToast('Sign in via the sidebar first');
+      return;
+    }
+    const days = parseInt(document.getElementById('graphRefreshDays').value, 10) || 30;
+    const lookupIDs = document.getElementById('graphRefreshIDs').checked;
+
+    document.getElementById('graphRefreshLog').innerHTML = '';
+    document.getElementById('graphRefreshPreview').style.display = 'none';
+    gfLog('Searching Outlook for CLEAR-A-PATH emails in the last ' + days + ' days...', '#60a5fa');
+
+    try {
+      const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+      const url = "/me/messages?$filter=receivedDateTime ge " + since +
+                  "&$search=\"CLEAR-A-PATH\"&$top=50&$select=subject,receivedDateTime,bodyPreview";
+      // $filter + $search combo isn't allowed by Graph — use search alone, then filter client-side
+      const r = await graphFetch("/me/messages?$search=\"CLEAR-A-PATH\"&$top=50&$select=subject,receivedDateTime,bodyPreview");
+      const sinceMs = Date.now() - days * 24 * 60 * 60 * 1000;
+      const msgs = (r.value || []).filter(m => new Date(m.receivedDateTime).getTime() >= sinceMs);
+      gfLog('Found ' + msgs.length + ' CLEAR-A-PATH email(s) within window.', '#22c55e');
+
+      // Parse subjects
+      const proposedHires = [];
+      const proposedDepartures = [];
+      const seenHire = new Set();
+      const seenDeparture = new Set();
+
+      for (const m of msgs) {
+        const parsed = parseClearAPathSubject(m.subject);
+        if (!parsed) continue;
+        if (parsed.kind === 'hire') {
+          const key = parsed.starterName.toLowerCase();
+          if (seenHire.has(key)) continue;
+          // Skip if already in state
+          if (state.hires.some(h => hireKey(h) === key)) continue;
+          seenHire.add(key);
+          // Normalize date
+          let isoDate = '';
+          try {
+            const d = new Date(parsed.startDate);
+            if (!isNaN(d)) isoDate = d.toISOString().slice(0, 10);
+          } catch (_) {}
+          proposedHires.push({
+            starterName: parsed.starterName,
+            nickname: parsed.starterName.split(' ')[0],
+            position: 'TBD',
+            phShiftSchedule: 'TBD',
+            companyName: parsed.companyName,
+            hireType: parsed.hireType,
+            startDate: isoDate,
+            status: 'Pending',
+            source: { subject: m.subject, received: m.receivedDateTime }
+          });
+        } else if (parsed.kind === 'departure') {
+          const key = parsed.name.toLowerCase();
+          if (seenDeparture.has(key)) continue;
+          if (state.departures.some(d => departureKey(d) === key)) continue;
+          seenDeparture.add(key);
+          const receivedDate = m.receivedDateTime ? m.receivedDateTime.slice(0, 10) : '';
+          // Default last day based on reason
+          let lastDay = receivedDate;
+          if (parsed.reason === 'Resignation' || parsed.reason === 'Voluntary Resignation') {
+            const d = new Date(receivedDate); d.setDate(d.getDate() + 30);
+            lastDay = d.toISOString().slice(0, 10);
+          } else if (parsed.reason === 'End of Contract') {
+            const d = new Date(receivedDate); d.setDate(d.getDate() + 30);
+            lastDay = d.toISOString().slice(0, 10);
+          } else if (parsed.reason === 'Immediate Resignation') {
+            lastDay = receivedDate;
+          }
+          proposedDepartures.push({
+            name: parsed.name,
+            company: parsed.company || '',
+            lastDay,
+            reason: parsed.reason,
+            noticeDate: receivedDate,
+            status: parsed.reason === 'Immediate Resignation' ? 'Asset Return' : 'Notice Period',
+            lastDayEstimated: true,
+            checklist: defaultExitChecklist(),
+            source: { subject: m.subject, received: m.receivedDateTime }
+          });
+        }
+      }
+
+      gfLog('Parsed ' + proposedHires.length + ' new hire(s) and ' + proposedDepartures.length + ' new departure(s).', '#22c55e');
+
+      // Optional: lookup Employee IDs
+      if (lookupIDs && proposedHires.length > 0) {
+        gfLog('Building Employee ID map from Starters Tracker...', '#60a5fa');
+        try {
+          const idMap = await buildEmployeeIdMap();
+          gfLog('  Indexed ' + idMap.size + ' name(s) from the Tracker.', '#22c55e');
+          let hits = 0;
+          proposedHires.forEach(h => {
+            const id = idMap.get(h.starterName.trim().toLowerCase());
+            if (id) { h.hcId = id; hits++; }
+          });
+          gfLog('  Matched ' + hits + '/' + proposedHires.length + ' starter(s) to Employee IDs.', hits > 0 ? '#22c55e' : '#fbbf24');
+        } catch (e) {
+          gfLog('  [WARN] Tracker lookup skipped — ' + e.message, '#fbbf24');
+        }
+      }
+
+      // Render preview with checkboxes
+      renderRefreshPreview(proposedHires, proposedDepartures);
+    } catch (e) {
+      gfLog('[FAIL] ' + e.message, '#ef4444');
+      console.error(e);
+    }
+  }
+
+  function renderRefreshPreview(hires, departures) {
+    const el = document.getElementById('graphRefreshPreview');
+    if (hires.length === 0 && departures.length === 0) {
+      el.style.display = 'block';
+      el.innerHTML = '<div style="padding:12px;background:#ecfdf5;border:1px solid #6ee7b7;border-radius:8px;font-size:12px;color:#065f46;">No new starters or departures found — your dashboard is up to date with the inbox.</div>';
+      return;
+    }
+
+    let html = '<div style="padding:12px;background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;margin-bottom:8px;font-size:12px;color:#1e40af;line-height:1.5;"><strong>' + (hires.length + departures.length) + ' new item(s) found.</strong> Review and uncheck any you do not want to add, then click "Add Selected to Dashboard".</div>';
+
+    if (hires.length > 0) {
+      html += '<h5 style="font-size:13px;margin:12px 0 6px;color:var(--text);">New Hires (' + hires.length + ')</h5>';
+      html += '<div style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">';
+      html += '<table style="width:100%;border-collapse:collapse;font-size:12px;"><thead style="background:#f8fafc;"><tr>' +
+              '<th style="padding:6px;text-align:left;width:30px;"><input type="checkbox" id="gfHireAll" checked onchange="document.querySelectorAll(\'.gfHireCb\').forEach(c => c.checked = this.checked);" /></th>' +
+              '<th style="padding:6px;text-align:left;">Name</th>' +
+              '<th style="padding:6px;text-align:left;">Start Date</th>' +
+              '<th style="padding:6px;text-align:left;">Company</th>' +
+              '<th style="padding:6px;text-align:left;">Type</th>' +
+              '<th style="padding:6px;text-align:left;">Employee ID</th>' +
+              '</tr></thead><tbody>';
+      hires.forEach((h, i) => {
+        html += '<tr style="border-top:1px solid #e2e8f0;">' +
+                '<td style="padding:6px;"><input type="checkbox" class="gfHireCb" data-idx="' + i + '" checked /></td>' +
+                '<td style="padding:6px;">' + escapeHtml(h.starterName) + '</td>' +
+                '<td style="padding:6px;">' + escapeHtml(h.startDate || '?') + '</td>' +
+                '<td style="padding:6px;">' + escapeHtml(h.companyName) + '</td>' +
+                '<td style="padding:6px;">' + escapeHtml(h.hireType) + '</td>' +
+                '<td style="padding:6px;">' + (h.hcId ? escapeHtml(h.hcId) : '<span style="color:#94a3b8;">—</span>') + '</td>' +
+                '</tr>';
+      });
+      html += '</tbody></table></div>';
+    }
+    if (departures.length > 0) {
+      html += '<h5 style="font-size:13px;margin:12px 0 6px;color:var(--text);">New Departures (' + departures.length + ')</h5>';
+      html += '<div style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">';
+      html += '<table style="width:100%;border-collapse:collapse;font-size:12px;"><thead style="background:#f8fafc;"><tr>' +
+              '<th style="padding:6px;text-align:left;width:30px;"><input type="checkbox" id="gfDepAll" checked onchange="document.querySelectorAll(\'.gfDepCb\').forEach(c => c.checked = this.checked);" /></th>' +
+              '<th style="padding:6px;text-align:left;">Name</th>' +
+              '<th style="padding:6px;text-align:left;">Last Day (est.)</th>' +
+              '<th style="padding:6px;text-align:left;">Company</th>' +
+              '<th style="padding:6px;text-align:left;">Reason</th>' +
+              '</tr></thead><tbody>';
+      departures.forEach((d, i) => {
+        html += '<tr style="border-top:1px solid #e2e8f0;">' +
+                '<td style="padding:6px;"><input type="checkbox" class="gfDepCb" data-idx="' + i + '" checked /></td>' +
+                '<td style="padding:6px;">' + escapeHtml(d.name) + '</td>' +
+                '<td style="padding:6px;">' + escapeHtml(d.lastDay) + '</td>' +
+                '<td style="padding:6px;">' + escapeHtml(d.company) + '</td>' +
+                '<td style="padding:6px;">' + escapeHtml(d.reason) + '</td>' +
+                '</tr>';
+      });
+      html += '</tbody></table></div>';
+    }
+    html += '<div style="margin-top:10px;display:flex;gap:8px;">' +
+            '<button class="btn btn-primary" onclick="commitRefreshPreview()">Add Selected to Dashboard</button>' +
+            '<button class="btn btn-secondary" onclick="document.getElementById(\'graphRefreshPreview\').style.display=\'none\';">Discard</button>' +
+            '</div>';
+
+    el.style.display = 'block';
+    el.innerHTML = html;
+    // Stash items on window for commitRefreshPreview
+    window.__refreshPending = { hires, departures };
+  }
+
+  function commitRefreshPreview() {
+    const pending = window.__refreshPending || { hires: [], departures: [] };
+    const selectedHires = [];
+    const selectedDeps = [];
+    document.querySelectorAll('.gfHireCb:checked').forEach(cb => {
+      const idx = parseInt(cb.dataset.idx, 10);
+      if (pending.hires[idx]) selectedHires.push(pending.hires[idx]);
+    });
+    document.querySelectorAll('.gfDepCb:checked').forEach(cb => {
+      const idx = parseInt(cb.dataset.idx, 10);
+      if (pending.departures[idx]) selectedDeps.push(pending.departures[idx]);
+    });
+
+    // Assign local IDs and add to state
+    const maxHireId = state.hires.reduce((m, h) => Math.max(m, h.id || 0), 0);
+    selectedHires.forEach((h, i) => { h.id = maxHireId + 1 + i; state.hires.push(h); });
+    const maxDepId = state.departures.reduce((m, d) => Math.max(m, d.id || 0), 0);
+    selectedDeps.forEach((d, i) => { d.id = maxDepId + 1 + i; state.departures.push(d); });
+
+    save();
+    renderHires();
+    renderDepartures();
+    populateAssignDropdowns();
+
+    document.getElementById('graphRefreshPreview').style.display = 'none';
+    gfLog('Added ' + selectedHires.length + ' hire(s) and ' + selectedDeps.length + ' departure(s) to local state.', '#22c55e');
+    gfLog('Open MS365 Settings → Push Local Changes to sync them to SharePoint.', '#fbbf24');
+    showToast('Added ' + (selectedHires.length + selectedDeps.length) + ' item(s). Push to SharePoint to share.');
+  }
   // ============================================================
   // End Microsoft Graph integration
   // ============================================================
