@@ -559,7 +559,7 @@
       </div>
       <div id="ms365GraphResults" style="display:none;margin-top:14px;padding:12px;background:#0f172a;color:#e2e8f0;border-radius:8px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;line-height:1.6;max-height:280px;overflow-y:auto;"></div>
       <div style="margin-top:14px;padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#854d0e;line-height:1.5;">
-        <strong>Format notes:</strong> UPN is <code>firstname.lastname@go.team</code> (lowercase). Department is <code>Internal</code> for GoTeam hires, otherwise <code>Morning</code> or <code>Night</code> based on PH shift start time. License SKU is <code>O365_BUSINESS_ESSENTIALS</code> for Internal, <code>DESKLESSPACK</code> for client-assigned. Passwords are 8 alphanumeric chars (no <code>I l 1 O 0</code>), regenerated each time the modal opens — save the CSV before closing. <strong>PowerShell script also enforces MFA</strong> by adding each user to the security group <code>MFA-Enforced Users</code> (configurable; must exist and be targeted by a Conditional Access policy). When PowerShell mode is active, an extra <strong>Open PowerShell as Admin</strong> button appears — click it to copy an elevation command to your clipboard. Press <kbd>Win+R</kbd>, paste with <kbd>Ctrl+V</kbd>, hit Enter, accept UAC — and an elevated PowerShell window opens.
+        <strong>Format notes:</strong> UPN is <code>firstname.lastname@go.team</code> (lowercase). Department is <code>Internal</code> for GoTeam hires, otherwise <code>Morning</code> or <code>Night</code> based on PH shift start time. License SKU is <code>O365_BUSINESS_ESSENTIALS</code> for Internal, <code>M365_F1_COMM</code> (Microsoft 365 F1) for client-assigned. Passwords are 8 alphanumeric chars (no <code>I l 1 O 0</code>), regenerated each time the modal opens — save the CSV before closing. <strong>PowerShell script also enforces MFA</strong> by adding each user to the security group <code>MFA-Enforced Users</code> (configurable; must exist and be targeted by a Conditional Access policy). When PowerShell mode is active, an extra <strong>Open PowerShell as Admin</strong> button appears — click it to copy an elevation command to your clipboard. Press <kbd>Win+R</kbd>, paste with <kbd>Ctrl+V</kbd>, hit Enter, accept UAC — and an elevated PowerShell window opens.
       </div>
     </div>
     <div class="modal-footer">
@@ -662,9 +662,9 @@
           <p style="font-size:11px;color:var(--muted);margin-top:4px;">For GoTeam internal staff. Get via Graph: <code>GET /subscribedSkus</code></p>
         </div>
         <div class="form-group">
-          <label>F3/Frontline License SKU ID (Client)</label>
-          <input type="text" id="msSkuClient" placeholder="66b55226-6b4f-492c-910c-a3b7a3c9d993" />
-          <p style="font-size:11px;color:var(--muted);margin-top:4px;">For client-assigned staff (DESKLESSPACK / F3)</p>
+          <label>F1 License SKU ID (Client)</label>
+          <input type="text" id="msSkuClient" placeholder="44575f6b-c4a4-4ad3-9adb-32bf736bce32" />
+          <p style="font-size:11px;color:var(--muted);margin-top:4px;">For client-assigned staff (Microsoft 365 F1 / <code>M365_F1_COMM</code>)</p>
         </div>
       </div>
       <div style="margin-top:14px;padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#854d0e;line-height:1.5;">
@@ -803,7 +803,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-  const STORAGE_KEY = 'goteam-ums-v59';
+  const STORAGE_KEY = 'goteam-ums-v62';
   // Updated by Claude on each "refresh the dashboard" run; static between refreshes.
   const DATA_AS_OF = 'May 28, 2026 (refreshed)';
 
@@ -1766,6 +1766,45 @@
   // GoTeam Starters Tracker file location (cached after first lookup)
   const TRACKER_FILE_NAME = 'GoTeam Starters Tracker & Checklist Nov 2022 Onwards.xlsx';
 
+  // Parse human-readable dates like "June 15, 2026" → "2026-06-15" without
+  // tripping over local timezone. JavaScript's Date parser interprets a date
+  // string as local midnight, but toISOString() converts to UTC — in PHT
+  // (UTC+8) that subtracts 8 hours and shifts the calendar date back by one.
+  function parseEmailDate(s) {
+    if (!s) return '';
+    const months = ['january','february','march','april','may','june','july','august','september','october','november','december'];
+    const m = String(s).trim().match(/([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})/);
+    if (m) {
+      const monthIdx = months.indexOf(m[1].toLowerCase());
+      if (monthIdx >= 0) {
+        const day = parseInt(m[2], 10);
+        const year = parseInt(m[3], 10);
+        return year + '-' + String(monthIdx + 1).padStart(2, '0') + '-' + String(day).padStart(2, '0');
+      }
+    }
+    // Already ISO?
+    const iso = String(s).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) return iso[1] + '-' + iso[2] + '-' + iso[3];
+    // Fallback — try Date but read local components (avoids ISO TZ shift)
+    try {
+      const d = new Date(s);
+      if (!isNaN(d)) {
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      }
+    } catch (_) {}
+    return '';
+  }
+
+  // Add days to a YYYY-MM-DD string using UTC arithmetic so DST/TZ never matters.
+  function addDays(isoStr, days) {
+    if (!isoStr) return '';
+    const parts = String(isoStr).split('-').map(n => parseInt(n, 10));
+    if (parts.length < 3 || parts.some(isNaN)) return '';
+    const dt = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+    dt.setUTCDate(dt.getUTCDate() + days);
+    return dt.getUTCFullYear() + '-' + String(dt.getUTCMonth() + 1).padStart(2, '0') + '-' + String(dt.getUTCDate()).padStart(2, '0');
+  }
+
   function gfLog(msg, color) {
     const el = document.getElementById('graphRefreshLog');
     el.style.display = 'block';
@@ -1955,8 +1994,10 @@
       // Parse subjects
       const proposedHires = [];
       const proposedDepartures = [];
+      const proposedUpdates = []; // { entityType, target, name, changes:[{field,oldValue,newValue,note}] }
       const seenHire = new Set();
       const seenDeparture = new Set();
+      const seenUpdateKey = new Set();
 
       for (const m of msgs) {
         const parsed = parseClearAPathSubject(m.subject);
@@ -1964,15 +2005,32 @@
         if (parsed.kind === 'hire') {
           const key = parsed.starterName.toLowerCase();
           if (seenHire.has(key)) continue;
-          // Skip if already in state
-          if (state.hires.some(h => hireKey(h) === key)) continue;
+          // If already in state, check for differences (reschedules, type changes, etc.)
+          const existing = state.hires.find(h => hireKey(h) === key);
+          if (existing) {
+            if (seenUpdateKey.has('hire:' + key)) continue;
+            seenUpdateKey.add('hire:' + key);
+            const changes = [];
+            const newDate = parseEmailDate(parsed.startDate);
+            if (newDate && existing.startDate !== newDate) {
+              changes.push({ field: 'startDate', oldValue: existing.startDate || '(blank)', newValue: newDate, note: 'Reschedule detected from email' });
+            }
+            const newType = parsed.hireType;
+            if (newType && existing.hireType !== newType) {
+              changes.push({ field: 'hireType', oldValue: existing.hireType || '(blank)', newValue: newType });
+            }
+            const newCompany = parsed.companyName;
+            if (newCompany && existing.companyName !== newCompany) {
+              changes.push({ field: 'companyName', oldValue: existing.companyName || '(blank)', newValue: newCompany });
+            }
+            if (changes.length > 0) {
+              proposedUpdates.push({ entityType: 'hire', target: existing, name: existing.starterName, changes });
+            }
+            continue;
+          }
           seenHire.add(key);
-          // Normalize date
-          let isoDate = '';
-          try {
-            const d = new Date(parsed.startDate);
-            if (!isNaN(d)) isoDate = d.toISOString().slice(0, 10);
-          } catch (_) {}
+          // Normalize date (timezone-safe parsing)
+          const isoDate = parseEmailDate(parsed.startDate);
           proposedHires.push({
             starterName: parsed.starterName,
             nickname: parsed.starterName.split(' ')[0],
@@ -1987,17 +2045,29 @@
         } else if (parsed.kind === 'departure') {
           const key = parsed.name.toLowerCase();
           if (seenDeparture.has(key)) continue;
-          if (state.departures.some(d => departureKey(d) === key)) continue;
+          // If already in state, check for changes (reason / company differences)
+          const existingDep = state.departures.find(d => departureKey(d) === key);
+          if (existingDep) {
+            if (seenUpdateKey.has('dep:' + key)) continue;
+            seenUpdateKey.add('dep:' + key);
+            const changes = [];
+            if (parsed.reason && existingDep.reason !== parsed.reason) {
+              changes.push({ field: 'reason', oldValue: existingDep.reason || '(blank)', newValue: parsed.reason });
+            }
+            if (parsed.company && existingDep.company !== parsed.company) {
+              changes.push({ field: 'company', oldValue: existingDep.company || '(blank)', newValue: parsed.company });
+            }
+            if (changes.length > 0) {
+              proposedUpdates.push({ entityType: 'departure', target: existingDep, name: existingDep.name, changes });
+            }
+            continue;
+          }
           seenDeparture.add(key);
           const receivedDate = m.receivedDateTime ? m.receivedDateTime.slice(0, 10) : '';
-          // Default last day based on reason
+          // Default last day based on reason (timezone-safe arithmetic)
           let lastDay = receivedDate;
-          if (parsed.reason === 'Resignation' || parsed.reason === 'Voluntary Resignation') {
-            const d = new Date(receivedDate); d.setDate(d.getDate() + 30);
-            lastDay = d.toISOString().slice(0, 10);
-          } else if (parsed.reason === 'End of Contract') {
-            const d = new Date(receivedDate); d.setDate(d.getDate() + 30);
-            lastDay = d.toISOString().slice(0, 10);
+          if (parsed.reason === 'Resignation' || parsed.reason === 'Voluntary Resignation' || parsed.reason === 'End of Contract') {
+            lastDay = addDays(receivedDate, 30);
           } else if (parsed.reason === 'Immediate Resignation') {
             lastDay = receivedDate;
           }
@@ -2015,42 +2085,65 @@
         }
       }
 
-      gfLog('Parsed ' + proposedHires.length + ' new hire(s) and ' + proposedDepartures.length + ' new departure(s).', '#22c55e');
+      gfLog('Parsed ' + proposedHires.length + ' new hire(s), ' + proposedDepartures.length + ' new departure(s), ' + proposedUpdates.length + ' update(s) to existing records.', '#22c55e');
 
-      // Optional: lookup Employee IDs
-      if (lookupIDs && proposedHires.length > 0) {
+      // Optional: lookup Employee IDs from the Starters Tracker.
+      // Applies to BOTH new proposed hires AND existing state.hires that are
+      // missing an hcId — common case: a starter was added before the Tracker
+      // recorded their ID. Re-running auto-refresh backfills it.
+      if (lookupIDs && (proposedHires.length > 0 || state.hires.some(h => !h.hcId))) {
         gfLog('Building Employee ID map from Starters Tracker...', '#60a5fa');
         try {
           const idMap = await buildEmployeeIdMap();
           gfLog('  Indexed ' + idMap.size + ' name(s) from the Tracker.', '#22c55e');
-          let hits = 0;
+          // Apply to new proposed hires
+          let newHits = 0;
           proposedHires.forEach(h => {
             const id = idMap.get(h.starterName.trim().toLowerCase());
-            if (id) { h.hcId = id; hits++; }
+            if (id) { h.hcId = id; newHits++; }
           });
-          gfLog('  Matched ' + hits + '/' + proposedHires.length + ' starter(s) to Employee IDs.', hits > 0 ? '#22c55e' : '#fbbf24');
+          gfLog('  Matched ' + newHits + '/' + proposedHires.length + ' new starter(s) to Employee IDs.', newHits > 0 ? '#22c55e' : '#fbbf24');
+          // Apply to existing hires (backfill missing/changed IDs)
+          let existingHits = 0;
+          state.hires.forEach(h => {
+            const id = idMap.get(h.starterName.trim().toLowerCase());
+            if (id && h.hcId !== id) {
+              const existingUpdate = proposedUpdates.find(u => u.entityType === 'hire' && u.target === h);
+              const change = { field: 'hcId', oldValue: h.hcId || '(blank)', newValue: id, note: 'From Starters Tracker' };
+              if (existingUpdate) {
+                existingUpdate.changes.push(change);
+              } else {
+                proposedUpdates.push({ entityType: 'hire', target: h, name: h.starterName, changes: [change] });
+              }
+              existingHits++;
+            }
+          });
+          gfLog('  Found ' + existingHits + ' existing starter(s) with missing/changed Employee IDs.', existingHits > 0 ? '#22c55e' : '#fbbf24');
         } catch (e) {
           gfLog('  [WARN] Tracker lookup skipped — ' + e.message, '#fbbf24');
         }
       }
 
       // Render preview with checkboxes
-      renderRefreshPreview(proposedHires, proposedDepartures);
+      renderRefreshPreview(proposedHires, proposedDepartures, proposedUpdates);
     } catch (e) {
       gfLog('[FAIL] ' + e.message, '#ef4444');
       console.error(e);
     }
   }
 
-  function renderRefreshPreview(hires, departures) {
+  function renderRefreshPreview(hires, departures, updates) {
+    updates = updates || [];
     const el = document.getElementById('graphRefreshPreview');
-    if (hires.length === 0 && departures.length === 0) {
+    if (hires.length === 0 && departures.length === 0 && updates.length === 0) {
       el.style.display = 'block';
-      el.innerHTML = '<div style="padding:12px;background:#ecfdf5;border:1px solid #6ee7b7;border-radius:8px;font-size:12px;color:#065f46;">No new starters or departures found — your dashboard is up to date with the inbox.</div>';
+      el.innerHTML = '<div style="padding:12px;background:#ecfdf5;border:1px solid #6ee7b7;border-radius:8px;font-size:12px;color:#065f46;">No new starters, departures, or updates found — your dashboard is up to date with the inbox.</div>';
       return;
     }
 
-    let html = '<div style="padding:12px;background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;margin-bottom:8px;font-size:12px;color:#1e40af;line-height:1.5;"><strong>' + (hires.length + departures.length) + ' new item(s) found.</strong> Review and uncheck any you do not want to add, then click "Add Selected to Dashboard".</div>';
+    let html = '<div style="padding:12px;background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;margin-bottom:8px;font-size:12px;color:#1e40af;line-height:1.5;"><strong>' + (hires.length + departures.length) + ' new item(s)';
+    if (updates.length > 0) html += ' and ' + updates.length + ' update(s) to existing records';
+    html += ' found.</strong> Review and uncheck any you do not want to apply, then click the apply button below.</div>';
 
     if (hires.length > 0) {
       html += '<h5 style="font-size:13px;margin:12px 0 6px;color:var(--text);">New Hires (' + hires.length + ')</h5>';
@@ -2096,21 +2189,46 @@
       });
       html += '</tbody></table></div>';
     }
+    if (updates.length > 0) {
+      html += '<h5 style="font-size:13px;margin:12px 0 6px;color:var(--text);">Updates to Existing Records (' + updates.length + ')</h5>';
+      html += '<div style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">';
+      html += '<table style="width:100%;border-collapse:collapse;font-size:12px;"><thead style="background:#f8fafc;"><tr>' +
+              '<th style="padding:6px;text-align:left;width:30px;"><input type="checkbox" id="gfUpdAll" checked onchange="document.querySelectorAll(\'.gfUpdCb\').forEach(c => c.checked = this.checked);" /></th>' +
+              '<th style="padding:6px;text-align:left;">Name</th>' +
+              '<th style="padding:6px;text-align:left;">Type</th>' +
+              '<th style="padding:6px;text-align:left;">Changes</th>' +
+              '</tr></thead><tbody>';
+      updates.forEach((u, i) => {
+        const changesHtml = u.changes.map(c => {
+          const noteText = c.note ? ' <span style="color:#94a3b8;font-style:italic;">— ' + escapeHtml(c.note) + '</span>' : '';
+          return '<div><strong>' + escapeHtml(c.field) + ':</strong> <span style="color:#94a3b8;text-decoration:line-through;">' + escapeHtml(String(c.oldValue)) + '</span> → <span style="color:#16a34a;">' + escapeHtml(String(c.newValue)) + '</span>' + noteText + '</div>';
+        }).join('');
+        html += '<tr style="border-top:1px solid #e2e8f0;">' +
+                '<td style="padding:6px;"><input type="checkbox" class="gfUpdCb" data-idx="' + i + '" checked /></td>' +
+                '<td style="padding:6px;">' + escapeHtml(u.name) + '</td>' +
+                '<td style="padding:6px;text-transform:capitalize;">' + escapeHtml(u.entityType) + '</td>' +
+                '<td style="padding:6px;">' + changesHtml + '</td>' +
+                '</tr>';
+      });
+      html += '</tbody></table></div>';
+    }
+
     html += '<div style="margin-top:10px;display:flex;gap:8px;">' +
-            '<button class="btn btn-primary" onclick="commitRefreshPreview()">Add Selected to Dashboard</button>' +
+            '<button class="btn btn-primary" onclick="commitRefreshPreview()">Apply Selected Changes</button>' +
             '<button class="btn btn-secondary" onclick="document.getElementById(\'graphRefreshPreview\').style.display=\'none\';">Discard</button>' +
             '</div>';
 
     el.style.display = 'block';
     el.innerHTML = html;
     // Stash items on window for commitRefreshPreview
-    window.__refreshPending = { hires, departures };
+    window.__refreshPending = { hires, departures, updates };
   }
 
   function commitRefreshPreview() {
-    const pending = window.__refreshPending || { hires: [], departures: [] };
+    const pending = window.__refreshPending || { hires: [], departures: [], updates: [] };
     const selectedHires = [];
     const selectedDeps = [];
+    const selectedUpdates = [];
     document.querySelectorAll('.gfHireCb:checked').forEach(cb => {
       const idx = parseInt(cb.dataset.idx, 10);
       if (pending.hires[idx]) selectedHires.push(pending.hires[idx]);
@@ -2119,12 +2237,34 @@
       const idx = parseInt(cb.dataset.idx, 10);
       if (pending.departures[idx]) selectedDeps.push(pending.departures[idx]);
     });
+    document.querySelectorAll('.gfUpdCb:checked').forEach(cb => {
+      const idx = parseInt(cb.dataset.idx, 10);
+      if (pending.updates && pending.updates[idx]) selectedUpdates.push(pending.updates[idx]);
+    });
 
-    // Assign local IDs and add to state
+    // Assign local IDs and add to state (NEW items)
     const maxHireId = state.hires.reduce((m, h) => Math.max(m, h.id || 0), 0);
     selectedHires.forEach((h, i) => { h.id = maxHireId + 1 + i; state.hires.push(h); });
     const maxDepId = state.departures.reduce((m, d) => Math.max(m, d.id || 0), 0);
     selectedDeps.forEach((d, i) => { d.id = maxDepId + 1 + i; state.departures.push(d); });
+
+    // Apply UPDATES to existing items
+    let appliedUpdates = 0;
+    selectedUpdates.forEach(u => {
+      if (!u.target) return;
+      u.changes.forEach(c => {
+        // Record reschedule metadata when startDate changes
+        if (c.field === 'startDate' && u.entityType === 'hire') {
+          if (!u.target.rescheduledFrom) u.target.rescheduledFrom = u.target.startDate;
+          u.target.rescheduleDate = new Date().toISOString().slice(0, 10);
+          u.target.rescheduleNote = u.target.rescheduleNote || ('Detected via email re-parse: was ' + (c.oldValue || '(blank)') + ', now ' + c.newValue);
+        }
+        u.target[c.field] = c.newValue;
+      });
+      // Clear spId? No — keep it so Push updates the SP record instead of creating a duplicate.
+      // The merge logic uses Title as key, but the push uses spId; we want the PATCH path.
+      appliedUpdates++;
+    });
 
     save();
     renderHires();
@@ -2132,9 +2272,9 @@
     populateAssignDropdowns();
 
     document.getElementById('graphRefreshPreview').style.display = 'none';
-    gfLog('Added ' + selectedHires.length + ' hire(s) and ' + selectedDeps.length + ' departure(s) to local state.', '#22c55e');
+    gfLog('Added ' + selectedHires.length + ' hire(s) and ' + selectedDeps.length + ' departure(s); applied ' + appliedUpdates + ' update(s) to existing records.', '#22c55e');
     gfLog('Open MS365 Settings → Push Local Changes to sync them to SharePoint.', '#fbbf24');
-    showToast('Added ' + (selectedHires.length + selectedDeps.length) + ' item(s). Push to SharePoint to share.');
+    showToast('Added ' + (selectedHires.length + selectedDeps.length) + ' new; updated ' + appliedUpdates + '. Push to SharePoint to share.');
   }
   // ============================================================
   // End Microsoft Graph integration
@@ -2548,7 +2688,7 @@
       const upn = (first + '.' + last.replace(/[\s-]+/g, '')).toLowerCase() + '@go.team';
       const isInternal = (h.companyName || '').trim().toLowerCase() === 'goteam';
       const department = isInternal ? 'Internal' : detectShiftCategory(h.phShiftSchedule);
-      const license = (department === 'Internal') ? 'O365_BUSINESS_ESSENTIALS' : 'DESKLESSPACK';
+      const license = (department === 'Internal') ? 'O365_BUSINESS_ESSENTIALS' : 'M365_F1_COMM';
       const password = passwords[i];
       rows.push([
         first,
@@ -2644,7 +2784,7 @@
       const upn = (first + '.' + last.replace(/[\s-]+/g, '')).toLowerCase() + '@go.team';
       const isInternal = (h.companyName || '').trim().toLowerCase() === 'goteam';
       const department = isInternal ? 'Internal' : detectShiftCategory(h.phShiftSchedule);
-      const license = (department === 'Internal') ? 'O365_BUSINESS_ESSENTIALS' : 'DESKLESSPACK';
+      const license = (department === 'Internal') ? 'O365_BUSINESS_ESSENTIALS' : 'M365_F1_COMM';
       const password = passwords[i];
       const sep = (i < hires.length - 1) ? ',' : '';
       lines.push('    [PSCustomObject]@{');
