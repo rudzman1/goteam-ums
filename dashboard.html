@@ -700,6 +700,10 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
           Push Local Changes
         </button>
+        <button class="btn btn-secondary" onclick="dedupeLocalAndSharePoint()" id="spDedupeBtn" style="display:none;color:#dc2626;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          Find &amp; Remove Duplicates
+        </button>
       </div>
       <div id="spProvisionLog" style="display:none;margin-top:10px;padding:12px;background:#0f172a;color:#e2e8f0;border-radius:8px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;line-height:1.6;max-height:240px;overflow-y:auto;"></div>
 
@@ -803,7 +807,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-  const STORAGE_KEY = 'goteam-ums-v62';
+  const STORAGE_KEY = 'goteam-ums-v63';
   // Updated by Claude on each "refresh the dashboard" run; static between refreshes.
   const DATA_AS_OF = 'May 28, 2026 (refreshed)';
 
@@ -867,6 +871,7 @@
       document.getElementById('spMigrateBtn').style.display = 'inline-flex';
       document.getElementById('spSyncBtn').style.display = 'inline-flex';
       document.getElementById('spPushBtn').style.display = 'inline-flex';
+      document.getElementById('spDedupeBtn').style.display = 'inline-flex';
       const status = document.getElementById('spListStatus');
       status.style.display = 'block';
       status.innerHTML = '<strong>SharePoint backend active.</strong> Lists provisioned in <code>' + (s.siteUrl || 'configured site') + '</code>. Dashboard auto-pulls on sign-in. Click <strong>Push Local Changes</strong> after edits.';
@@ -1360,6 +1365,7 @@
       document.getElementById('spMigrateBtn').style.display = 'inline-flex';
       document.getElementById('spSyncBtn').style.display = 'inline-flex';
       document.getElementById('spPushBtn').style.display = 'inline-flex';
+      document.getElementById('spDedupeBtn').style.display = 'inline-flex';
       showToast('SharePoint Lists provisioned');
     } catch (e) {
       spLog('[FAIL] ' + e.message, '#ef4444');
@@ -1690,13 +1696,31 @@
             });
             updated++;
           } else {
-            // Create new — and record its SP ID locally
-            const r = await graphFetch(baseUrl + listId + '/items', {
-              method: 'POST',
-              body: { fields: fields }
-            });
-            item.spId = r.id;
-            created++;
+            // No local spId — first check SharePoint by Title to avoid creating duplicates.
+            // (Common case: item was added via Add New Hire or Auto-refresh before sync ran.)
+            const titleSafe = String(fields.Title || '').replace(/'/g, "''");
+            let existing = null;
+            try {
+              const matchResp = await graphFetch(baseUrl + listId + "/items?$expand=fields&$filter=fields/Title eq '" + titleSafe + "'&$top=1");
+              if (matchResp.value && matchResp.value.length > 0) existing = matchResp.value[0];
+            } catch (_) { /* search may fail on unindexed columns; fall through to POST */ }
+            if (existing) {
+              // PATCH it instead of POSTing a duplicate
+              await graphFetch(baseUrl + listId + '/items/' + existing.id + '/fields', {
+                method: 'PATCH',
+                body: fields
+              });
+              item.spId = existing.id;
+              updated++;
+            } else {
+              // Create new — and record its SP ID locally
+              const r = await graphFetch(baseUrl + listId + '/items', {
+                method: 'POST',
+                body: { fields: fields }
+              });
+              item.spId = r.id;
+              created++;
+            }
           }
         } catch (e) {
           failed++;
@@ -1710,6 +1734,96 @@
     spLog('', null);
     spLog('=== Push complete ===', '#22c55e');
     showToast('Local changes pushed to SharePoint');
+  }
+
+  // Find and remove duplicate items in BOTH local state and SharePoint lists.
+  // Matching by case-insensitive trimmed Title (starterName / name / product / user+product).
+  // Keep rule: prefer the item with more data — hcId set, non-TBD shift, has spId.
+  async function dedupeLocalAndSharePoint() {
+    const settings = getMSSettings();
+    if (!msalAccount) { showToast('Sign in first'); return; }
+    if (!settings.siteId || !settings.listIds) { showToast('SharePoint not configured'); return; }
+    if (!confirm('Find duplicate records by name in both local state AND SharePoint, then remove the lower-quality copies?\n\n' +
+                 'Items with Employee IDs, non-TBD shifts, and SharePoint IDs are preferred.\n' +
+                 'This will DELETE list items from SharePoint. Cannot be undone.')) return;
+
+    document.getElementById('spProvisionLog').innerHTML = '';
+    spLog('Scanning for duplicates...', '#60a5fa');
+
+    const baseUrl = '/sites/' + settings.siteId + '/lists/';
+
+    function dedupeArr(arr, keyFn, label) {
+      const byKey = new Map();
+      const toRemove = [];
+      arr.forEach(item => {
+        const k = keyFn(item);
+        const score = (it) => (it.hcId ? 100 : 0) + (it.phShiftSchedule && it.phShiftSchedule !== 'TBD' ? 10 : 0) + (it.spId ? 1 : 0) + (it.position && it.position !== 'TBD' ? 5 : 0);
+        if (byKey.has(k)) {
+          const winner = byKey.get(k);
+          if (score(item) > score(winner)) {
+            toRemove.push(winner);
+            byKey.set(k, item);
+          } else {
+            toRemove.push(item);
+          }
+        } else {
+          byKey.set(k, item);
+        }
+      });
+      return { kept: Array.from(byKey.values()), removed: toRemove };
+    }
+
+    // --- Local dedupe ---
+    const hireDup = dedupeArr(state.hires, hireKey, 'hire');
+    const depDup = dedupeArr(state.departures, departureKey, 'departure');
+    const licDup = dedupeArr(state.licenses, licenseKey, 'license');
+    const asnDup = dedupeArr(state.assignments, assignmentKey, 'assignment');
+
+    spLog('  Local hires: ' + hireDup.removed.length + ' duplicate(s) to remove.');
+    spLog('  Local departures: ' + depDup.removed.length + ' duplicate(s) to remove.');
+    spLog('  Local licenses: ' + licDup.removed.length + ' duplicate(s) to remove.');
+    spLog('  Local assignments: ' + asnDup.removed.length + ' duplicate(s) to remove.');
+
+    // --- Delete spId items from SharePoint ---
+    const spDeletes = [
+      { list: settings.listIds.hires, items: hireDup.removed, label: 'hire' },
+      { list: settings.listIds.departures, items: depDup.removed, label: 'departure' },
+      { list: settings.listIds.licenses, items: licDup.removed, label: 'license' },
+      { list: settings.listIds.assignments, items: asnDup.removed, label: 'assignment' }
+    ];
+
+    let spDeleted = 0, spFailed = 0;
+    for (const d of spDeletes) {
+      for (const item of d.items) {
+        if (!item.spId) continue;
+        try {
+          await graphFetch(baseUrl + d.list + '/items/' + item.spId, { method: 'DELETE' });
+          spDeleted++;
+        } catch (e) {
+          spFailed++;
+          spLog('  [WARN] Could not delete SP ' + d.label + ' (id=' + item.spId + '): ' + e.message.slice(0, 80), '#fbbf24');
+        }
+      }
+    }
+    spLog('  SharePoint: ' + spDeleted + ' duplicate(s) deleted, ' + spFailed + ' failed.', spFailed === 0 ? '#22c55e' : '#fbbf24');
+
+    // --- Apply locally ---
+    state.hires = hireDup.kept;
+    state.departures = depDup.kept;
+    state.licenses = licDup.kept;
+    state.assignments = asnDup.kept;
+    state.selectedHires = new Set();
+    save();
+    renderHires();
+    renderDepartures();
+    renderLicenses();
+    renderAssignments();
+    populateAssignDropdowns();
+
+    const totalRemoved = hireDup.removed.length + depDup.removed.length + licDup.removed.length + asnDup.removed.length;
+    spLog('', null);
+    spLog('=== Dedupe complete: removed ' + totalRemoved + ' local duplicate(s), ' + spDeleted + ' SharePoint duplicate(s). ===', '#22c55e');
+    showToast('Removed ' + totalRemoved + ' duplicate(s)');
   }
 
   // Auto-sync on startup — uses MERGE so new items from dashboard-seed.js are preserved.
