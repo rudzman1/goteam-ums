@@ -773,6 +773,10 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
           Search Outlook for CLEAR-A-PATH
         </button>
+        <button class="btn btn-secondary" onclick="clearTrackerCache()" title="Force re-search for the Tracker file (use if Tracker lookup returns 0 names)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          Clear Tracker Cache
+        </button>
       </div>
       <div id="graphRefreshLog" style="display:none;margin-top:10px;padding:12px;background:#0f172a;color:#e2e8f0;border-radius:8px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;line-height:1.6;max-height:280px;overflow-y:auto;"></div>
       <div id="graphRefreshPreview" style="display:none;margin-top:10px;"></div>
@@ -807,7 +811,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-  const STORAGE_KEY = 'goteam-ums-v64';
+  const STORAGE_KEY = 'goteam-ums-v67';
   // Updated by Claude on each "refresh the dashboard" run; static between refreshes.
   const DATA_AS_OF = 'May 28, 2026 (refreshed)';
 
@@ -1564,28 +1568,55 @@
   }
 
   // Merge SharePoint items with current local state.
-  // Rule: items in both → SP version wins (SP is source of truth for state).
-  //       items only in SP → added to local.
-  //       items only in local (e.g. new from dashboard-seed.js refresh) → KEPT,
-  //         no spId set so they get CREATED on the next Push.
+  // Rule:
+  //   items in both → SP version wins, BUT any blank/TBD field in SP is
+  //     enriched from the local value if local has a non-blank one (handy when
+  //     seed file has fresh hcIds or positions that SP hasn't been updated with yet).
+  //   items only in SP → added.
+  //   items only in local (new from seed refresh) → KEPT with spId cleared so
+  //     they get CREATED on the next Push.
+  function isBlankValue(v) {
+    return v === undefined || v === null || v === '' || v === 'TBD' || v === '(blank)';
+  }
   function mergeArrays(localArr, spArr, keyFn) {
-    const spByKey = new Map();
-    spArr.forEach(item => spByKey.set(keyFn(item), item));
     const localByKey = new Map();
     localArr.forEach(item => localByKey.set(keyFn(item), item));
+    const spByKey = new Map();
+    spArr.forEach(item => spByKey.set(keyFn(item), item));
 
     const merged = [];
-    let fromSp = 0, localOnly = 0;
-    spArr.forEach(spItem => { merged.push(spItem); fromSp++; });
+    let fromSp = 0, localOnly = 0, enriched = 0;
+
+    spArr.forEach(spItem => {
+      const key = keyFn(spItem);
+      const localMatch = localByKey.get(key);
+      if (localMatch) {
+        // Copy SP base, then enrich blank SP fields from local
+        const combined = Object.assign({}, spItem);
+        let didEnrich = false;
+        Object.keys(localMatch).forEach(k => {
+          if (k === 'id' || k === 'spId') return; // preserve SP's IDs
+          if (isBlankValue(combined[k]) && !isBlankValue(localMatch[k])) {
+            combined[k] = localMatch[k];
+            didEnrich = true;
+          }
+        });
+        if (didEnrich) enriched++;
+        merged.push(combined);
+      } else {
+        merged.push(spItem);
+      }
+      fromSp++;
+    });
     localArr.forEach(localItem => {
       if (!spByKey.has(keyFn(localItem))) {
         const li = Object.assign({}, localItem);
-        delete li.spId; // make sure it pushes as new
+        delete li.spId;
         merged.push(li);
         localOnly++;
       }
     });
-    return { merged, stats: { fromSp, localOnly } };
+    return { merged, stats: { fromSp, localOnly, enriched } };
   }
   function hireKey(h)       { return (h.starterName || '').trim().toLowerCase(); }
   function departureKey(d)  { return (d.name || '').trim().toLowerCase(); }
@@ -1637,10 +1668,10 @@
       renderAssignments();
       populateAssignDropdowns();
 
-      spLog('  Hires: ' + h.stats.fromSp + ' from SP, ' + h.stats.localOnly + ' local-only', '#22c55e');
-      spLog('  Departures: ' + d.stats.fromSp + ' from SP, ' + d.stats.localOnly + ' local-only', '#22c55e');
-      spLog('  Licenses: ' + l.stats.fromSp + ' from SP, ' + l.stats.localOnly + ' local-only', '#22c55e');
-      spLog('  Assignments: ' + a.stats.fromSp + ' from SP, ' + a.stats.localOnly + ' local-only', '#22c55e');
+      spLog('  Hires: ' + h.stats.fromSp + ' from SP, ' + h.stats.localOnly + ' local-only, ' + h.stats.enriched + ' enriched from local', '#22c55e');
+      spLog('  Departures: ' + d.stats.fromSp + ' from SP, ' + d.stats.localOnly + ' local-only, ' + d.stats.enriched + ' enriched from local', '#22c55e');
+      spLog('  Licenses: ' + l.stats.fromSp + ' from SP, ' + l.stats.localOnly + ' local-only, ' + l.stats.enriched + ' enriched from local', '#22c55e');
+      spLog('  Assignments: ' + a.stats.fromSp + ' from SP, ' + a.stats.localOnly + ' local-only, ' + a.stats.enriched + ' enriched from local', '#22c55e');
       const localOnlyTotal = h.stats.localOnly + d.stats.localOnly + l.stats.localOnly + a.stats.localOnly;
       if (localOnlyTotal > 0) {
         spLog('=== ' + localOnlyTotal + ' local-only item(s) — click "Push Local Changes" to upload them ===', '#fbbf24');
@@ -2053,36 +2084,63 @@
   }
 
   // Build a Name → Employee ID map by reading recent sheets of the Tracker.
+  // Logs intermediate stats so we can debug when no IDs are extracted.
   async function buildEmployeeIdMap() {
     const { driveId, itemId } = await getTrackerFileRef();
-    // List worksheets
-    const ws = await graphFetch('/drives/' + driveId + '/items/' + itemId + '/workbook/worksheets?$select=id,name');
-    const sheets = (ws.value || []);
-    // Filter to sheets that look like date ranges. Match BOTH short ("Jun 15- Jun 19")
-    // and long ("June 15- June 19") month names — no \b, since "June" has a word char
-    // after "Jun" and the boundary check would reject it.
-    const recent = sheets.filter(s => /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(s.name)).slice(0, 12);
+    gfLog('  Tracker driveId=' + (driveId || '').slice(0, 30) + '..., itemId=' + (itemId || '').slice(0, 20) + '...', '#94a3b8');
 
-    const idMap = new Map(); // lowercase name → id
+    // List worksheets
+    let sheets = [];
+    try {
+      const ws = await graphFetch('/drives/' + driveId + '/items/' + itemId + '/workbook/worksheets?$select=id,name');
+      sheets = ws.value || [];
+    } catch (e) {
+      gfLog('  [WARN] Failed to list worksheets — Tracker file might be wrong. Click "Clear Tracker Cache" in Refresh modal and retry.', '#ef4444');
+      throw e;
+    }
+    gfLog('  Workbook has ' + sheets.length + ' total sheet(s).', '#94a3b8');
+
+    // Filter to date-range sheets
+    const recent = sheets.filter(s => /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(s.name)).slice(0, 12);
+    gfLog('  Matched ' + recent.length + ' date-range sheet(s): ' + recent.map(s => s.name).join(' | '), '#94a3b8');
+
+    const idMap = new Map();
     for (const sheet of recent) {
       try {
-        const range = await graphFetch('/drives/' + driveId + '/items/' + itemId + '/workbook/worksheets/' + encodeURIComponent(sheet.name) + '/usedRange?$select=values');
+        // Use a bounded range (A1:C500) instead of usedRange — the Tracker is
+        // very wide, and full-sheet usedRange returns "RangeExceedsLimit" (5000
+        // cell hard cap per Graph request). We only need columns A (row #), B
+        // (ID), C (Name) anyway. 500 rows is well over GoTeam's per-week volume.
+        const range = await graphFetch('/drives/' + driveId + '/items/' + itemId + '/workbook/worksheets/' + encodeURIComponent(sheet.name) + "/range(address='A1:C500')");
         const rows = range.values || [];
+        let rowsWithIds = 0;
         for (const row of rows) {
           if (!row || row.length < 3) continue;
           const id = row[1]; // Column B
           const name = row[2]; // Column C
           if (typeof id === 'number' && typeof name === 'string' && name.trim().length > 0) {
             idMap.set(name.trim().toLowerCase(), String(id));
+            rowsWithIds++;
           } else if (typeof id === 'string' && /^\d{3,5}$/.test(id) && typeof name === 'string' && name.trim().length > 0) {
             idMap.set(name.trim().toLowerCase(), id);
+            rowsWithIds++;
           }
         }
+        gfLog('    "' + sheet.name + '": ' + rows.length + ' rows scanned, ' + rowsWithIds + ' with IDs', '#94a3b8');
       } catch (e) {
-        // skip this sheet
+        gfLog('    "' + sheet.name + '": [ERROR] ' + e.message.slice(0, 120), '#fbbf24');
       }
     }
     return idMap;
+  }
+
+  // Clear cached Tracker driveId/itemId so the next lookup re-runs the Search API.
+  function clearTrackerCache() {
+    const s = getMSSettings();
+    delete s.trackerDriveId;
+    delete s.trackerItemId;
+    localStorage.setItem(MS_SETTINGS_KEY, JSON.stringify(s));
+    showToast('Tracker cache cleared — next refresh will re-search for the file');
   }
 
   async function autoRefreshFromGraph() {
