@@ -811,7 +811,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-  const STORAGE_KEY = 'goteam-ums-v67';
+  const STORAGE_KEY = 'goteam-ums-v69';
   // Updated by Claude on each "refresh the dashboard" run; static between refreshes.
   const DATA_AS_OF = 'May 28, 2026 (refreshed)';
 
@@ -1594,6 +1594,16 @@
         // Copy SP base, then enrich blank SP fields from local
         const combined = Object.assign({}, spItem);
         let didEnrich = false;
+        // Special protection: if local has a recorded reschedule (rescheduledFrom + different
+        // startDate), local always wins on date-related fields. The CLEAR-A-PATH email subject
+        // doesn't update on reschedule, so SP's stored startDate could be stale.
+        if (localMatch.rescheduledFrom && localMatch.startDate && localMatch.startDate !== combined.startDate) {
+          combined.startDate = localMatch.startDate;
+          combined.rescheduledFrom = localMatch.rescheduledFrom;
+          if (localMatch.rescheduleNote) combined.rescheduleNote = localMatch.rescheduleNote;
+          if (localMatch.rescheduleDate) combined.rescheduleDate = localMatch.rescheduleDate;
+          didEnrich = true;
+        }
         Object.keys(localMatch).forEach(k => {
           if (k === 'id' || k === 'spId') return; // preserve SP's IDs
           if (isBlankValue(combined[k]) && !isBlankValue(localMatch[k])) {
@@ -2083,54 +2093,78 @@
     throw new Error('GoTeam Starters Tracker not found via Search API. Open the file once in your browser (visiting it grants implicit access), then retry. If still failing, paste the file URL in MS365 Settings — I can add a manual override.');
   }
 
-  // Build a Name → Employee ID map by reading recent sheets of the Tracker.
-  // Logs intermediate stats so we can debug when no IDs are extracted.
-  async function buildEmployeeIdMap() {
+  // Convert Excel serial date number → ISO YYYY-MM-DD. Graph returns dates either
+  // as serial numbers (4-digit year cells) or strings depending on cell format.
+  function trackerDateToISO(val) {
+    if (typeof val === 'number' && val > 25000 && val < 100000) {
+      // Excel uses Dec 30, 1899 as day 0 (Lotus 1-2-3 bug-compatible)
+      const epoch = Date.UTC(1899, 11, 30);
+      const ms = epoch + val * 86400000;
+      const d = new Date(ms);
+      return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
+    }
+    if (typeof val === 'string') return parseEmailDate(val);
+    return '';
+  }
+
+  // Build a Name → starter-info map from the Tracker. Reads columns B (ID),
+  // C (Name), D (Date), E (Position), F (Client), and T (PH Shift) for each
+  // sheet matching a month-name prefix.
+  async function buildTrackerStarterMap() {
     const { driveId, itemId } = await getTrackerFileRef();
     gfLog('  Tracker driveId=' + (driveId || '').slice(0, 30) + '..., itemId=' + (itemId || '').slice(0, 20) + '...', '#94a3b8');
 
-    // List worksheets
     let sheets = [];
     try {
       const ws = await graphFetch('/drives/' + driveId + '/items/' + itemId + '/workbook/worksheets?$select=id,name');
       sheets = ws.value || [];
     } catch (e) {
-      gfLog('  [WARN] Failed to list worksheets — Tracker file might be wrong. Click "Clear Tracker Cache" in Refresh modal and retry.', '#ef4444');
+      gfLog('  [WARN] Failed to list worksheets — Tracker file might be wrong. Click "Clear Tracker Cache" and retry.', '#ef4444');
       throw e;
     }
     gfLog('  Workbook has ' + sheets.length + ' total sheet(s).', '#94a3b8');
 
-    // Filter to date-range sheets
     const recent = sheets.filter(s => /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(s.name)).slice(0, 12);
     gfLog('  Matched ' + recent.length + ' date-range sheet(s): ' + recent.map(s => s.name).join(' | '), '#94a3b8');
 
-    const idMap = new Map();
+    const starterMap = new Map();
     for (const sheet of recent) {
       try {
-        // Use a bounded range (A1:C500) instead of usedRange — the Tracker is
-        // very wide, and full-sheet usedRange returns "RangeExceedsLimit" (5000
-        // cell hard cap per Graph request). We only need columns A (row #), B
-        // (ID), C (Name) anyway. 500 rows is well over GoTeam's per-week volume.
-        const range = await graphFetch('/drives/' + driveId + '/items/' + itemId + '/workbook/worksheets/' + encodeURIComponent(sheet.name) + "/range(address='A1:C500')");
+        // Read B1:T200 — gives us ID, Name, Date, Position, Client, ... PH Shift.
+        // 19 columns × 200 rows = 3800 cells (under Graph's ~5000 hard cap).
+        // In the returned 2D array: row[0]=B, row[1]=C, row[2]=D, row[3]=E,
+        // row[4]=F, row[18]=T.
+        const range = await graphFetch('/drives/' + driveId + '/items/' + itemId + '/workbook/worksheets/' + encodeURIComponent(sheet.name) + "/range(address='B1:T200')");
         const rows = range.values || [];
-        let rowsWithIds = 0;
+        let added = 0;
         for (const row of rows) {
-          if (!row || row.length < 3) continue;
-          const id = row[1]; // Column B
-          const name = row[2]; // Column C
-          if (typeof id === 'number' && typeof name === 'string' && name.trim().length > 0) {
-            idMap.set(name.trim().toLowerCase(), String(id));
-            rowsWithIds++;
-          } else if (typeof id === 'string' && /^\d{3,5}$/.test(id) && typeof name === 'string' && name.trim().length > 0) {
-            idMap.set(name.trim().toLowerCase(), id);
-            rowsWithIds++;
-          }
+          if (!row || row.length < 2) continue;
+          const idCell = row[0];
+          const nameCell = row[1];
+          const idStr = typeof idCell === 'number' ? String(idCell) : (typeof idCell === 'string' && /^\d{3,5}$/.test(idCell) ? idCell : '');
+          if (!idStr) continue;
+          if (typeof nameCell !== 'string' || nameCell.trim().length === 0) continue;
+          const name = nameCell.trim();
+          const date = trackerDateToISO(row[2]);
+          const position = (typeof row[3] === 'string' ? row[3].trim() : '') || '';
+          const client = (typeof row[4] === 'string' ? row[4].trim() : '') || '';
+          const shift = (typeof row[18] === 'string' ? row[18].trim() : (typeof row[18] === 'number' ? String(row[18]) : '')) || '';
+          starterMap.set(name.toLowerCase(), { id: idStr, name, date, position, client, shift, sheetName: sheet.name });
+          added++;
         }
-        gfLog('    "' + sheet.name + '": ' + rows.length + ' rows scanned, ' + rowsWithIds + ' with IDs', '#94a3b8');
+        gfLog('    "' + sheet.name + '": ' + rows.length + ' rows, ' + added + ' starters', '#94a3b8');
       } catch (e) {
         gfLog('    "' + sheet.name + '": [ERROR] ' + e.message.slice(0, 120), '#fbbf24');
       }
     }
+    return starterMap;
+  }
+
+  // Legacy alias — returns just name→id from the richer starter map
+  async function buildEmployeeIdMap() {
+    const starterMap = await buildTrackerStarterMap();
+    const idMap = new Map();
+    starterMap.forEach((info, key) => { if (info.id) idMap.set(key, info.id); });
     return idMap;
   }
 
@@ -2187,7 +2221,15 @@
             const changes = [];
             const newDate = parseEmailDate(parsed.startDate);
             if (newDate && existing.startDate !== newDate) {
-              changes.push({ field: 'startDate', oldValue: existing.startDate || '(blank)', newValue: newDate, note: 'Reschedule detected from email' });
+              // Skip if this would revert a known reschedule. The original CLEAR-A-PATH
+              // subject keeps the OLD start date even after a reschedule reply — so we
+              // shouldn't propose changing back to it if the local record already records
+              // the original date in rescheduledFrom.
+              if (existing.rescheduledFrom && existing.rescheduledFrom === newDate) {
+                // already aware of the reschedule — don't suggest reverting
+              } else {
+                changes.push({ field: 'startDate', oldValue: existing.startDate || '(blank)', newValue: newDate, note: 'Reschedule detected from email' });
+              }
             }
             const newType = parsed.hireType;
             if (newType && existing.hireType !== newType) {
@@ -2261,38 +2303,90 @@
 
       gfLog('Parsed ' + proposedHires.length + ' new hire(s), ' + proposedDepartures.length + ' new departure(s), ' + proposedUpdates.length + ' update(s) to existing records.', '#22c55e');
 
-      // Optional: lookup Employee IDs from the Starters Tracker.
-      // Applies to BOTH new proposed hires AND existing state.hires that are
-      // missing an hcId — common case: a starter was added before the Tracker
-      // recorded their ID. Re-running auto-refresh backfills it.
-      if (lookupIDs && (proposedHires.length > 0 || state.hires.some(h => !h.hcId))) {
-        gfLog('Building Employee ID map from Starters Tracker...', '#60a5fa');
+      // Pull starter info directly from the GoTeam Starters Tracker.
+      // The Tracker is the source of truth for Employee ID, Position (col E),
+      // PH Shift (col T), Start Date (col D), and Client (col F). Email subjects
+      // only give us name + hire type — for the rest, we read the Tracker.
+      if (lookupIDs) {
+        gfLog('Reading starter data from GoTeam Starters Tracker...', '#60a5fa');
         try {
-          const idMap = await buildEmployeeIdMap();
-          gfLog('  Indexed ' + idMap.size + ' name(s) from the Tracker.', '#22c55e');
-          // Apply to new proposed hires
-          let newHits = 0;
+          const starterMap = await buildTrackerStarterMap();
+          gfLog('  Indexed ' + starterMap.size + ' starter(s) from the Tracker.', '#22c55e');
+
+          // Helper: add or merge a change into proposedUpdates
+          function addUpdate(target, name, field, oldValue, newValue, note) {
+            const existing = proposedUpdates.find(u => u.entityType === 'hire' && u.target === target);
+            const change = { field, oldValue: oldValue || '(blank)', newValue, note };
+            if (existing) existing.changes.push(change);
+            else proposedUpdates.push({ entityType: 'hire', target, name, changes: [change] });
+          }
+
+          // 1. Enrich new proposed hires with Tracker data
+          let newEnriched = 0;
           proposedHires.forEach(h => {
-            const id = idMap.get(h.starterName.trim().toLowerCase());
-            if (id) { h.hcId = id; newHits++; }
-          });
-          gfLog('  Matched ' + newHits + '/' + proposedHires.length + ' new starter(s) to Employee IDs.', newHits > 0 ? '#22c55e' : '#fbbf24');
-          // Apply to existing hires (backfill missing/changed IDs)
-          let existingHits = 0;
-          state.hires.forEach(h => {
-            const id = idMap.get(h.starterName.trim().toLowerCase());
-            if (id && h.hcId !== id) {
-              const existingUpdate = proposedUpdates.find(u => u.entityType === 'hire' && u.target === h);
-              const change = { field: 'hcId', oldValue: h.hcId || '(blank)', newValue: id, note: 'From Starters Tracker' };
-              if (existingUpdate) {
-                existingUpdate.changes.push(change);
-              } else {
-                proposedUpdates.push({ entityType: 'hire', target: h, name: h.starterName, changes: [change] });
-              }
-              existingHits++;
+            const info = starterMap.get(h.starterName.trim().toLowerCase());
+            if (info) {
+              if (info.id) h.hcId = info.id;
+              if (info.position && (h.position === 'TBD' || !h.position)) h.position = info.position;
+              if (info.shift && (h.phShiftSchedule === 'TBD' || !h.phShiftSchedule)) h.phShiftSchedule = info.shift;
+              if (info.date && (!h.startDate || h.startDate === '')) h.startDate = info.date;
+              newEnriched++;
             }
           });
-          gfLog('  Found ' + existingHits + ' existing starter(s) with missing/changed Employee IDs.', existingHits > 0 ? '#22c55e' : '#fbbf24');
+          gfLog('  Enriched ' + newEnriched + '/' + proposedHires.length + ' new starter(s) with Tracker data.', '#22c55e');
+
+          // 2. Backfill existing state.hires from Tracker
+          let existingBackfills = 0;
+          state.hires.forEach(h => {
+            const info = starterMap.get(h.starterName.trim().toLowerCase());
+            if (!info) return;
+            if (info.id && h.hcId !== info.id) {
+              addUpdate(h, h.starterName, 'hcId', h.hcId, info.id, 'From Tracker (column B)');
+              existingBackfills++;
+            }
+            if (info.position && isBlankValue(h.position)) {
+              addUpdate(h, h.starterName, 'position', h.position, info.position, 'From Tracker (column E)');
+              existingBackfills++;
+            }
+            if (info.shift && isBlankValue(h.phShiftSchedule)) {
+              addUpdate(h, h.starterName, 'phShiftSchedule', h.phShiftSchedule, info.shift, 'From Tracker (column T)');
+              existingBackfills++;
+            }
+            // Date: only update if local doesn't already record a reschedule
+            if (info.date && info.date !== h.startDate && !h.rescheduledFrom) {
+              addUpdate(h, h.starterName, 'startDate', h.startDate, info.date, 'From Tracker (column D)');
+              existingBackfills++;
+            }
+          });
+          gfLog('  Found ' + existingBackfills + ' update(s) for existing starters from Tracker.', existingBackfills > 0 ? '#22c55e' : '#fbbf24');
+
+          // 3. NEW: detect Tracker-only starters (not in state, not in proposedHires)
+          //    Useful when an email's CLEAR-A-PATH subject wasn't sent (or was filtered)
+          //    but the starter is in the Tracker. John Roque B. Coronejo's reschedule is
+          //    a typical case — Tracker has him on June 15 even though no separate
+          //    CLEAR-A-PATH email exists for that date.
+          let trackerOnly = 0;
+          starterMap.forEach(info => {
+            const k = info.name.toLowerCase();
+            if (state.hires.some(h => hireKey(h) === k)) return;
+            if (proposedHires.some(h => hireKey(h) === k)) return;
+            if (seenHire.has(k)) return;
+            seenHire.add(k);
+            proposedHires.push({
+              starterName: info.name,
+              nickname: info.name.split(' ')[0],
+              position: info.position || 'TBD',
+              phShiftSchedule: info.shift || 'TBD',
+              companyName: info.client || 'TBD',
+              hireType: 'Expansion', // default; user can correct
+              startDate: info.date || '',
+              status: 'Pending',
+              hcId: info.id || '',
+              source: { tracker: info.sheetName }
+            });
+            trackerOnly++;
+          });
+          gfLog('  Found ' + trackerOnly + ' starter(s) in Tracker not yet in dashboard.', trackerOnly > 0 ? '#22c55e' : '#fbbf24');
         } catch (e) {
           gfLog('  [WARN] Tracker lookup skipped — ' + e.message, '#fbbf24');
         }
