@@ -807,7 +807,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-  const STORAGE_KEY = 'goteam-ums-v63';
+  const STORAGE_KEY = 'goteam-ums-v64';
   // Updated by Claude on each "refresh the dashboard" run; static between refreshes.
   const DATA_AS_OF = 'May 28, 2026 (refreshed)';
 
@@ -2058,8 +2058,10 @@
     // List worksheets
     const ws = await graphFetch('/drives/' + driveId + '/items/' + itemId + '/workbook/worksheets?$select=id,name');
     const sheets = (ws.value || []);
-    // Filter to sheets that look like date ranges (May, Jun, Jul...)
-    const recent = sheets.filter(s => /^(may|jun|jul|aug|sep|apr)\b/i.test(s.name)).slice(0, 8);
+    // Filter to sheets that look like date ranges. Match BOTH short ("Jun 15- Jun 19")
+    // and long ("June 15- June 19") month names — no \b, since "June" has a word char
+    // after "Jun" and the boundary check would reject it.
+    const recent = sheets.filter(s => /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(s.name)).slice(0, 12);
 
     const idMap = new Map(); // lowercase name → id
     for (const sheet of recent) {
