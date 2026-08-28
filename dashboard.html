@@ -592,7 +592,7 @@
         <div style="overflow-x: auto;">
           <table>
             <thead>
-              <tr><th class="col-checkbox" style="width:34px;"><input type="checkbox" class="row-checkbox" id="selectAllDepsStatic" /></th><th>Employee</th><th>Employee Email</th><th>Company</th><th>Leadership Coach</th><th>Coach Email</th><th>Effective Day</th><th>Type of Exit</th><th>Exit Notice Remarks</th><th>Status</th><th>Access Deactivated</th><th>Licenses Removed</th><th>Actions</th></tr>
+              <tr><th class="col-checkbox" style="width:34px;"><input type="checkbox" class="row-checkbox" id="selectAllDepsStatic" /></th><th>Employee</th><th>Employee Email</th><th>Company</th><th>Leadership Coach</th><th>Coach Email</th><th>Effective Day</th><th>Type of Exit</th><th>Exit Notice Remarks</th><th>Status</th><th>Access Deactivated Date</th><th>Licenses Removed</th><th>Actions</th></tr>
             </thead>
             <tbody id="departuresTbody"></tbody>
           </table>
@@ -1087,7 +1087,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-  const STORAGE_KEY = 'goteam-ums-v102';
+  const STORAGE_KEY = 'goteam-ums-v103';
   // Updated by Claude on each "refresh the dashboard" run; static between refreshes.
   const DATA_AS_OF = 'May 28, 2026 (refreshed)';
 
@@ -1325,6 +1325,9 @@
     log('Starting Graph user creation for ' + hires.length + ' starter(s)...', '#60a5fa');
     let ok = 0, failed = 0;
     const createdIds = [];
+    const licensesAssignedNames = []; // parallel to hires — friendly names per starter
+    // Pre-fetch tenant SKU friendly-name map so we can label whatever SKU we assign.
+    const _skuMap = await getSkuNameMap();
 
     for (let i = 0; i < hires.length; i++) {
       const h = hires[i];
@@ -1359,6 +1362,8 @@
         });
         log('    [OK] Created — id=' + newUser.id, '#22c55e');
         createdIds.push(newUser.id);
+        const assignedForThis = [];
+        licensesAssignedNames.push(assignedForThis);
 
         // 2. Assign license
         if (skuId) {
@@ -1367,7 +1372,9 @@
               method: 'POST',
               body: { addLicenses: [{ disabledPlans: [], skuId: skuId }], removeLicenses: [] }
             });
-            log('    [OK] License assigned (' + (isInternal ? 'Internal' : 'Client') + ')', '#22c55e');
+            const licName = _skuMap[skuId] || friendlyLicenseName(skuId);
+            assignedForThis.push(licName);
+            log('    [OK] License assigned: ' + licName + ' (' + (isInternal ? 'Internal' : 'Client') + ')', '#22c55e');
           } catch (e) {
             log('    [WARN] License skipped — ' + e.message.slice(0, 120), '#fbbf24');
           }
@@ -1404,11 +1411,17 @@
         if (i < createdIds.length) {
           const realHire = state.hires.find(x => x.id === h.id);
           if (realHire) {
+            const nowIso = new Date().toISOString();
             realHire.ms365 = realHire.ms365 || {};
             realHire.ms365.created = true;
             realHire.ms365.password = passwords[i];
-            realHire.ms365.createdAt = new Date().toISOString();
+            realHire.ms365.createdAt = nowIso;
             realHire.ms365.graphId = createdIds[i];
+            // Flat fields the table renders (mirrors mark-as-created path)
+            realHire.ms365Created = true;
+            realHire.ms365Password = passwords[i];
+            realHire.ms365CreatedAt = nowIso;
+            realHire.ms365LicensesAdded = licensesAssignedNames[i] || [];
           }
         }
       });
@@ -3467,6 +3480,8 @@
           <td><span style="font-size:12px;color:var(--muted)">' + (h.phShiftSchedule || '<span style="color:#cbd5e1">—</span>') + '</span></td>\
           <td>' + formatDate(h.startDate) + rescheduleBadge + withdrawnBadge + rescheduleNote + withdrawnNote + '</td>\
           <td>' + statusPill(h.status) + '</td>\
+          <td>' + (h.ms365CreatedAt ? '<span style="font-size:11px;color:#065f46;white-space:nowrap;" title="' + new Date(h.ms365CreatedAt).toString() + '">' + formatDateTime(h.ms365CreatedAt) + '</span>' : '<span style="color:var(--muted);font-size:12px;">—</span>') + '</td>\
+          <td>' + (Array.isArray(h.ms365LicensesAdded) && h.ms365LicensesAdded.length ? (function(){ var pretty = h.ms365LicensesAdded.map(friendlyLicenseName); return '<div style="font-size:11px;color:#374151;max-width:240px;white-space:normal;line-height:1.4;" title="' + pretty.join(', ') + '">' + pretty.join(', ') + '</div>'; })() : '<span style="color:var(--muted);font-size:12px;">—</span>') + '</td>\
           <td>\
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">\
               <button class="btn-ms365' + (ms365Done ? ' created' : '') + '" onclick="openMS365Modal(' + h.id + ')" title="' + (ms365Done ? 'Account already created' : 'Create Microsoft 365 account') + '">\
@@ -3607,6 +3622,8 @@
             sortHeader('PH Shift', 'phShiftSchedule') +
             sortHeader('Start Date', 'startDate') +
             sortHeader('Status', 'status') +
+            sortHeader('Access Created Date', 'ms365CreatedAt') +
+            '<th>Licenses Added</th>' +
             '<th>Actions</th>' +
           '</tr></thead><tbody>' + activeGroup.hires.map(hireRowHtml).join('') + '</tbody></table></div>' +
         '</div>' +
@@ -5307,7 +5324,7 @@
         depHeader('Type of Exit', 'typeOfExit') +
         depHeader('Exit Notice Remarks', 'exitNoticeRemarks') +
         depHeader('Status', 'status') +
-        depHeader('Access Deactivated', 'accessRevokedDoneAt') +
+        depHeader('Access Deactivated Date', 'accessRevokedDoneAt') +
         '<th>Licenses Removed</th>' +
         '<th>Actions</th>';
     }
