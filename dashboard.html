@@ -3047,26 +3047,9 @@
             }
             continue;
           }
+          // Auto-creation of new departures from email has been disabled per user request.
+          // Updates to existing departures (block above) still apply so record edits still flow through.
           seenDeparture.add(key);
-          const receivedDate = m.receivedDateTime ? m.receivedDateTime.slice(0, 10) : '';
-          // Default last day based on reason (timezone-safe arithmetic)
-          let lastDay = receivedDate;
-          if (parsed.reason === 'Resignation' || parsed.reason === 'Voluntary Resignation' || parsed.reason === 'End of Contract') {
-            lastDay = addDays(receivedDate, 30);
-          } else if (parsed.reason === 'Immediate Resignation') {
-            lastDay = receivedDate;
-          }
-          proposedDepartures.push({
-            name: parsed.name,
-            company: parsed.company || '',
-            lastDay,
-            reason: parsed.reason,
-            noticeDate: receivedDate,
-            status: parsed.reason === 'Immediate Resignation' ? 'Asset Return' : 'Notice Period',
-            lastDayEstimated: true,
-            checklist: defaultExitChecklist(),
-            source: { subject: m.subject, received: m.receivedDateTime }
-          });
         }
       }
 
