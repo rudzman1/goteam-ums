@@ -4,6 +4,10 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>GoTeam User Management Dashboard</title>
+<!-- Poppins font for the stylized lowercase 'g' in the goteam wordmark -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@800;900&display=swap" rel="stylesheet">
 <!-- Microsoft Authentication Library (MSAL.js) — load from jsDelivr (most universally reachable). -->
 <!-- If jsDelivr is blocked, fall back to unpkg, then Microsoft's CDN. -->
 <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js"></script>
@@ -59,10 +63,49 @@
     display: flex; flex-direction: column; padding: 20px 0;
     position: fixed; height: 100vh; overflow-y: auto;
   }
-  .brand { padding: 0 22px 22px; border-bottom: 1px solid #1e293b; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
-  .brand-logo { width: 34px; height: 34px; border-radius: 8px; background: linear-gradient(135deg, #2563eb, #7c3aed); display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 15px; }
-  .brand h1 { color: #fff; font-size: 16px; font-weight: 700; letter-spacing: -0.3px; }
-  .brand p { color: #64748b; font-size: 11px; margin-top: 1px; }
+  .brand { padding: 10px 18px 22px; border-bottom: 1px solid #1e293b; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
+  /* Logo box always visible — uses goteam-logo.png. */
+  .brand-logo {
+    width: 42px; height: 42px;
+    background: #ffffff;
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    padding: 0; color: transparent; font-size: 0;
+    flex-shrink: 0; position: relative;
+  }
+  .brand-logo svg { width: 100%; height: 100%; display: block; }
+  /* Fallback when goteam-logo.png fails to load — show a stylized "g" */
+  .brand-logo.logo-fallback::before {
+    content: 'g';
+    font-family: 'Poppins', 'Inter', sans-serif;
+    font-weight: 900;
+    font-size: 34px;
+    color: #0b3aa8;
+    line-height: 1;
+    letter-spacing: -2px;
+  }
+  .brand-logo.logo-fallback::after {
+    content: '';
+    position: absolute;
+    top: 5px; right: 6px;
+    width: 10px; height: 10px;
+    background: #3fa1ff;
+    border-radius: 1px;
+  }
+  .brand h1 {
+    font-family: 'Poppins', 'Inter', 'Segoe UI', system-ui, sans-serif;
+    font-size: 26px;
+    font-weight: 900;
+    letter-spacing: -1.5px;
+    line-height: 1;
+    text-transform: lowercase;
+    color: #ffffff;
+    display: inline-flex;
+    align-items: baseline;
+  }
+  .brand h1 .brand-go   { color: #1d4ed8; }
+  .brand h1 .brand-team { color: #f8fafc; }
+  .brand p { color: #64748b; font-size: 11px; margin-top: 4px; font-weight: 500; letter-spacing: 0.3px; }
   .nav-section-title { padding: 0 22px; font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin: 12px 0 6px; }
   .nav-item {
     display: flex; align-items: center; gap: 12px; padding: 11px 22px;
@@ -212,23 +255,196 @@
   .checklist li.done label { text-decoration: line-through; color: var(--muted); }
   .grid-2 { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; }
   @media (max-width: 1100px) { .grid-2 { grid-template-columns: 1fr; } }
-  @media (max-width: 768px) {
-    .sidebar { width: 70px; }
-    .sidebar .brand h1, .sidebar .brand p, .sidebar .nav-section-title,
-    .sidebar .nav-item span:not(.icon):not(.badge), .sidebar .user-info { display: none; }
-    .main { margin-left: 70px; padding: 18px; }
-    .form-row { grid-template-columns: 1fr; }
+
+  /* Sidebar collapse — animated width shrink. Main content stays in place
+     (main uses margin-left:64px permanently, sidebar overlays when expanded). */
+  .sidebar { transition: width 0.2s ease; overflow-x: hidden; }
+  body.sidebar-hidden .sidebar { width: 64px; }
+  body.sidebar-hidden .sidebar .brand h1,
+  body.sidebar-hidden .sidebar .brand p,
+  body.sidebar-hidden .sidebar .nav-section-title,
+  body.sidebar-hidden .sidebar .nav-item span:not(.icon):not(.badge),
+  body.sidebar-hidden .sidebar #sbAuthLabel,
+  body.sidebar-hidden .sidebar .user-info,
+  body.sidebar-hidden .sidebar .nav-item .badge,
+  body.sidebar-hidden .sidebar .sidebar-footer .settings-label { display: none; }
+  body.sidebar-hidden .sidebar .brand { padding: 10px 0 22px; justify-content: center; }
+  body.sidebar-hidden .sidebar .sidebar-footer {
+    flex-direction: column !important;
+    align-items: center !important;
+    gap: 14px !important;
+    padding: 16px 8px 88px !important;
   }
+  body.sidebar-hidden .sidebar .sidebar-footer > div { justify-content: center !important; }
+  body.sidebar-hidden .sidebar .sidebar-footer .nav-item { padding: 10px !important; justify-content: center !important; }
+  body.sidebar-hidden .sidebar #sidebarCollapseBtn svg { transform: rotate(180deg); }
+
+  /* Main content: expands to fill space when sidebar collapses (smooth transition). */
+  .sidebar { z-index: 20; box-shadow: 2px 0 12px rgba(0,0,0,0.15); }
+  .main { transition: margin-left 0.2s ease, max-width 0.2s ease; }
+  body.sidebar-hidden .main { margin-left: 64px; max-width: none; }
+
+  /* Collapse toggle: always at bottom-right of the sidebar, below the footer. */
+  #sidebarCollapseBtn {
+    position: absolute;
+    bottom: 12px;
+    right: 12px;
+    z-index: 25;
+    background: var(--sidebar-hover);
+    color: white;
+    border: 1px solid #334155;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  }
+  #sidebarCollapseBtn:hover { background: var(--primary); }
+  body.sidebar-hidden #sidebarCollapseBtn { right: 18px; }
+  .sidebar { position: fixed; }
+  /* Reserve room at the bottom so the toggle doesn't cover the last footer button */
+  .sidebar-footer { padding-bottom: 52px !important; }
+
+  /* Footer layout — stack vertically so nothing overflows */
+  .sidebar-footer { flex-wrap: wrap; padding: 12px 16px !important; }
+  .sidebar-footer > div:not(.user-info) { flex-shrink: 0; }
+
+  /* Exit Checklist collapse — makes the table span the whole width */
+  #view-offboarding.checklist-hidden .grid-2 { grid-template-columns: 1fr; }
+  #view-offboarding.checklist-hidden #exitChecklistPanel { display: none; }
+  /* ===== TABLET (≤ 1100px) ===== */
+  @media (max-width: 1100px) {
+    .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    .main { padding: 20px 24px; }
+    .grid-2 { grid-template-columns: 1fr; }
+  }
+
+  /* ===== MOBILE (≤ 768px) ===== */
+  @media (max-width: 768px) {
+    /* Sidebar becomes a slide-in drawer instead of always-visible column */
+    .sidebar {
+      width: 260px !important;
+      transform: translateX(-100%);
+      transition: transform 0.22s ease;
+      box-shadow: 4px 0 20px rgba(0,0,0,0.25);
+    }
+    body.sidebar-mobile-open .sidebar { transform: translateX(0); }
+    body.sidebar-hidden .sidebar { transform: translateX(-100%); width: 260px !important; }
+    /* Restore all labels/badges inside the drawer since it's full-width when open */
+    body.sidebar-hidden .sidebar .brand h1,
+    body.sidebar-hidden .sidebar .brand p,
+    body.sidebar-hidden .sidebar .nav-section-title,
+    body.sidebar-hidden .sidebar .nav-item span:not(.icon):not(.badge),
+    body.sidebar-hidden .sidebar .user-info,
+    body.sidebar-hidden .sidebar #sbAuthLabel,
+    body.sidebar-hidden .sidebar .sidebar-footer .settings-label,
+    body.sidebar-hidden .sidebar .nav-item .badge { display: initial; }
+    body.sidebar-hidden .sidebar .brand { padding: 6px 22px 22px; justify-content: flex-start; }
+    body.sidebar-hidden .sidebar .brand-logo { display: flex; }
+    /* Hide the sidebar collapse chevron on mobile — use the mobile menu button */
+    #sidebarCollapseBtn { display: none; }
+
+    /* Main content: full width, less padding */
+    .main { margin-left: 0 !important; max-width: 100% !important; padding: 14px !important; }
+
+    /* Mobile hamburger button (visible only on mobile) */
+    #mobileMenuBtn { display: flex !important; }
+
+    /* Backdrop when drawer is open */
+    body.sidebar-mobile-open::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.45);
+      z-index: 15;
+    }
+
+    /* Stat cards: 2 columns */
+    .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .stat-card { padding: 12px; }
+    .stat-card .value { font-size: 22px; }
+    .stat-card .label { font-size: 10px; }
+
+    /* Page header: stack title + actions */
+    .page-header { flex-direction: column; align-items: flex-start; gap: 12px; padding-top: 44px; }
+    .header-actions { width: 100%; flex-wrap: wrap; gap: 6px; }
+    .header-actions .btn { flex: 1 1 auto; justify-content: center; font-size: 12px; padding: 8px 10px; }
+    .page-title h2 { font-size: 22px; }
+
+    /* Panel header: stack search + filters */
+    .panel-header { flex-direction: column; align-items: stretch !important; gap: 8px; }
+    .panel-tools { flex-direction: column; gap: 8px; width: 100%; }
+    .search-input { width: 100% !important; box-sizing: border-box; }
+    .filter-select { width: 100%; }
+
+    /* Tables scroll horizontally — reduce padding */
+    table th, table td { padding: 8px 6px !important; font-size: 12px; }
+    .col-checkbox { width: 32px !important; padding: 4px !important; }
+
+    /* Modals nearly full screen */
+    .modal { width: 96vw !important; max-width: none !important; max-height: 92vh; overflow-y: auto; margin: 12px auto; }
+    .modal-wide { width: 96vw !important; }
+    .modal-body { padding: 16px !important; }
+    .form-row { grid-template-columns: 1fr; }
+
+    /* Date pager wraps if needed */
+    .date-pager { flex-wrap: wrap; }
+  }
+
+  /* ===== SMALL MOBILE (≤ 480px) ===== */
+  @media (max-width: 480px) {
+    .stats-grid { grid-template-columns: 1fr; }
+    .main { padding: 10px !important; }
+    .page-title h2 { font-size: 18px; }
+    .page-title p { font-size: 11px; }
+    .header-actions .btn { font-size: 11px; padding: 7px 8px; }
+    .stat-card .value { font-size: 20px; }
+    .week-count, .search-input { font-size: 12px; }
+  }
+
+  /* Mobile hamburger button — hidden on desktop, shown on ≤ 768px */
+  #mobileMenuBtn {
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    z-index: 30;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: var(--sidebar);
+    color: white;
+    border: none;
+    width: 38px;
+    height: 38px;
+    border-radius: 8px;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  }
+  #mobileMenuBtn:hover { background: var(--sidebar-hover); }
 </style>
 </head>
 <body>
 
+<button id="mobileMenuBtn" onclick="toggleMobileSidebar()" title="Menu">
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+</button>
+
 <aside class="sidebar">
+  <button id="sidebarCollapseBtn" onclick="toggleSidebar()" title="Collapse/expand sidebar">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+  </button>
   <div class="brand">
-    <div class="brand-logo">G</div>
+    <div class="brand-logo" aria-label="goteam">
+      <img src="goteam-logo.png" alt="goteam"
+           style="width:100%;height:100%;object-fit:contain;padding:2px;"
+           onerror="this.style.display='none';this.parentNode.classList.add('logo-fallback');" />
+    </div>
     <div>
-      <h1>GoTeam</h1>
-      <p>User Management</p>
+      <h1><span class="brand-go">go</span><span class="brand-team">team</span></h1>
+      <p>AI-Powered People</p>
     </div>
   </div>
   <p class="nav-section-title">Workspace</p>
@@ -245,19 +461,21 @@
     <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 10h10M7 14h6"/></svg></span>
     <span>Licensing</span>
   </button>
-  <div class="sidebar-footer">
-    <div class="avatar" id="sbAvatar">RM</div>
-    <div class="user-info">
-      <p id="sbName">Rudy Maneja</p>
-      <p id="sbStatus">Not signed in to MS365</p>
+  <div class="sidebar-footer" style="flex-direction:column;align-items:stretch;gap:8px;">
+    <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+      <div class="avatar" id="sbAvatar">RM</div>
+      <div class="user-info" style="flex:1;min-width:0;">
+        <p id="sbName">Rudy Maneja</p>
+        <p id="sbStatus">Not signed in to MS365</p>
+      </div>
     </div>
-    <button class="nav-item" id="sbAuthBtn" style="margin-top:8px;padding:6px 10px;font-size:11px;" onclick="msalSignInOrOut()" title="Sign in to Microsoft Graph">
+    <button class="nav-item" id="sbAuthBtn" style="padding:6px 10px;font-size:11px;border-radius:6px;" onclick="msalSignInOrOut()" title="Sign in to Microsoft Graph">
       <span class="icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg></span>
       <span id="sbAuthLabel">Sign In</span>
     </button>
-    <button class="nav-item" style="padding:6px 10px;font-size:11px;" onclick="openModal('msSettingsModal')" title="Azure AD configuration">
+    <button class="nav-item" style="padding:6px 10px;font-size:11px;border-radius:6px;" onclick="openModal('msSettingsModal')" title="Azure AD configuration">
       <span class="icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
-      <span>MS365 Settings</span>
+      <span class="settings-label">MS365 Settings</span>
     </button>
   </div>
 </aside>
@@ -325,6 +543,14 @@
         <p>Manage departures, exit checklists, and asset returns</p>
       </div>
       <div class="header-actions">
+        <button class="btn btn-secondary" id="toggleChecklistBtn" onclick="toggleExitChecklist()" title="Show/hide the Exit Checklist panel">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+          <span id="toggleChecklistLabel">Hide Checklist</span>
+        </button>
+        <button class="btn btn-secondary" onclick="openModal('attritionRefreshModal')" title="Pull data from P&amp;C Attrition and Recalled Masterfile SharePoint file">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          Refresh from Tracker
+        </button>
         <button class="btn btn-secondary" onclick="exportCSV('offboarding')">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           Export
@@ -339,7 +565,7 @@
     <div class="stats-grid">
       <div class="stat-card"><div class="label">Active Offboardings</div><div class="value" id="offStatActive">2</div><div class="change">Currently in progress</div></div>
       <div class="stat-card"><div class="label">Total Departures</div><div class="value" id="offStatMonth">5</div><div class="change">From email scans + manual entries</div></div>
-      <div class="stat-card"><div class="label">Pending Asset Returns</div><div class="value" id="offStatAssets">3</div><div class="change">Laptops, headsets, badges</div></div>
+      <div class="stat-card"><div class="label">Last Day This Week</div><div class="value" id="offStatAssets">0</div><div class="change">Departures on their final day</div></div>
       <div class="stat-card"><div class="label">Completed</div><div class="value" id="offStatDone">3</div><div class="change">Closed out</div></div>
     </div>
 
@@ -352,13 +578,13 @@
             <option value="">All statuses</option>
             <option value="Notice Period">Notice Period</option>
             <option value="Last Day">Last Day</option>
-            <option value="Asset Return">Asset Return</option>
             <option value="Completed">Completed</option>
           </select>
         </div>
       </div>
     </div>
     <div id="departureWeeklyPager" style="margin-bottom:14px;"></div>
+    <div id="depBulkBar" style="display:none;"></div>
 
     <div class="grid-2">
       <div class="panel" id="departuresPanel">
@@ -366,14 +592,14 @@
         <div style="overflow-x: auto;">
           <table>
             <thead>
-              <tr><th>Employee</th><th>Company</th><th>Last Day</th><th>Reason</th><th>Status</th><th>Actions</th></tr>
+              <tr><th class="col-checkbox" style="width:34px;"><input type="checkbox" class="row-checkbox" id="selectAllDepsStatic" /></th><th>Employee</th><th>Employee Email</th><th>Company</th><th>Leadership Coach</th><th>Coach Email</th><th>Effective Day</th><th>Type of Exit</th><th>Exit Notice Remarks</th><th>Status</th><th>Access Deactivated</th><th>Licenses Removed</th><th>Actions</th></tr>
             </thead>
             <tbody id="departuresTbody"></tbody>
           </table>
         </div>
       </div>
 
-      <div class="panel">
+      <div class="panel" id="exitChecklistPanel">
         <div class="panel-header">
           <div class="panel-title">Exit Checklist</div>
           <select class="filter-select" id="checklistEmployee" onchange="renderChecklist()"></select>
@@ -478,21 +704,71 @@
       <div class="form-group"><label>Employee Name</label><input type="text" id="depName" placeholder="Full name" /></div>
       <div class="form-row">
         <div class="form-group"><label>Company</label><input type="text" id="depCompany" placeholder="Client name" /></div>
-        <div class="form-group"><label>Last Working Day</label><input type="date" id="depDate" /></div>
+        <div class="form-group"><label>Effective Day</label><input type="date" id="depDate" /></div>
       </div>
-      <div class="form-group"><label>Reason</label>
-        <select id="depReason">
-          <option value="Resignation">Resignation</option>
-          <option value="End of Contract">End of Contract</option>
-          <option value="Termination">Termination</option>
-          <option value="Retirement">Retirement</option>
-          <option value="Other">Other</option>
-        </select>
+      <div class="form-row">
+        <div class="form-group"><label>Leadership Coach</label><input type="text" id="depCoach" placeholder="Coach name" /></div>
+        <div class="form-group"><label>Type of Exit</label>
+          <select id="depReason">
+            <option value="Resignation">Resignation</option>
+            <option value="End of Contract">End of Contract</option>
+            <option value="Termination">Termination</option>
+            <option value="Retirement">Retirement</option>
+            <option value="Recalled">Recalled</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
       </div>
+      <div class="form-group"><label>Exit Notice Remarks</label><textarea id="depRemarks" placeholder="Additional notes about the exit" rows="2" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;font-family:inherit;"></textarea></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('addDepartureModal')">Cancel</button>
       <button class="btn btn-primary" onclick="addDeparture()">Initiate</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="attritionRefreshModal">
+  <div class="modal modal-wide">
+    <div class="modal-header">
+      <h3>Refresh Offboarding from Attrition &amp; ER Tracker</h3>
+      <button class="btn btn-icon" onclick="closeModal('attritionRefreshModal')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <p style="color:var(--muted);font-size:13px;margin-bottom:14px;line-height:1.6;">Reads the following sheets from <code>P&amp;C Attrition and Recalled Masterfile.xlsx</code> in <code>/sites/GOVA-HRTeam</code>:</p>
+      <ul style="font-size:12px;color:var(--muted);margin:0 0 14px 20px;line-height:1.7;">
+        <li><strong>Attrition Masterlist 2026</strong> — C+B combined = Name, H = Company, I = Coach, L = Effective Date, M = Type of Exit, N = Exit Notice Remarks</li>
+        <li><strong>Recalled Masterlist 2022 - 2026</strong> — E = Name, I = Company, J = Coach, M = Effective Date. Type of Exit = "Recalled", Remarks = "N/A"</li>
+        <li><strong>RECALL with NTE</strong> — C = Name, G = Company, F = Coach, J = Effective Date. Type of Exit = "Recalled", Remarks = "N/A"</li>
+      </ul>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+        <label style="font-size:12px;display:flex;align-items:center;gap:6px;color:var(--muted);">
+          Only include effective dates between
+          <select id="attritionMonthFrom" style="padding:4px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;background:white;">
+            <option value="1">Jan</option><option value="2">Feb</option><option value="3">Mar</option><option value="4">Apr</option><option value="5">May</option><option value="6">Jun</option><option value="7" selected>Jul</option><option value="8">Aug</option><option value="9">Sep</option><option value="10">Oct</option><option value="11">Nov</option><option value="12">Dec</option>
+          </select>
+          and
+          <select id="attritionMonthTo" style="padding:4px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;background:white;">
+            <option value="1">Jan</option><option value="2">Feb</option><option value="3">Mar</option><option value="4">Apr</option><option value="5">May</option><option value="6">Jun</option><option value="7">Jul</option><option value="8" selected>Aug</option><option value="9">Sep</option><option value="10">Oct</option><option value="11">Nov</option><option value="12">Dec</option>
+          </select>
+          <input type="number" id="attritionYear" value="2026" min="2022" max="2030" style="width:70px;padding:4px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;background:white;" />
+        </label>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-primary" onclick="refreshFromAttritionTracker()" style="background:#7c3aed;border-color:#7c3aed;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          Read Tracker
+        </button>
+        <button class="btn btn-secondary" onclick="clearAttritionTrackerCache()" title="Force re-search for the Attrition Tracker file">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          Clear Tracker Cache
+        </button>
+      </div>
+      <div id="attritionRefreshLog" style="display:none;margin-top:10px;padding:12px;background:#0f172a;color:#e2e8f0;border-radius:8px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;line-height:1.6;max-height:280px;overflow-y:auto;"></div>
+      <div id="attritionRefreshPreview" style="display:none;margin-top:10px;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('attritionRefreshModal')">Close</button>
     </div>
   </div>
 </div>
@@ -811,7 +1087,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-  const STORAGE_KEY = 'goteam-ums-v70';
+  const STORAGE_KEY = 'goteam-ums-v102';
   // Updated by Claude on each "refresh the dashboard" run; static between refreshes.
   const DATA_AS_OF = 'May 28, 2026 (refreshed)';
 
@@ -824,10 +1100,12 @@
     'Group.ReadWrite.All',
     'Directory.ReadWrite.All',
     'Mail.Read',
+    'MailboxSettings.ReadWrite',                 // read inbox rules for forwarding setup
     'Files.ReadWrite.All',
     'Sites.ReadWrite.All',
-    'Sites.Manage.All',          // required to create lists & columns
-    'Organization.Read.All'
+    'Sites.Manage.All',                          // required to create lists & columns
+    'Organization.Read.All',
+    'UserAuthenticationMethod.ReadWrite.All'     // for removing MFA/auth methods on offboarding
   ];
   let msalInstance = null;
   let msalAccount = null;
@@ -1052,7 +1330,7 @@
       const h = hires[i];
       const first = ms365FirstName(h.starterName);
       const last = ms365LastName(h.starterName);
-      const upn = (first + '.' + last.replace(/[\s-]+/g, '')).toLowerCase() + '@' + (settings.domain || 'go.team');
+      const upn = stripDiacritics(first + '.' + last.replace(/[\s-]+/g, '')).toLowerCase() + '@' + (settings.domain || 'go.team');
       const display = first + ' ' + last + (ms365Suffix(h.starterName) ? ' ' + ms365Suffix(h.starterName) : '');
       const isInternal = (h.companyName || '').trim().toLowerCase() === 'goteam';
       const department = isInternal ? 'Internal' : detectShiftCategory(h.phShiftSchedule);
@@ -1225,6 +1503,10 @@
       { name: 'LastDayNote',      text: { allowMultipleLines: true } },
       { name: 'NoteLabel',        text: { allowMultipleLines: true } },
       { name: 'ChecklistJson',    text: { allowMultipleLines: true } },
+      { name: 'LeadershipCoach',  text: {} },
+      { name: 'ExitNoticeRemarks',text: { allowMultipleLines: true } },
+      { name: 'EmployeeEmail',    text: {} },
+      { name: 'LeadershipCoachEmail', text: {} },
       { name: 'LocalId',          number: {} }
     ],
     licenses: [
@@ -1431,11 +1713,13 @@
     };
   }
   function departureToSP(d) {
+    const eff = d.effectiveDate || d.lastDay || null;
+    const type = d.typeOfExit || d.reason || '';
     return {
       Title: d.name || '',
       Company: d.company || '',
-      LastDay: d.lastDay || null,
-      DepReason: d.reason || '',
+      LastDay: eff, // stored in existing LastDay column (also serves as EffectiveDate)
+      DepReason: type,
       NoticeDate: d.noticeDate || null,
       DepStatus: d.status || '',
       TmId: d.tmId || '',
@@ -1443,6 +1727,10 @@
       OriginalLastDay: d.originalLastDay || null,
       LastDayNote: d.lastDayNote || '',
       NoteLabel: d.noteLabel || '',
+      LeadershipCoach: d.leadershipCoach || '',
+      ExitNoticeRemarks: d.exitNoticeRemarks || '',
+      EmployeeEmail: d.employeeEmail || '',
+      LeadershipCoachEmail: d.leadershipCoachEmail || '',
       ChecklistJson: JSON.stringify(d.checklist || []),
       LocalId: d.id || 0
     };
@@ -1451,13 +1739,17 @@
     const f = item.fields || {};
     let checklist = [];
     try { checklist = JSON.parse(f.ChecklistJson || '[]'); } catch (_) {}
+    const eff = f.LastDay ? f.LastDay.slice(0, 10) : '';
+    const type = f.DepReason || '';
     return {
       id: f.LocalId || parseInt(item.id, 10),
       spId: item.id,
       name: f.Title || '',
       company: f.Company || '',
-      lastDay: f.LastDay ? f.LastDay.slice(0, 10) : '',
-      reason: f.DepReason || '',
+      effectiveDate: eff,
+      lastDay: eff, // legacy alias
+      typeOfExit: type,
+      reason: type, // legacy alias
       noticeDate: f.NoticeDate ? f.NoticeDate.slice(0, 10) : '',
       status: f.DepStatus || 'Notice Period',
       tmId: f.TmId || '',
@@ -1465,6 +1757,10 @@
       originalLastDay: f.OriginalLastDay ? f.OriginalLastDay.slice(0, 10) : null,
       lastDayNote: f.LastDayNote || '',
       noteLabel: f.NoteLabel || '',
+      leadershipCoach: f.LeadershipCoach || '',
+      exitNoticeRemarks: f.ExitNoticeRemarks || '',
+      employeeEmail: f.EmployeeEmail || '',
+      leadershipCoachEmail: f.LeadershipCoachEmail || '',
       checklist: checklist.length ? checklist : defaultExitChecklist()
     };
   }
@@ -1670,6 +1966,7 @@
       state.licenses    = l.merged;
       state.assignments = a.merged;
       state.selectedHires = new Set();
+      state.selectedDepartures = new Set();
       save();
 
       renderHires();
@@ -1854,6 +2151,7 @@
     state.licenses = licDup.kept;
     state.assignments = asnDup.kept;
     state.selectedHires = new Set();
+    state.selectedDepartures = new Set();
     save();
     renderHires();
     renderDepartures();
@@ -1895,6 +2193,7 @@
       state.licenses    = l.merged;
       state.assignments = a.merged;
       state.selectedHires = new Set();
+      state.selectedDepartures = new Set();
       save();
       renderHires();
       renderDepartures();
@@ -2176,6 +2475,476 @@
     localStorage.setItem(MS_SETTINGS_KEY, JSON.stringify(s));
     showToast('Tracker cache cleared — next refresh will re-search for the file');
   }
+
+  // ============================================================
+  // Attrition & ER Tracker (Offboarding source)
+  // ============================================================
+  const ATTRITION_FILE_NAME = 'P&C Attrition and Recalled Masterfile.xlsx';
+
+  function clearAttritionTrackerCache() {
+    const s = getMSSettings();
+    delete s.attritionDriveId;
+    delete s.attritionItemId;
+    localStorage.setItem(MS_SETTINGS_KEY, JSON.stringify(s));
+    showToast('Attrition Tracker cache cleared — next refresh will re-search for the file');
+  }
+
+  function atLog(msg, color) {
+    const el = document.getElementById('attritionRefreshLog');
+    el.style.display = 'block';
+    const line = document.createElement('div');
+    line.textContent = msg;
+    if (color) line.style.color = color;
+    el.appendChild(line);
+    el.scrollTop = el.scrollHeight;
+  }
+
+  async function getAttritionFileRef() {
+    let settings = getMSSettings();
+    if (settings.attritionDriveId && settings.attritionItemId) {
+      return { driveId: settings.attritionDriveId, itemId: settings.attritionItemId };
+    }
+
+    // Extract the tenant hostname from the app's environment. We can pull it
+    // from the msalAccount if present, or fall back to a well-known default.
+    let hostname = 'goteam1.sharepoint.com';
+    try {
+      if (msalAccount && msalAccount.username) {
+        const dom = msalAccount.username.split('@')[1];
+        if (dom && dom.endsWith('.team')) {
+          hostname = dom.replace(/\.team$/, '.sharepoint.com').replace(/^go\./, 'goteam1.');
+        }
+      }
+    } catch (_) {}
+
+    // 1. Direct lookup by SharePoint site + drive path.
+    // Note: Graph path syntax needs '&' → '%26' etc. — encodeURIComponent handles
+    // that but escapes '/' too, so we encode each segment separately.
+    function encodePath(p) {
+      return p.split('/').map(s => encodeURIComponent(s)).join('/');
+    }
+    const candidatePaths = [
+      '/' + ATTRITION_FILE_NAME,
+      '/People and Culture/' + ATTRITION_FILE_NAME,
+      '/P&C/' + ATTRITION_FILE_NAME,
+      '/ER/' + ATTRITION_FILE_NAME,
+      '/HR/' + ATTRITION_FILE_NAME,
+      '/Attrition/' + ATTRITION_FILE_NAME
+    ];
+    atLog('  Trying direct SharePoint lookup: /sites/GOVA-HRTeam ...', '#94a3b8');
+    try {
+      // Resolve the site first
+      const site = await graphFetch('/sites/' + hostname + ':/sites/GOVA-HRTeam');
+      atLog('  Site resolved: ' + (site.displayName || 'GOVA-HRTeam') + ' (id ' + (site.id || '').slice(0, 30) + '...)', '#94a3b8');
+      // Get the default drive
+      const drive = await graphFetch('/sites/' + site.id + '/drive');
+      const driveId = drive.id;
+      // Try each candidate path
+      for (const path of candidatePaths) {
+        try {
+          const item = await graphFetch('/drives/' + driveId + '/root:' + encodePath(path));
+          if (item && item.id && item.name === ATTRITION_FILE_NAME) {
+            atLog('  [OK] Found via direct path: ' + path, '#22c55e');
+            settings.attritionDriveId = driveId;
+            settings.attritionItemId = item.id;
+            localStorage.setItem(MS_SETTINGS_KEY, JSON.stringify(settings));
+            return { driveId, itemId: item.id };
+          }
+        } catch (_) { /* try next path */ }
+      }
+      // Search the drive if paths didn't hit
+      try {
+        atLog('  Trying drive-wide search...', '#94a3b8');
+        const results = await graphFetch("/drives/" + driveId + "/root/search(q='" + encodeURIComponent(ATTRITION_FILE_NAME) + "')?$top=10");
+        const match = (results.value || []).find(f => f.name === ATTRITION_FILE_NAME);
+        if (match) {
+          atLog('  [OK] Found via drive search — path: ' + (match.parentReference ? match.parentReference.path : 'unknown'), '#22c55e');
+          settings.attritionDriveId = driveId;
+          settings.attritionItemId = match.id;
+          localStorage.setItem(MS_SETTINGS_KEY, JSON.stringify(settings));
+          return { driveId, itemId: match.id };
+        }
+      } catch (_) {}
+    } catch (e) {
+      atLog('  [WARN] Direct site lookup failed: ' + e.message.slice(0, 100), '#fbbf24');
+    }
+
+    // 2. Microsoft Search API (broad but slow to index)
+    atLog('  Trying Microsoft Search API...', '#94a3b8');
+    try {
+      const r = await graphFetch('/search/query', {
+        method: 'POST',
+        body: {
+          requests: [{
+            entityTypes: ['driveItem'],
+            query: { queryString: 'filename:"' + ATTRITION_FILE_NAME + '"' },
+            size: 10
+          }]
+        }
+      });
+      const hits = r.value && r.value[0] && r.value[0].hitsContainers && r.value[0].hitsContainers[0] && r.value[0].hitsContainers[0].hits;
+      if (hits) {
+        for (const hit of hits) {
+          const res = hit.resource || {};
+          if (res.name === ATTRITION_FILE_NAME && res.parentReference && res.parentReference.driveId) {
+            atLog('  [OK] Found via Search API', '#22c55e');
+            settings.attritionDriveId = res.parentReference.driveId;
+            settings.attritionItemId = res.id;
+            localStorage.setItem(MS_SETTINGS_KEY, JSON.stringify(settings));
+            return { driveId: res.parentReference.driveId, itemId: res.id };
+          }
+        }
+      }
+    } catch (_) {}
+
+    throw new Error('Attrition Tracker not found. Verify you have access to /sites/GOVA-HRTeam and the file is named "Attrition and ER Tracker.xlsx".');
+  }
+
+  // Parse various date shapes (Excel serial, ISO string, "October 15, 2026", "10/15/2026")
+  function parseAttritionDate(val) {
+    if (val === null || val === undefined || val === '') return '';
+    if (typeof val === 'number' && val > 25000 && val < 100000) {
+      return trackerDateToISO(val);
+    }
+    if (typeof val === 'string') {
+      // Try YYYY-MM-DD or MM/DD/YYYY or "Month D, YYYY"
+      const iso = val.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (iso) return iso[1] + '-' + iso[2] + '-' + iso[3];
+      const mdy = val.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+      if (mdy) return mdy[3] + '-' + String(mdy[1]).padStart(2, '0') + '-' + String(mdy[2]).padStart(2, '0');
+      return parseEmailDate(val);
+    }
+    return '';
+  }
+
+  function combineName(a, b) {
+    const s1 = String(a || '').trim();
+    const s2 = String(b || '').trim();
+    if (!s1 && !s2) return '';
+    if (!s1) return s2;
+    if (!s2) return s1;
+    return s1 + ' ' + s2;
+  }
+
+  async function readAttritionSheets() {
+    const { driveId, itemId } = await getAttritionFileRef();
+    atLog('  Attrition Tracker driveId=' + (driveId || '').slice(0, 30) + '..., itemId=' + (itemId || '').slice(0, 20) + '...', '#94a3b8');
+    let sheets = [];
+    try {
+      const ws = await graphFetch('/drives/' + driveId + '/items/' + itemId + '/workbook/worksheets?$select=id,name');
+      sheets = ws.value || [];
+    } catch (e) {
+      throw new Error('Failed to list worksheets — ' + e.message);
+    }
+    atLog('  Workbook has ' + sheets.length + ' total sheet(s).', '#94a3b8');
+    const sheetNames = sheets.map(s => s.name);
+
+    async function readRange(sheetName, address) {
+      const url = '/drives/' + driveId + '/items/' + itemId + '/workbook/worksheets/' + encodeURIComponent(sheetName) + "/range(address='" + address + "')";
+      const r = await graphFetch(url);
+      return r.values || [];
+    }
+
+    // Bucket for departures we'll propose
+    const proposals = [];
+
+    // --- Sheet 1: "Attrition Masterlist 2026" — A:N (14 cols × 500 rows = 7000 cells → split into A:G and H:N) ---
+    const target1 = sheetNames.find(n => /attrition\s*masterlist\s*2026/i.test(n));
+    if (target1) {
+      atLog('  Reading "' + target1 + '"...', '#60a5fa');
+      try {
+        // Read A:N in 2 batches to stay under cell limit
+        const left = await readRange(target1, 'A1:G500');   // A-G: 7 cols × 500 = 3500
+        const right = await readRange(target1, 'H1:N500');  // H-N: 7 cols × 500 = 3500
+        const maxRows = Math.max(left.length, right.length);
+        let added = 0;
+        for (let i = 0; i < maxRows; i++) {
+          const l = left[i] || [];
+          const rt = right[i] || [];
+          // Column indices from left range: 0=A, 1=B, 2=C, 3=D, 4=E, 5=F, 6=G
+          // Column indices from right range: 0=H, 1=I, 2=J, 3=K, 4=L, 5=M, 6=N
+          const nameB = l[1];
+          const nameC = l[2];
+          // User's intent: first name comes from Column C, last/family name from Column B.
+          // So the full name is "C B" (e.g. "Marisa Jumawan" from C=Marisa, B=Jumawan).
+          const combined = combineName(nameC, nameB);
+          if (!combined) continue;
+          // Skip header row(s)
+          if (/^(name|full\s*name|first\s*name|last\s*name)/i.test(String(nameB || '') + ' ' + String(nameC || ''))) continue;
+          const company = String(rt[0] || '').trim();       // H
+          const coach = String(rt[1] || '').trim();         // I
+          const effDate = parseAttritionDate(rt[4]);        // L
+          const typeOfExit = String(rt[5] || '').trim();    // M
+          const remarks = String(rt[6] || '').trim();       // N
+          if (!effDate) continue;
+          proposals.push({
+            source: 'Attrition Masterlist 2026',
+            name: combined,
+            company,
+            leadershipCoach: coach,
+            effectiveDate: effDate,
+            typeOfExit: typeOfExit || 'Resignation',
+            exitNoticeRemarks: remarks
+          });
+          added++;
+        }
+        atLog('    parsed ' + added + ' row(s)', '#22c55e');
+      } catch (e) {
+        atLog('    [ERROR] ' + e.message.slice(0, 120), '#ef4444');
+      }
+    } else {
+      atLog('  [WARN] Sheet "Attrition Masterlist 2026" not found.', '#fbbf24');
+    }
+
+    // --- Sheet 2: "Recalled Masterlist 2022 - 2026" — E, I, J, M columns ---
+    const target2 = sheetNames.find(n => /recalled\s*masterlist/i.test(n));
+    if (target2) {
+      atLog('  Reading "' + target2 + '"...', '#60a5fa');
+      try {
+        const rows = await readRange(target2, 'A1:M500');  // 13 cols × 500 = 6500
+        let added = 0;
+        for (const r of rows) {
+          if (!r) continue;
+          const name = String(r[4] || '').trim();          // E
+          if (!name) continue;
+          if (/^(name|full\s*name)/i.test(name)) continue;
+          const company = String(r[8] || '').trim();       // I
+          const coach = String(r[9] || '').trim();         // J
+          const effDate = parseAttritionDate(r[12]);       // M
+          if (!effDate) continue;
+          proposals.push({
+            source: 'Recalled Masterlist',
+            name, company, leadershipCoach: coach,
+            effectiveDate: effDate,
+            typeOfExit: 'Recalled',
+            exitNoticeRemarks: 'N/A'
+          });
+          added++;
+        }
+        atLog('    parsed ' + added + ' row(s)', '#22c55e');
+      } catch (e) {
+        atLog('    [ERROR] ' + e.message.slice(0, 120), '#ef4444');
+      }
+    } else {
+      atLog('  [WARN] Sheet "Recalled Masterlist 2022 - 2026" not found.', '#fbbf24');
+    }
+
+    // --- Sheet 3: "RECALL with NTE" — C, F, G, J columns ---
+    const target3 = sheetNames.find(n => /recall\s*with\s*nte/i.test(n));
+    if (target3) {
+      atLog('  Reading "' + target3 + '"...', '#60a5fa');
+      try {
+        const rows = await readRange(target3, 'A1:J500');  // 10 cols × 500 = 5000 — right at limit, but OK
+        let added = 0;
+        for (const r of rows) {
+          if (!r) continue;
+          const name = String(r[2] || '').trim();         // C
+          if (!name) continue;
+          if (/^(name|full\s*name|employee)/i.test(name)) continue;
+          const coach = String(r[5] || '').trim();        // F
+          const company = String(r[6] || '').trim();      // G
+          const effDate = parseAttritionDate(r[9]);       // J
+          if (!effDate) continue;
+          proposals.push({
+            source: 'RECALL with NTE',
+            name, company, leadershipCoach: coach,
+            effectiveDate: effDate,
+            typeOfExit: 'Recalled',
+            exitNoticeRemarks: 'N/A'
+          });
+          added++;
+        }
+        atLog('    parsed ' + added + ' row(s)', '#22c55e');
+      } catch (e) {
+        atLog('    [ERROR] ' + e.message.slice(0, 120), '#ef4444');
+      }
+    } else {
+      atLog('  [WARN] Sheet "RECALL with NTE" not found.', '#fbbf24');
+    }
+
+    return proposals;
+  }
+
+  async function refreshFromAttritionTracker() {
+    if (!msalAccount) { showToast('Sign in via the sidebar first'); return; }
+    const monthFrom = parseInt(document.getElementById('attritionMonthFrom').value, 10);
+    const monthTo = parseInt(document.getElementById('attritionMonthTo').value, 10);
+    const year = parseInt(document.getElementById('attritionYear').value, 10) || new Date().getUTCFullYear();
+    document.getElementById('attritionRefreshLog').innerHTML = '';
+    document.getElementById('attritionRefreshPreview').style.display = 'none';
+    atLog('Reading Attrition & ER Tracker...', '#60a5fa');
+
+    try {
+      const proposals = await readAttritionSheets();
+      atLog('Total rows parsed: ' + proposals.length, '#22c55e');
+
+      // Filter by month range on effectiveDate
+      const filtered = proposals.filter(p => {
+        if (!p.effectiveDate) return false;
+        const parts = p.effectiveDate.split('-');
+        if (parts.length < 3) return false;
+        const y = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10);
+        if (y !== year) return false;
+        return m >= monthFrom && m <= monthTo;
+      });
+      atLog('Within ' + year + ' month range ' + monthFrom + '-' + monthTo + ': ' + filtered.length + ' row(s).', '#22c55e');
+
+      // Separate: new vs update vs already-matching
+      const newItems = [];
+      const updates = [];
+      const seenKeys = new Set();
+      filtered.forEach(p => {
+        const k = p.name.toLowerCase();
+        if (seenKeys.has(k)) return;
+        seenKeys.add(k);
+        const existing = state.departures.find(d => (d.name || '').toLowerCase() === k);
+        if (!existing) {
+          newItems.push(p);
+        } else {
+          const changes = [];
+          const curEff = existing.effectiveDate || existing.lastDay || '';
+          if (p.effectiveDate && curEff !== p.effectiveDate) changes.push({ field: 'effectiveDate', oldValue: curEff, newValue: p.effectiveDate });
+          const curType = existing.typeOfExit || existing.reason || '';
+          if (p.typeOfExit && curType !== p.typeOfExit) changes.push({ field: 'typeOfExit', oldValue: curType, newValue: p.typeOfExit });
+          if (p.company && (existing.company || '') !== p.company) changes.push({ field: 'company', oldValue: existing.company || '', newValue: p.company });
+          if (p.leadershipCoach && (existing.leadershipCoach || '') !== p.leadershipCoach) changes.push({ field: 'leadershipCoach', oldValue: existing.leadershipCoach || '', newValue: p.leadershipCoach });
+          if (p.exitNoticeRemarks && (existing.exitNoticeRemarks || '') !== p.exitNoticeRemarks) changes.push({ field: 'exitNoticeRemarks', oldValue: existing.exitNoticeRemarks || '', newValue: p.exitNoticeRemarks });
+          if (changes.length > 0) updates.push({ target: existing, name: existing.name, changes, source: p.source });
+        }
+      });
+
+      atLog('New: ' + newItems.length + ' departure(s), Updates: ' + updates.length + '.', '#22c55e');
+      renderAttritionPreview(newItems, updates);
+    } catch (e) {
+      atLog('[FAIL] ' + e.message, '#ef4444');
+      console.error(e);
+    }
+  }
+
+  function renderAttritionPreview(newItems, updates) {
+    const el = document.getElementById('attritionRefreshPreview');
+    if (newItems.length === 0 && updates.length === 0) {
+      el.style.display = 'block';
+      el.innerHTML = '<div style="padding:12px;background:#ecfdf5;border:1px solid #6ee7b7;border-radius:8px;font-size:12px;color:#065f46;">No new departures or updates found within the selected range.</div>';
+      return;
+    }
+    let html = '<div style="padding:12px;background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;margin-bottom:8px;font-size:12px;color:#1e40af;line-height:1.5;"><strong>' + newItems.length + ' new departure(s), ' + updates.length + ' update(s).</strong> Review and uncheck any you do not want to apply.</div>';
+
+    if (newItems.length > 0) {
+      html += '<h5 style="font-size:13px;margin:12px 0 6px;color:var(--text);">New Departures (' + newItems.length + ')</h5>';
+      html += '<div style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">';
+      html += '<table style="width:100%;border-collapse:collapse;font-size:12px;"><thead style="background:#f8fafc;"><tr>' +
+              '<th style="padding:6px;text-align:left;width:30px;"><input type="checkbox" id="atNewAll" checked onchange="document.querySelectorAll(\'.atNewCb\').forEach(c => c.checked = this.checked);" /></th>' +
+              '<th style="padding:6px;text-align:left;">Name</th>' +
+              '<th style="padding:6px;text-align:left;">Company</th>' +
+              '<th style="padding:6px;text-align:left;">Coach</th>' +
+              '<th style="padding:6px;text-align:left;">Effective Day</th>' +
+              '<th style="padding:6px;text-align:left;">Type of Exit</th>' +
+              '<th style="padding:6px;text-align:left;">Source</th>' +
+              '</tr></thead><tbody>';
+      newItems.forEach((p, i) => {
+        html += '<tr style="border-top:1px solid #e2e8f0;">' +
+                '<td style="padding:6px;"><input type="checkbox" class="atNewCb" data-idx="' + i + '" checked /></td>' +
+                '<td style="padding:6px;">' + escapeHtml(p.name) + '</td>' +
+                '<td style="padding:6px;">' + escapeHtml(p.company) + '</td>' +
+                '<td style="padding:6px;">' + escapeHtml(p.leadershipCoach || '—') + '</td>' +
+                '<td style="padding:6px;">' + escapeHtml(p.effectiveDate) + '</td>' +
+                '<td style="padding:6px;">' + escapeHtml(p.typeOfExit) + '</td>' +
+                '<td style="padding:6px;font-size:11px;color:var(--muted);">' + escapeHtml(p.source) + '</td>' +
+                '</tr>';
+      });
+      html += '</tbody></table></div>';
+    }
+    if (updates.length > 0) {
+      html += '<h5 style="font-size:13px;margin:12px 0 6px;color:var(--text);">Updates (' + updates.length + ')</h5>';
+      html += '<div style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">';
+      html += '<table style="width:100%;border-collapse:collapse;font-size:12px;"><thead style="background:#f8fafc;"><tr>' +
+              '<th style="padding:6px;text-align:left;width:30px;"><input type="checkbox" id="atUpAll" checked onchange="document.querySelectorAll(\'.atUpCb\').forEach(c => c.checked = this.checked);" /></th>' +
+              '<th style="padding:6px;text-align:left;">Name</th>' +
+              '<th style="padding:6px;text-align:left;">Changes</th>' +
+              '</tr></thead><tbody>';
+      updates.forEach((u, i) => {
+        const changesHtml = u.changes.map(c =>
+          '<div><strong>' + escapeHtml(c.field) + ':</strong> <span style="color:#94a3b8;text-decoration:line-through;">' + escapeHtml(String(c.oldValue || '(blank)')) + '</span> → <span style="color:#16a34a;">' + escapeHtml(String(c.newValue)) + '</span></div>'
+        ).join('');
+        html += '<tr style="border-top:1px solid #e2e8f0;">' +
+                '<td style="padding:6px;"><input type="checkbox" class="atUpCb" data-idx="' + i + '" checked /></td>' +
+                '<td style="padding:6px;">' + escapeHtml(u.name) + '</td>' +
+                '<td style="padding:6px;">' + changesHtml + '</td>' +
+                '</tr>';
+      });
+      html += '</tbody></table></div>';
+    }
+    html += '<div style="margin-top:10px;display:flex;gap:8px;">' +
+            '<button class="btn btn-primary" onclick="commitAttritionPreview()">Apply Selected</button>' +
+            '<button class="btn btn-secondary" onclick="document.getElementById(\'attritionRefreshPreview\').style.display=\'none\';">Discard</button>' +
+            '</div>';
+
+    el.style.display = 'block';
+    el.innerHTML = html;
+    window.__attritionPending = { newItems, updates };
+  }
+
+  function commitAttritionPreview() {
+    const pending = window.__attritionPending || { newItems: [], updates: [] };
+    const selectedNew = [];
+    const selectedUpdates = [];
+    document.querySelectorAll('.atNewCb:checked').forEach(cb => {
+      const idx = parseInt(cb.dataset.idx, 10);
+      if (pending.newItems[idx]) selectedNew.push(pending.newItems[idx]);
+    });
+    document.querySelectorAll('.atUpCb:checked').forEach(cb => {
+      const idx = parseInt(cb.dataset.idx, 10);
+      if (pending.updates[idx]) selectedUpdates.push(pending.updates[idx]);
+    });
+
+    // Add new departures
+    const maxId = state.departures.reduce((m, d) => Math.max(m, d.id || 0), 0);
+    selectedNew.forEach((p, i) => {
+      state.departures.push({
+        id: maxId + 1 + i,
+        name: p.name,
+        company: p.company,
+        leadershipCoach: p.leadershipCoach || '',
+        // Auto-derive work emails from names (user can override later if wrong)
+        employeeEmail: p.name ? ms365Username(p.name) : '',
+        leadershipCoachEmail: p.leadershipCoach ? ms365Username(p.leadershipCoach) : '',
+        effectiveDate: p.effectiveDate,
+        lastDay: p.effectiveDate, // legacy alias
+        typeOfExit: p.typeOfExit,
+        reason: p.typeOfExit,      // legacy alias
+        exitNoticeRemarks: p.exitNoticeRemarks || '',
+        noticeDate: '',
+        status: 'Notice Period',
+        lastDayEstimated: false,
+        checklist: defaultExitChecklist()
+      });
+    });
+
+    // Apply updates
+    let applied = 0;
+    selectedUpdates.forEach(u => {
+      if (!u.target) return;
+      u.changes.forEach(c => {
+        u.target[c.field] = c.newValue;
+        // Keep aliases in sync
+        if (c.field === 'effectiveDate') u.target.lastDay = c.newValue;
+        if (c.field === 'typeOfExit') u.target.reason = c.newValue;
+      });
+      applied++;
+    });
+
+    save();
+    renderDepartures();
+
+    document.getElementById('attritionRefreshPreview').style.display = 'none';
+    atLog('Added ' + selectedNew.length + ' new + updated ' + applied + '. Open MS365 Settings → Push Local Changes to sync to SharePoint.', '#22c55e');
+    showToast('Applied ' + selectedNew.length + ' new + ' + applied + ' update(s)');
+  }
+  // ============================================================
+  // End Attrition Tracker
+  // ============================================================
 
   async function autoRefreshFromGraph() {
     if (!msalAccount) {
@@ -2560,10 +3329,41 @@
 
   // Re-define defaultExitChecklist in case the seed file failed to load
   // (it also defines this function and assigns to window.defaultExitChecklist).
+  const CHECKLIST_MS_LABEL = 'Microsoft 365 Account Revoked Access & License';
+  const CHECKLIST_TM_LABEL = 'Teramind Account Revoked Access';
+
   function defaultExitChecklist(opts) {
     opts = opts || {};
-    const items = ["Knowledge transfer","Disable email & SSO accounts","Revoke software licenses","Return laptop & peripherals","Return company badge","Final payslip processed","Exit interview completed","Manager sign-off"];
+    const items = [CHECKLIST_MS_LABEL, CHECKLIST_TM_LABEL];
     return items.map(label => ({ label, done: opts.all ? true : !!opts[label] }));
+  }
+
+  // Migrate legacy (multi-item OR older 2-item) checklist to the current labels.
+  function migrateExitChecklist(existing) {
+    const list = Array.isArray(existing) ? existing : [];
+    const labels = list.map(x => (x && x.label ? x.label : '').toLowerCase());
+    if (list.length === 2 && labels[0] === CHECKLIST_MS_LABEL.toLowerCase() && labels[1] === CHECKLIST_TM_LABEL.toLowerCase()) {
+      return list;
+    }
+    const doneMap = {};
+    list.forEach(item => { if (item && item.label) doneMap[item.label.toLowerCase()] = !!item.done; });
+    // Match legacy labels that referred to the same concept
+    const msDone = !!(
+      doneMap[CHECKLIST_MS_LABEL.toLowerCase()] ||
+      doneMap['microsoft 365 account'] ||
+      doneMap['microsoft account'] ||
+      doneMap['disable email & sso accounts'] ||
+      doneMap['revoke software licenses']
+    );
+    const tmDone = !!(
+      doneMap[CHECKLIST_TM_LABEL.toLowerCase()] ||
+      doneMap['teramind account'] ||
+      doneMap['teramind']
+    );
+    return [
+      { label: CHECKLIST_MS_LABEL, done: msDone },
+      { label: CHECKLIST_TM_LABEL, done: tmDone }
+    ];
   }
 
   const seedHires       = __SEED.hires       || [];
@@ -2576,19 +3376,21 @@
     try { const saved = localStorage.getItem(STORAGE_KEY); if (saved) {
       const s = JSON.parse(saved);
       s.selectedHires = new Set(); // selection is session-only
+      s.selectedDepartures = new Set(); // selection is session-only
       return s;
     } } catch (e) {}
-    return { hires: seedHires, departures: seedDepartures, licenses: seedLicenses, assignments: seedAssignments, selectedHires: new Set() };
+    return { hires: seedHires, departures: seedDepartures, licenses: seedLicenses, assignments: seedAssignments, selectedHires: new Set(), selectedDepartures: new Set() };
   }
   function save() {
     try {
-      const { selectedHires, ...persist } = state;
+      const { selectedHires, selectedDepartures, ...persist } = state;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(persist));
     } catch (e) {}
   }
 
   let state = load();
   if (!state.selectedHires) state.selectedHires = new Set();
+  if (!state.selectedDepartures) state.selectedDepartures = new Set();
 
   document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -2619,6 +3421,12 @@
     if (!d) return '—';
     const date = new Date(d);
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+  function formatDateTime(d) {
+    if (!d) return '—';
+    const date = new Date(d);
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) +
+           ' · ' + date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
   }
   function showToast(msg) {
     const t = document.getElementById('toast');
@@ -2757,23 +3565,32 @@
       return { week: 'Wk ' + weekN, month: monthYear, monthShort: month };
     }
 
-    // Build the pager — group by month
-    let lastMonth = null;
-    const pagerHtml = sortedKeys.map(k => {
-      const g = groups[k];
-      const lbl = monthWeekLabel(k);
-      let parts = '';
-      if (lbl.month !== lastMonth) {
-        parts += '<span class="week-pager-month">' + lbl.month + '</span>';
-        lastMonth = lbl.month;
-      }
-      const isActive = k === state.activeWeekKey;
-      const dateRange = g.label.replace('Week of ', '');
-      parts += '<button class="week-pager-btn' + (isActive ? ' active' : '') + (g.hasWithdrawn ? ' has-withdrawn' : '') +
-        '" onclick="switchWeek(\'' + k + '\')" title="' + g.label + '">' +
-        lbl.week + ' <span class="count">' + g.hires.length + '</span></button>';
-      return parts;
-    }).join('');
+    // Compact date-picker replaces the horizontal week pager.
+    const activeIdx = sortedKeys.indexOf(state.activeWeekKey);
+    const prevKey = activeIdx > 0 ? sortedKeys[activeIdx - 1] : null;
+    const nextKey = (activeIdx >= 0 && activeIdx < sortedKeys.length - 1) ? sortedKeys[activeIdx + 1] : null;
+    const activeMondayIso = state.activeWeekKey || '';
+    const activeCount = groups[state.activeWeekKey] ? groups[state.activeWeekKey].hires.length : 0;
+    const activeLabel = groups[state.activeWeekKey] ? groups[state.activeWeekKey].label : '';
+    const pagerHtml =
+      '<div class="date-pager" style="display:inline-flex;align-items:center;gap:4px;background:white;border:1px solid #e2e8f0;border-radius:10px;padding:6px 8px;box-shadow:0 1px 3px rgba(0,0,0,0.04);">' +
+        '<button class="btn-icon" ' + (prevKey ? "onclick=\"switchWeek('" + prevKey + "')\"" : 'disabled') + ' style="background:transparent;border:none;color:' + (prevKey ? 'var(--text)' : '#cbd5e1') + ';cursor:' + (prevKey ? 'pointer' : 'not-allowed') + ';padding:6px 8px;border-radius:6px;display:flex;align-items:center;justify-content:center;" title="Previous week">' +
+          '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>' +
+        '</button>' +
+        '<label style="position:relative;display:inline-flex;align-items:center;gap:8px;padding:6px 12px;cursor:pointer;border-radius:6px;font-size:14px;font-weight:600;color:var(--text);" onmouseover="this.style.background=\'#f1f5f9\';" onmouseout="this.style.background=\'transparent\';" onclick="const p=document.getElementById(\'onboardingDatePicker\');if(p.showPicker)p.showPicker();else p.click();">' +
+          '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>' +
+          '<span>' + (activeLabel || 'Select date') + '</span>' +
+          '<span style="background:var(--primary);color:white;font-size:11px;padding:2px 7px;border-radius:10px;font-weight:600;">' + activeCount + '</span>' +
+          '<input type="date" id="onboardingDatePicker" value="' + activeMondayIso + '" onchange="onboardingDateChanged(this.value)" style="position:absolute;opacity:0;pointer-events:none;width:0;height:0;" />' +
+        '</label>' +
+        '<button class="btn-icon" ' + (nextKey ? "onclick=\"switchWeek('" + nextKey + "')\"" : 'disabled') + ' style="background:transparent;border:none;color:' + (nextKey ? 'var(--text)' : '#cbd5e1') + ';cursor:' + (nextKey ? 'pointer' : 'not-allowed') + ';padding:6px 8px;border-radius:6px;display:flex;align-items:center;justify-content:center;" title="Next week">' +
+          '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>' +
+        '</button>' +
+        '<button class="btn-icon" onclick="document.getElementById(\'onboardingDatePicker\').showPicker ? document.getElementById(\'onboardingDatePicker\').showPicker() : document.getElementById(\'onboardingDatePicker\').click()" style="background:transparent;border:none;color:var(--muted);cursor:pointer;padding:6px 8px;border-radius:6px;display:flex;align-items:center;justify-content:center;border-left:1px solid #e2e8f0;margin-left:2px;" title="Pick a date">' +
+          '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>' +
+        '</button>' +
+      '</div>' +
+      '<span style="margin-left:12px;font-size:12px;color:var(--muted);">' + sortedKeys.length + ' week' + (sortedKeys.length === 1 ? '' : 's') + ' total</span>';
 
     // Render: pager + the active week's table
     const activeGroup = groups[state.activeWeekKey];
@@ -2790,7 +3607,7 @@
     }
 
     container.innerHTML =
-      '<div class="week-pager">' + pagerHtml + '</div>' +
+      '<div style="margin-bottom:14px;">' + pagerHtml + '</div>' +
       '<div class="week-section">' +
         '<div class="week-header">' +
           '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>' +
@@ -2824,6 +3641,33 @@
     renderHires();
   }
 
+  // Called when the onboarding date-picker changes: find the Monday-of-that-week
+  // and switch. Snap to nearest week with hires if the exact week has none.
+  function onboardingDateChanged(dateStr) {
+    if (!dateStr) return;
+    const targetKey = weekKey(dateStr);
+    const groups = {};
+    state.hires.forEach(h => {
+      if (!h.startDate) return;
+      const k = weekKey(h.startDate);
+      if (!groups[k]) groups[k] = true;
+    });
+    if (groups[targetKey]) {
+      switchWeek(targetKey);
+      return;
+    }
+    const keys = Object.keys(groups).sort();
+    if (keys.length === 0) return;
+    let closest = keys[0];
+    let minDiff = Infinity;
+    keys.forEach(k => {
+      const diff = Math.abs(new Date(k) - new Date(targetKey));
+      if (diff < minDiff) { minDiff = diff; closest = k; }
+    });
+    switchWeek(closest);
+    showToast('No starters for that week — showing nearest: ' + closest);
+  }
+
   // Build a comparator for hires given a field name and direction.
   // Treats blank/null/"TBD" as larger than any real value (so they sink to the bottom on asc).
   function makeHireSorter(field, dir) {
@@ -2845,6 +3689,15 @@
     };
   }
 
+  // Return a list of state.hires filtered by ids and sorted by the active
+  // dashboard sort. Used by MS365 / Teramind / Credentials bulk actions so
+  // their CSV / PowerShell / clipboard output matches the on-screen order.
+  function sortHiresLikeDashboard(hires) {
+    const sortField = state.hiresSortField || 'startDate';
+    const sortDir = state.hiresSortDir || 'asc';
+    return hires.slice().sort(makeHireSorter(sortField, sortDir));
+  }
+
   function setHiresSort(field) {
     if (state.hiresSortField === field) {
       // Toggle direction
@@ -2859,9 +3712,15 @@
 
   function makeDepartureSorter(field, dir) {
     const mul = dir === 'desc' ? -1 : 1;
+    function getVal(d, f) {
+      // Backwards-compat aliases: effectiveDate ↔ lastDay, typeOfExit ↔ reason
+      if (f === 'effectiveDate') return d.effectiveDate || d.lastDay;
+      if (f === 'typeOfExit') return d.typeOfExit || d.reason;
+      return d[f];
+    }
     return (a, b) => {
-      let av = a[field];
-      let bv = b[field];
+      let av = getVal(a, field);
+      let bv = getVal(b, field);
       const aBlank = av === undefined || av === null || av === '';
       const bBlank = bv === undefined || bv === null || bv === '';
       if (aBlank && !bBlank) return 1;
@@ -2940,15 +3799,30 @@
     '</div>';
   }
 
+  // Strip diacritical marks (ñ→n, é→e, ü→u, Ñ→N, etc.) so UPN/email is ASCII.
+  // Uses Unicode NFD decomposition: 'ñ' becomes 'n' + combining tilde, then the
+  // combining mark (U+0300..U+036F) is removed. Same approach works for any
+  // Latin script accent. ø/Ø and other non-decomposable chars get an explicit
+  // mapping after NFD.
+  function stripDiacritics(s) {
+    return String(s || '')
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .replace(/ø/g, 'o').replace(/Ø/g, 'O')
+      .replace(/æ/g, 'ae').replace(/Æ/g, 'AE')
+      .replace(/œ/g, 'oe').replace(/Œ/g, 'OE')
+      .replace(/ß/g, 'ss');
+  }
+
   function ms365Username(starterName) {
-    const parts = String(starterName || '').replace(/[^A-Za-z\s]/g, '').trim().split(/\s+/);
+    const parts = stripDiacritics(starterName).replace(/[^A-Za-z\s]/g, '').trim().split(/\s+/);
     if (parts.length < 2) return parts.join('').toLowerCase() + '@go.team';
     const first = parts[0].toLowerCase();
     const last = parts[parts.length - 1].toLowerCase();
     return first + '.' + last + '@go.team';
   }
   function ms365FirstName(starterName) {
-    const parts = String(starterName || '').replace(/[^A-Za-z\s]/g, '').trim().split(/\s+/);
+    const parts = stripDiacritics(starterName).replace(/[^A-Za-z\s]/g, '').trim().split(/\s+/);
     return parts[0] || '';
   }
   // Known generational/honorific suffixes that appear AFTER the last name
@@ -3030,7 +3904,7 @@
       const first = ms365FirstName(h.starterName);
       const last = ms365LastName(h.starterName);
       const display = first + ' ' + last + (ms365Suffix(h.starterName) ? ' ' + ms365Suffix(h.starterName) : '');
-      const upn = (first + '.' + last.replace(/[\s-]+/g, '')).toLowerCase() + '@go.team';
+      const upn = stripDiacritics(first + '.' + last.replace(/[\s-]+/g, '')).toLowerCase() + '@go.team';
       const isInternal = (h.companyName || '').trim().toLowerCase() === 'goteam';
       const department = isInternal ? 'Internal' : detectShiftCategory(h.phShiftSchedule);
       const license = (department === 'Internal') ? 'O365_BUSINESS_ESSENTIALS' : 'M365_F1_COMM';
@@ -3126,7 +4000,7 @@
       const first = ms365FirstName(h.starterName);
       const last = ms365LastName(h.starterName);
       const display = first + ' ' + last;
-      const upn = (first + '.' + last.replace(/[\s-]+/g, '')).toLowerCase() + '@go.team';
+      const upn = stripDiacritics(first + '.' + last.replace(/[\s-]+/g, '')).toLowerCase() + '@go.team';
       const isInternal = (h.companyName || '').trim().toLowerCase() === 'goteam';
       const department = isInternal ? 'Internal' : detectShiftCategory(h.phShiftSchedule);
       const license = (department === 'Internal') ? 'O365_BUSINESS_ESSENTIALS' : 'M365_F1_COMM';
@@ -3233,7 +4107,7 @@
     let hires;
     let title;
     if (id === 'bulk') {
-      hires = state.hires.filter(h => state.selectedHires.has(h.id));
+      hires = sortHiresLikeDashboard(state.hires.filter(h => state.selectedHires.has(h.id)));
       title = 'Create ' + hires.length + ' Microsoft 365 Account' + (hires.length === 1 ? '' : 's');
     } else {
       const h = state.hires.find(x => x.id === id);
@@ -3309,7 +4183,7 @@
     hires.forEach((h, i) => {
       const first = ms365FirstName(h.starterName);
       const last = ms365LastName(h.starterName);
-      const email = (first + '.' + last.replace(/[\s-]+/g, '')).toLowerCase() + '@go.team';
+      const email = stripDiacritics(first + '.' + last.replace(/[\s-]+/g, '')).toLowerCase() + '@go.team';
       rows.push([
         first, last, email, 'user', h.position || '', passwords[i],
         '', '', '', h.companyName || '', '',
@@ -3325,7 +4199,7 @@
   function openTeramindModal(id) {
     let hires, title;
     if (id === 'bulk') {
-      hires = state.hires.filter(h => state.selectedHires.has(h.id));
+      hires = sortHiresLikeDashboard(state.hires.filter(h => state.selectedHires.has(h.id)));
       title = 'Create ' + hires.length + ' Teramind Account' + (hires.length === 1 ? '' : 's');
     } else {
       const h = state.hires.find(x => x.id === id);
@@ -3489,7 +4363,7 @@
       const h = hires[i];
       const first = ms365FirstName(h.starterName);
       const last = ms365LastName(h.starterName);
-      const email = (first + '.' + last.replace(/[\s-]+/g, '')).toLowerCase() + '@go.team';
+      const email = stripDiacritics(first + '.' + last.replace(/[\s-]+/g, '')).toLowerCase() + '@go.team';
       const body = {
         first_name: first,
         last_name: last,
@@ -3601,7 +4475,7 @@
   function buildCredentialCard(h) {
     const first = ms365FirstName(h.starterName);
     const last = ms365LastName(h.starterName);
-    const email = (first + '.' + last.replace(/[\s-]+/g, '')).toLowerCase() + '@go.team';
+    const email = stripDiacritics(first + '.' + last.replace(/[\s-]+/g, '')).toLowerCase() + '@go.team';
     const ms365Pwd = h.ms365Password || '— not yet created —';
     const ms365Date = fmtCredDate(h.ms365CreatedAt);
     const teramindPwd = h.teramindPassword || '— not yet created —';
@@ -3707,7 +4581,7 @@
     } else {
       ids = idsOrId;
     }
-    const hires = state.hires.filter(h => ids.includes(h.id));
+    const hires = sortHiresLikeDashboard(state.hires.filter(h => ids.includes(h.id)));
     if (hires.length === 0) return;
 
     // Warn if any are missing creds
@@ -3766,7 +4640,7 @@
   function buildCredentialDataRows(h) {
     const first = ms365FirstName(h.starterName);
     const last = ms365LastName(h.starterName);
-    const email = (first + '.' + last.replace(/[\s-]+/g, '')).toLowerCase() + '@go.team';
+    const email = stripDiacritics(first + '.' + last.replace(/[\s-]+/g, '')).toLowerCase() + '@go.team';
     const ms365Pwd = h.ms365Password || '';
     // If a password exists but no createdAt is recorded (account provisioned outside
     // the dashboard via PowerShell script), stamp NOW and persist it so subsequent
@@ -3812,7 +4686,7 @@
     // Kept for the "Export Credentials" printable window (styled version stays the same)
     const first = ms365FirstName(h.starterName);
     const last = ms365LastName(h.starterName);
-    const email = (first + '.' + last.replace(/[\s-]+/g, '')).toLowerCase() + '@go.team';
+    const email = stripDiacritics(first + '.' + last.replace(/[\s-]+/g, '')).toLowerCase() + '@go.team';
     const ms365Pwd = h.ms365Password || '— not yet created —';
     const ms365Date = fmtCredDate(h.ms365CreatedAt);
     const teramindPwd = h.teramindPassword || '— not yet created —';
@@ -3855,7 +4729,7 @@
     } else {
       ids = [idsOrId];
     }
-    const hires = state.hires.filter(h => ids.includes(h.id));
+    const hires = sortHiresLikeDashboard(state.hires.filter(h => ids.includes(h.id)));
     if (hires.length === 0) return;
 
     // Detect missing-credentials cases so we can warn the user
@@ -4102,11 +4976,251 @@
     renderDepartures();
   }
 
+  // When user picks a date from the calendar, find the Monday-of-that-week and
+  // switch to that group. If no group exists for that week, snap to the closest
+  // available week that has departures.
+  function offboardingDateChanged(dateStr) {
+    if (!dateStr) return;
+    const targetKey = weekKey(dateStr);
+    // See if any group matches. Rebuild groups quickly.
+    const groups = {};
+    state.departures.forEach(d => {
+      const eff = d.effectiveDate || d.lastDay || '';
+      if (!eff) return;
+      const k = weekKey(eff);
+      if (!groups[k]) groups[k] = true;
+    });
+    if (groups[targetKey]) {
+      switchOffboardingWeek(targetKey);
+      return;
+    }
+    // Snap to nearest available week
+    const keys = Object.keys(groups).sort();
+    if (keys.length === 0) return;
+    let closest = keys[0];
+    let minDiff = Infinity;
+    keys.forEach(k => {
+      const diff = Math.abs(new Date(k) - new Date(targetKey));
+      if (diff < minDiff) { minDiff = diff; closest = k; }
+    });
+    switchOffboardingWeek(closest);
+    showToast('No departures for that week — showing nearest: ' + closest);
+  }
+
+  // Multi-select for departures. Set-based (session-only, not persisted).
+  function toggleDepartureSelection(id) {
+    if (!state.selectedDepartures) state.selectedDepartures = new Set();
+    if (state.selectedDepartures.has(id)) {
+      state.selectedDepartures.delete(id);
+    } else {
+      state.selectedDepartures.add(id);
+    }
+    // If exactly one is selected, auto-load that departure in the Exit Checklist below.
+    if (state.selectedDepartures.size === 1) {
+      const selectedId = Array.from(state.selectedDepartures)[0];
+      const sel = document.getElementById('checklistEmployee');
+      if (sel) {
+        sel.value = String(selectedId);
+        renderChecklist();
+        // Smoothly scroll the checklist into view so the user sees the effect
+        const checklistPanel = document.querySelector('.panel-title') && document.querySelector('.panel-title').closest('.panel');
+        // Prefer scrolling to the Exit Checklist heading if available
+        const target = Array.from(document.querySelectorAll('.panel-title')).find(el => el.textContent.trim() === 'Exit Checklist');
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+    renderDepartures();
+  }
+
+  function toggleSelectAllDepartures(cb) {
+    if (!state.selectedDepartures) state.selectedDepartures = new Set();
+    // Only affect currently-visible departures (the active week)
+    const visibleIds = Array.from(document.querySelectorAll('.dep-row-checkbox')).map(el => parseInt(el.dataset.depId, 10));
+    if (cb.checked) visibleIds.forEach(id => state.selectedDepartures.add(id));
+    else visibleIds.forEach(id => state.selectedDepartures.delete(id));
+    renderDepartures();
+  }
+
+  function clearDepartureSelection() {
+    if (!state.selectedDepartures) state.selectedDepartures = new Set();
+    state.selectedDepartures.clear();
+    renderDepartures();
+  }
+
+  function renderDepartureBulkBar() {
+    const bar = document.getElementById('depBulkBar');
+    if (!bar) return;
+    const n = (state.selectedDepartures && state.selectedDepartures.size) || 0;
+    if (n === 0) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
+    bar.style.display = '';
+    bar.innerHTML = '<div class="bulk-bar">' +
+      '<span class="count-badge">' + n + '</span>' +
+      '<span class="label">' + (n === 1 ? 'departure selected' : 'departures selected') + '</span>' +
+      '<span class="spacer"></span>' +
+      '<button class="btn-bulk-action" onclick="bulkConvertToSharedMailbox()" style="background:#eff6ff;color:#1d4ed8;">' +
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22 6 12 13 2 6"/></svg>' +
+        ' Convert to Shared Mailbox' +
+      '</button>' +
+      '<button class="btn-bulk-action" onclick="bulkRevokeAccessAndLicense()" style="background:#fef2f2;color:#b91c1c;">' +
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' +
+        ' Revoke Access &amp; License' +
+      '</button>' +
+      '<button class="btn-clear" onclick="clearDepartureSelection()">Deselect All</button>' +
+    '</div>';
+  }
+
+  // ============ Bulk offboarding actions ============
+  // Return the selected departures in a stable order (by effective date).
+  function getSelectedDeparturesSorted() {
+    if (!state.selectedDepartures) return [];
+    const selected = state.departures.filter(d => state.selectedDepartures.has(d.id));
+    return selected.sort(makeDepartureSorter('effectiveDate', 'asc'));
+  }
+
+  async function bulkConvertToSharedMailbox() {
+    const items = getSelectedDeparturesSorted();
+    if (items.length === 0) { showToast('No departures selected'); return; }
+    // SOP: Internal team members only.
+    const external = items.filter(d => !isInternalTeamMember(d));
+    const internal = items.filter(d => isInternalTeamMember(d));
+    if (internal.length === 0) {
+      alert('SOP restriction:\n\nConvert to Shared Mailbox applies ONLY to GoTeam internal team members.\n\nNone of the ' + items.length + ' selected departures are internal (Company = "GoTeam"). Use Revoke Access & License for client-assigned staff.');
+      return;
+    }
+    // Need both employee and coach emails to build the script correctly.
+    const missingEmail = internal.filter(d => !d.employeeEmail);
+    const missingCoach = internal.filter(d => d.employeeEmail && !d.leadershipCoachEmail);
+    const runnable = internal.filter(d => d.employeeEmail && d.leadershipCoachEmail);
+    if (runnable.length === 0) {
+      alert('None of the eligible internal departures have both Employee Email and Coach Email filled in. Fill those columns first.');
+      return;
+    }
+    const warnings = [];
+    if (external.length > 0) warnings.push(external.length + ' skipped (not internal)');
+    if (missingEmail.length > 0) warnings.push(missingEmail.length + ' skipped (no employee email)');
+    if (missingCoach.length > 0) warnings.push(missingCoach.length + ' skipped (no coach email)');
+    if (!confirm('Generate a PowerShell script to convert ' + runnable.length + ' internal mailbox(es) to shared?' +
+                 (warnings.length ? '\n\n' + warnings.join(', ') : '') +
+                 '\n\nEach user: convert → grant coach FullAccess → forward mail to coach.\n\nYou\'ll copy the script and run it in Exchange Online PowerShell.')) return;
+
+    // Step 3 for each user via Graph (parallel). If any fail, include the step
+    // in that user's PowerShell block as a fallback.
+    let graphForwardingOk = 0, graphForwardingFail = 0;
+    const scriptItems = [];
+    for (const d of runnable) {
+      const email = d.employeeEmail.trim();
+      const coachEmail = d.leadershipCoachEmail.trim();
+      const coachName = d.leadershipCoach || '';
+      let forwardingOk = false;
+      if (msalAccount) {
+        try {
+          await setupForwardingViaGraph(email, coachEmail, coachName);
+          forwardingOk = true;
+          graphForwardingOk++;
+        } catch (e) {
+          graphForwardingFail++;
+          console.warn('Graph forwarding failed for', email, e);
+        }
+      }
+      d.sharedMailboxForwardingViaGraph = forwardingOk;
+      scriptItems.push({
+        email, coachEmail, name: d.name, coachName,
+        needsForwardingInPs: !forwardingOk,
+        forwardingViaGraph: forwardingOk
+      });
+    }
+    const script = buildSharedMailboxScript(scriptItems);
+    showSharedMailboxScriptModal(script, scriptItems);
+    if (graphForwardingOk > 0) showToast('Graph created ' + graphForwardingOk + ' forwarding rule(s). PowerShell handles the rest.');
+
+    // Mark all runnable ones as done in state
+    runnable.forEach(d => {
+      d.sharedMailboxDone = true;
+      d.sharedMailboxDoneAt = new Date().toISOString();
+    });
+    save();
+    renderDepartures();
+  }
+
+  async function bulkRevokeAccessAndLicense() {
+    const items = getSelectedDeparturesSorted();
+    if (items.length === 0) { showToast('No departures selected'); return; }
+    const runnable = items.filter(d => d.employeeEmail);
+    const missing = items.length - runnable.length;
+    if (runnable.length === 0) { alert('None of the selected departures have an Employee Email filled in.'); return; }
+    if (!msalAccount) { alert('Sign in via the sidebar first.'); return; }
+    if (!confirm('Full offboarding for ' + runnable.length + ' user(s)?' +
+                 (missing ? '\n\n(' + missing + ' skipped — no email)' : '') +
+                 '\n\nEach user will be:\n' +
+                 '  1. Sign-in blocked\n' +
+                 '  2. All sessions revoked\n' +
+                 '  3. Removed from all groups\n' +
+                 '  4. All licenses removed\n' +
+                 '  5. Department set to "GoTeam" or "Client-facing"\n' +
+                 '  6. All authentication methods (MFA) removed\n\n' +
+                 'Cannot be undone. Continue?')) return;
+
+    let ok = 0, failed = 0, totalLicensesRemoved = 0;
+    const results = [];
+    for (const d of runnable) {
+      const result = await performRevoke(d);
+      results.push(result);
+      if (result.ok) ok++; else failed++;
+      totalLicensesRemoved += result.licensesRemoved;
+    }
+    save();
+    renderDepartures();
+    console.log(results.flatMap(r => r.log).join('\n'));
+    showRevokeLogModal(results, ok, failed, totalLicensesRemoved);
+  }
+
+  // Modal that shows step-by-step results of a bulk (or single) revoke.
+  function showRevokeLogModal(results, ok, failed, totalLicensesRemoved) {
+    const existing = document.getElementById('revokeLogModal');
+    if (existing) existing.remove();
+    const logText = results.flatMap(r => r.log).join('\n');
+    const overlay = document.createElement('div');
+    overlay.id = 'revokeLogModal';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:10000;padding:20px;';
+    overlay.innerHTML =
+      '<div style="background:#fff;border-radius:12px;max-width:720px;width:100%;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 50px rgba(0,0,0,0.3);">' +
+        '<div style="padding:18px 22px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;">' +
+          '<div><h3 style="margin:0;font-size:17px;color:#111827;">Revoke Access & License — Results</h3>' +
+          '<div style="margin-top:4px;font-size:13px;color:#6b7280;">' + ok + ' succeeded · ' + failed + ' failed · ' + totalLicensesRemoved + ' license(s) removed</div></div>' +
+          '<button id="revokeLogClose" style="background:none;border:none;font-size:22px;cursor:pointer;color:#6b7280;">×</button>' +
+        '</div>' +
+        '<pre style="flex:1;overflow:auto;margin:0;padding:16px 22px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;line-height:1.55;color:#111827;background:#f9fafb;white-space:pre-wrap;"></pre>' +
+        '<div style="padding:14px 22px;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:10px;">' +
+          '<button id="revokeLogCopy" style="padding:8px 16px;border:1px solid #d1d5db;background:#fff;border-radius:6px;cursor:pointer;font-size:13px;">Copy log</button>' +
+          '<button id="revokeLogDone" style="padding:8px 18px;border:none;background:#0284c7;color:#fff;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;">Done</button>' +
+        '</div>' +
+      '</div>';
+    overlay.querySelector('pre').textContent = logText;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.querySelector('#revokeLogClose').onclick = close;
+    overlay.querySelector('#revokeLogDone').onclick = close;
+    overlay.querySelector('#revokeLogCopy').onclick = () => {
+      navigator.clipboard.writeText(logText).then(() => showToast('Log copied'));
+    };
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  }
+
+  // Backwards-compat accessors — old records used lastDay/reason; new ones use effectiveDate/typeOfExit
+  function depEffectiveDate(d) { return d.effectiveDate || d.lastDay || ''; }
+  function depTypeOfExit(d) { return d.typeOfExit || d.reason || ''; }
+
   function renderDepartures() {
+    // Migrate any legacy "Asset Return" statuses → "Notice Period" since that
+    // status is no longer available (other team handles asset return).
+    let migratedAny = false;
+    state.departures.forEach(d => { if (d.status === 'Asset Return') { d.status = 'Notice Period'; migratedAny = true; } });
+    if (migratedAny) save();
+
     const search = (document.getElementById('depSearch').value || '').toLowerCase();
     const status = document.getElementById('depStatusFilter').value || '';
     const filtered = state.departures.filter(d => {
-      const ms = !search || d.name.toLowerCase().includes(search) || d.company.toLowerCase().includes(search);
+      const ms = !search || d.name.toLowerCase().includes(search) || d.company.toLowerCase().includes(search) || (d.leadershipCoach || '').toLowerCase().includes(search);
       const mst = !status || d.status === status;
       return ms && mst;
     });
@@ -4118,17 +5232,18 @@
     if (filtered.length === 0) {
       pagerEl.innerHTML = '';
       headerEl.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>All departures<span class="week-count">0</span>';
-      tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><h4>No departures</h4><p>Adjust filters or initiate a new offboarding.</p></div></td></tr>';
+      tbody.innerHTML = '<tr><td colspan="13"><div class="empty-state"><h4>No departures</h4><p>Adjust filters or initiate a new offboarding.</p></div></td></tr>';
       updateOffboardingStats();
       populateChecklistEmployee();
       return;
     }
 
-    // Group by week of lastDay
+    // Group by week of effective date
     const groups = {};
     filtered.forEach(d => {
-      const key = weekKey(d.lastDay);
-      if (!groups[key]) groups[key] = { label: weekLabel(d.lastDay), departures: [] };
+      const eff = depEffectiveDate(d);
+      const key = weekKey(eff);
+      if (!groups[key]) groups[key] = { label: weekLabel(eff), departures: [] };
       groups[key].departures.push(d);
     });
     const sortedKeys = Object.keys(groups).sort();
@@ -4156,24 +5271,36 @@
       return { week: 'Wk ' + weekN, month: monthYear };
     }
 
-    let lastMonth = null;
-    const pagerHtml = sortedKeys.map(k => {
-      const g = groups[k];
-      const lbl = monthWeekLabel(k);
-      let parts = '';
-      if (lbl.month !== lastMonth) {
-        parts += '<span class="week-pager-month">' + lbl.month + '</span>';
-        lastMonth = lbl.month;
-      }
-      const isActive = k === state.activeOffboardingWeekKey;
-      parts += '<button class="week-pager-btn' + (isActive ? ' active' : '') + '" onclick="switchOffboardingWeek(\'' + k + '\')" title="' + g.label + '">' +
-        lbl.week + ' <span class="count">' + g.departures.length + '</span></button>';
-      return parts;
-    }).join('');
-    pagerEl.innerHTML = '<div class="week-pager">' + pagerHtml + '</div>';
+    // Compact date-picker replacing the horizontal week pager.
+    // Shows the current week + prev/next arrows + a click-to-open date input.
+    const activeIdx = sortedKeys.indexOf(state.activeOffboardingWeekKey);
+    const prevKey = activeIdx > 0 ? sortedKeys[activeIdx - 1] : null;
+    const nextKey = (activeIdx >= 0 && activeIdx < sortedKeys.length - 1) ? sortedKeys[activeIdx + 1] : null;
+    const activeMondayIso = state.activeOffboardingWeekKey || '';
+    const activeCount = groups[state.activeOffboardingWeekKey] ? groups[state.activeOffboardingWeekKey].departures.length : 0;
+    const activeLabel = groups[state.activeOffboardingWeekKey] ? groups[state.activeOffboardingWeekKey].label : '';
+    pagerEl.innerHTML =
+      '<div class="date-pager" style="display:inline-flex;align-items:center;gap:4px;background:white;border:1px solid #e2e8f0;border-radius:10px;padding:6px 8px;box-shadow:0 1px 3px rgba(0,0,0,0.04);">' +
+        '<button class="btn-icon" ' + (prevKey ? "onclick=\"switchOffboardingWeek('" + prevKey + "')\"" : 'disabled') + ' style="background:transparent;border:none;color:' + (prevKey ? 'var(--text)' : '#cbd5e1') + ';cursor:' + (prevKey ? 'pointer' : 'not-allowed') + ';padding:6px 8px;border-radius:6px;display:flex;align-items:center;justify-content:center;" title="Previous week">' +
+          '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>' +
+        '</button>' +
+        '<label style="position:relative;display:inline-flex;align-items:center;gap:8px;padding:6px 12px;cursor:pointer;border-radius:6px;font-size:14px;font-weight:600;color:var(--text);" onmouseover="this.style.background=\'#f1f5f9\';" onmouseout="this.style.background=\'transparent\';" onclick="const p=document.getElementById(\'offboardingDatePicker\');if(p.showPicker)p.showPicker();else p.click();">' +
+          '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>' +
+          '<span>' + (activeLabel || 'Select date') + '</span>' +
+          '<span style="background:var(--primary);color:white;font-size:11px;padding:2px 7px;border-radius:10px;font-weight:600;">' + activeCount + '</span>' +
+          '<input type="date" id="offboardingDatePicker" value="' + activeMondayIso + '" onchange="offboardingDateChanged(this.value)" style="position:absolute;opacity:0;pointer-events:none;width:0;height:0;" />' +
+        '</label>' +
+        '<button class="btn-icon" ' + (nextKey ? "onclick=\"switchOffboardingWeek('" + nextKey + "')\"" : 'disabled') + ' style="background:transparent;border:none;color:' + (nextKey ? 'var(--text)' : '#cbd5e1') + ';cursor:' + (nextKey ? 'pointer' : 'not-allowed') + ';padding:6px 8px;border-radius:6px;display:flex;align-items:center;justify-content:center;" title="Next week">' +
+          '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>' +
+        '</button>' +
+        '<button class="btn-icon" onclick="document.getElementById(\'offboardingDatePicker\').showPicker ? document.getElementById(\'offboardingDatePicker\').showPicker() : document.getElementById(\'offboardingDatePicker\').click()" style="background:transparent;border:none;color:var(--muted);cursor:pointer;padding:6px 8px;border-radius:6px;display:flex;align-items:center;justify-content:center;border-left:1px solid #e2e8f0;margin-left:2px;" title="Pick a date">' +
+          '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>' +
+        '</button>' +
+      '</div>' +
+      '<span style="margin-left:12px;font-size:12px;color:var(--muted);">' + sortedKeys.length + ' week' + (sortedKeys.length === 1 ? '' : 's') + ' total</span>';
 
     const activeGroup = groups[state.activeOffboardingWeekKey];
-    const depSortField = state.depsSortField || 'lastDay';
+    const depSortField = state.depsSortField || 'effectiveDate';
     const depSortDir = state.depsSortDir || 'asc';
     activeGroup.departures.sort(makeDepartureSorter(depSortField, depSortDir));
 
@@ -4186,60 +5313,596 @@
         const style = 'cursor:pointer;user-select:none;' + (isActive ? 'color:var(--primary);' : '');
         return '<th style="' + style + '" onclick="setDeparturesSort(\'' + field + '\')">' + label + '<span style="font-size:10px;">' + arrow + '</span></th>';
       }
-      depsThead.innerHTML = depHeader('Employee', 'name') + depHeader('Company', 'company') + depHeader('Last Day', 'lastDay') + depHeader('Reason', 'reason') + depHeader('Status', 'status') + '<th>Actions</th>';
+      depsThead.innerHTML =
+        '<th class="col-checkbox" style="width:34px;"><input type="checkbox" class="row-checkbox" onchange="toggleSelectAllDepartures(this)" id="selectAllDeps" title="Select all departures in this week"></th>' +
+        depHeader('Employee', 'name') +
+        depHeader('Employee Email', 'employeeEmail') +
+        depHeader('Company', 'company') +
+        depHeader('Leadership Coach', 'leadershipCoach') +
+        depHeader('Coach Email', 'leadershipCoachEmail') +
+        depHeader('Effective Day', 'effectiveDate') +
+        depHeader('Type of Exit', 'typeOfExit') +
+        depHeader('Exit Notice Remarks', 'exitNoticeRemarks') +
+        depHeader('Status', 'status') +
+        depHeader('Access Deactivated', 'accessRevokedDoneAt') +
+        '<th>Licenses Removed</th>' +
+        '<th>Actions</th>';
     }
 
     headerEl.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>' + activeGroup.label + '<span class="week-count">' + activeGroup.departures.length + ' departure' + (activeGroup.departures.length === 1 ? '' : 's') + '</span>';
 
     {
-      tbody.innerHTML = activeGroup.departures.map(d => '\
-        <tr>\
+      tbody.innerHTML = activeGroup.departures.map(d => {
+        const eff = depEffectiveDate(d);
+        const typeOfExit = depTypeOfExit(d);
+        const isSelected = state.selectedDepartures && state.selectedDepartures.has(d.id);
+        // A row is treated as "immediate" (high-priority highlight) if either
+        // Type of Exit or Exit Notice Remarks mentions "immediate". This catches
+        // rows where the type is generic ("Resignation") but the remarks flag it
+        // as immediate — HR often writes it that way.
+        const isImmediate = /immediate/i.test(typeOfExit) || /immediate/i.test(d.exitNoticeRemarks || '');
+        // Emails: prefer stored value, otherwise derive from name via existing UPN logic
+        const emp = d.employeeEmail || (d.name ? ms365Username(d.name) : '');
+        const coachEmail = d.leadershipCoachEmail || (d.leadershipCoach ? ms365Username(d.leadershipCoach) : '');
+        // Row highlight: bold red-tinted background + thick left border for
+        // immediate resignations (very visible so nothing gets missed), light
+        // blue for selected (selection wins if both true).
+        let rowStyle = '';
+        if (isSelected) rowStyle = ' style="background:#eff6ff;"';
+        else if (isImmediate) rowStyle = ' style="background:#fee2e2;border-left:5px solid #dc2626;box-shadow:inset 0 0 0 1px #fca5a5;"';
+        // Editable email textbox — stored on d.employeeEmail / d.leadershipCoachEmail.
+        // If the stored value is blank we prefill the placeholder with the auto-derived
+        // firstname.lastname email from ms365Username(). User can override to reflect
+        // legacy accounts (nickname.lastname@go.team or secondname.lastname@go.team).
+        const emailInput = (val, placeholder, field) =>
+          '<input type="email" value="' + (val || '') + '" placeholder="' + placeholder + '" oninput="updateDepartureField(' + d.id + ', \'' + field + '\', this.value)" style="width:170px;font-size:12px;padding:5px 8px;border:1px solid #cbd5e1;border-radius:6px;font-family:inherit;background:white;" />';
+        return '\
+        <tr' + rowStyle + '>\
+          <td class="col-checkbox"><input type="checkbox" class="dep-row-checkbox" data-dep-id="' + d.id + '" ' + (isSelected ? 'checked' : '') + ' onchange="toggleDepartureSelection(' + d.id + ')"></td>\
           <td>\
             <div class="user-cell">\
               <div class="avatar" style="background:' + avatarColor(d.name) + '">' + initials(d.name) + '</div>\
-              <div><div class="name">' + d.name + '</div></div>\
+              <div><div class="name">' + d.name + '</div>' + (isImmediate ? '<div style="font-size:10px;color:#dc2626;font-weight:600;">⚠ IMMEDIATE</div>' : '') + '</div>\
             </div>\
           </td>\
-          <td>' + d.company + '</td>\
-          <td>' + formatDate(d.lastDay) + (d.lastDayEstimated ? ' <span style="font-size:10px;color:var(--muted);background:#fef3c7;padding:1px 5px;border-radius:4px;margin-left:4px;" title="Last day estimated from notice date — not explicitly stated in email">est.</span>' : '') + (d.originalLastDay ? '<div class="reschedule-note">Changed from ' + formatDate(d.originalLastDay) + (d.lastDayNote ? ' — ' + d.lastDayNote : '') + '</div>' : '') + (d.retractionDate ? '<div class="reschedule-note" style="color:var(--success);">Resignation retracted ' + formatDate(d.retractionDate) + (d.retractionNote ? ' — ' + d.retractionNote : '') + '</div>' : '') + '</td>\
-          <td><span style="font-size:12px;color:var(--muted)">' + d.reason + '</span></td>\
+          <td>' + emailInput(d.employeeEmail || emp, emp || 'firstname.lastname@go.team', 'employeeEmail') + '</td>\
+          <td>' + (d.company || '') + '</td>\
+          <td><span style="font-size:12px;">' + (d.leadershipCoach || '<span style="color:var(--muted);">—</span>') + '</span></td>\
+          <td>' + emailInput(d.leadershipCoachEmail || coachEmail, coachEmail || 'firstname.lastname@go.team', 'leadershipCoachEmail') + '</td>\
+          <td>' + formatDate(eff) + (d.lastDayEstimated ? ' <span style="font-size:10px;color:var(--muted);background:#fef3c7;padding:1px 5px;border-radius:4px;margin-left:4px;" title="Effective date estimated">est.</span>' : '') + (d.originalLastDay ? '<div class="reschedule-note">Changed from ' + formatDate(d.originalLastDay) + (d.lastDayNote ? ' — ' + d.lastDayNote : '') + '</div>' : '') + (d.retractionDate ? '<div class="reschedule-note" style="color:var(--success);">Resignation retracted ' + formatDate(d.retractionDate) + (d.retractionNote ? ' — ' + d.retractionNote : '') + '</div>' : '') + '</td>\
+          <td><span style="font-size:12px;color:' + (isImmediate ? '#dc2626' : 'var(--muted)') + ';font-weight:' + (isImmediate ? '600' : 'normal') + ';">' + typeOfExit + '</span></td>\
+          <td><span style="font-size:12px;' + (/immediate/i.test(d.exitNoticeRemarks || '') ? 'color:#dc2626;font-weight:700;' : '') + '">' + (d.exitNoticeRemarks || '<span style="color:var(--muted);">—</span>') + '</span></td>\
           <td>' + statusPill(d.status) + '</td>\
+          <td>' + (d.accessRevokedDoneAt ? '<span style="font-size:11px;color:#065f46;white-space:nowrap;" title="' + new Date(d.accessRevokedDoneAt).toString() + '">' + formatDateTime(d.accessRevokedDoneAt) + '</span>' : '<span style="color:var(--muted);font-size:12px;">—</span>') + '</td>\
+          <td>' + (Array.isArray(d.licensesRemovedList) && d.licensesRemovedList.length ? (function(){ var pretty = d.licensesRemovedList.map(friendlyLicenseName); return '<div style="font-size:11px;color:#374151;max-width:240px;white-space:normal;line-height:1.4;" title="' + pretty.join(', ') + '">' + pretty.join(', ') + '</div>'; })() : '<span style="color:var(--muted);font-size:12px;">—</span>') + '</td>\
           <td>\
-            <select class="filter-select" style="font-size:12px;padding:5px 26px 5px 8px" onchange="updateDepartureStatus(' + d.id + ', this.value)">\
-              <option ' + (d.status==='Notice Period'?'selected':'') + '>Notice Period</option>\
-              <option ' + (d.status==='Last Day'?'selected':'') + '>Last Day</option>\
-              <option ' + (d.status==='Asset Return'?'selected':'') + '>Asset Return</option>\
-              <option ' + (d.status==='Completed'?'selected':'') + '>Completed</option>\
-            </select>\
+            <div style="display:flex;flex-direction:column;gap:4px;align-items:stretch;min-width:180px;">\
+              <select class="filter-select" style="font-size:11px;padding:4px 22px 4px 6px" onchange="updateDepartureStatus(' + d.id + ', this.value)">\
+                <option ' + (d.status==='Notice Period'?'selected':'') + '>Notice Period</option>\
+                <option ' + (d.status==='Last Day'?'selected':'') + '>Last Day</option>\
+                <option ' + (d.status==='Completed'?'selected':'') + '>Completed</option>\
+              </select>\
+              <button class="btn" onclick="convertToSharedMailbox(' + d.id + ')" style="font-size:11px;padding:5px 8px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:6px;font-weight:600;cursor:pointer;" ' + (d.sharedMailboxDone ? 'disabled title="Already converted"' : '') + '>' + (d.sharedMailboxDone ? '✓ Shared Mailbox' : 'Convert to Shared Mailbox') + '</button>\
+              <button class="btn" onclick="revokeAccessAndLicense(' + d.id + ')" style="font-size:11px;padding:5px 8px;background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:6px;font-weight:600;cursor:pointer;" ' + (d.accessRevokedDone ? 'disabled title="Already revoked"' : '') + '>' + (d.accessRevokedDone ? '✓ Access Revoked' : 'Revoke Access & License') + '</button>\
+            </div>\
           </td>\
-        </tr>').join('');
+        </tr>';
+      }).join('');
     }
     updateOffboardingStats();
     populateChecklistEmployee();
+    renderDepartureBulkBar();
+    // Sync the select-all header checkbox state to how many rows are actually selected
+    const headerCb = document.getElementById('selectAllDeps');
+    if (headerCb) {
+      const visible = document.querySelectorAll('.dep-row-checkbox');
+      const checked = document.querySelectorAll('.dep-row-checkbox:checked');
+      headerCb.checked = visible.length > 0 && checked.length === visible.length;
+      headerCb.indeterminate = checked.length > 0 && checked.length < visible.length;
+    }
   }
   function updateOffboardingStats() {
     const active = state.departures.filter(d => d.status !== 'Completed').length;
     const done = state.departures.filter(d => d.status === 'Completed').length;
-    const assets = state.departures.filter(d => d.status === 'Asset Return').length;
+    const lastDayNow = state.departures.filter(d => d.status === 'Last Day').length;
     document.getElementById('offStatActive').textContent = active;
     document.getElementById('offStatMonth').textContent = state.departures.length;
-    document.getElementById('offStatAssets').textContent = assets;
+    document.getElementById('offStatAssets').textContent = lastDayNow;
     document.getElementById('offStatDone').textContent = done;
   }
   function updateDepartureStatus(id, status) {
     const d = state.departures.find(x => x.id === id);
     if (d) { d.status = status; save(); renderDepartures(); showToast('Status updated for ' + d.name); }
   }
+
+  // Inline edit of employeeEmail / leadershipCoachEmail from the departures table.
+  // Save on every keystroke (debounced-free — the values are tiny). No re-render so
+  // the focused input keeps its cursor. Only saves to localStorage; push to SP later.
+  function updateDepartureField(id, field, value) {
+    const d = state.departures.find(x => x.id === id);
+    if (!d) return;
+    d[field] = value;
+    save();
+  }
+
+  // Convert the departing user's MS365 mailbox to a shared mailbox (retains email
+  // history without needing a paid license). Uses Graph if signed in; otherwise
+  // shows a manual instruction toast.
+  // Only GoTeam internal team members get shared-mailbox conversion.
+  // Client-assigned staff have their mailboxes deleted along with the license.
+  function isInternalTeamMember(d) {
+    const company = (d.company || '').trim().toLowerCase();
+    return company === 'goteam' || company === 'go team';
+  }
+
+  // Escape a value for embedding in a PowerShell double-quoted string.
+  function psEsc(s) { return String(s || '').replace(/"/g, '""').replace(/`/g, '``'); }
+
+  // Build the PowerShell snippet for one shared-mailbox conversion.
+  // Hybrid mode: forwarding is handled via Graph inbox rule beforehand, so the
+  // PowerShell only covers the two operations Graph can't do (Convert + FullAccess).
+  // includeForwarding=true fallback keeps the third step for offline/failed cases.
+  function buildSharedMailboxSnippet(email, coachEmail, employeeName, coachName, includeForwarding) {
+    const stepsTotal = includeForwarding ? 3 : 2;
+    const lines = [
+      '# --- ' + employeeName + ' → ' + coachName + ' ---',
+      'Write-Host "[1/' + stepsTotal + '] Converting mailbox to shared: ' + email + '" -ForegroundColor Cyan',
+      'Set-Mailbox -Identity "' + psEsc(email) + '" -Type Shared',
+      '',
+      'Write-Host "[2/' + stepsTotal + '] Granting FullAccess (Read & Manage) to ' + coachEmail + '" -ForegroundColor Cyan',
+      'Add-MailboxPermission -Identity "' + psEsc(email) + '" -User "' + psEsc(coachEmail) + '" -AccessRights FullAccess -InheritanceType All -AutoMapping $true | Out-Null'
+    ];
+    if (includeForwarding) {
+      lines.push('');
+      lines.push('Write-Host "[3/3] Setting mail forwarding → ' + coachEmail + '" -ForegroundColor Cyan');
+      lines.push('Set-Mailbox -Identity "' + psEsc(email) + '" -ForwardingSMTPAddress "' + psEsc(coachEmail) + '" -DeliverToMailboxAndForward $false');
+    }
+    lines.push('Write-Host "  Done: ' + email + '" -ForegroundColor Green');
+    lines.push('');
+    return lines.join('\r\n');
+  }
+
+  // Set up mail forwarding via Graph (inbox rule). Returns true on success.
+  async function setupForwardingViaGraph(email, coachEmail, coachName) {
+    const ruleName = 'GoTeam Offboarding — Forward to ' + (coachName || coachEmail);
+    // First: check if a rule with this name already exists — avoid duplicates
+    try {
+      const existing = await graphFetch('/users/' + encodeURIComponent(email) + '/mailFolders/inbox/messageRules');
+      const dup = (existing.value || []).find(r => r.displayName === ruleName);
+      if (dup) {
+        // Update it instead
+        await graphFetch('/users/' + encodeURIComponent(email) + '/mailFolders/inbox/messageRules/' + dup.id, {
+          method: 'PATCH',
+          body: {
+            isEnabled: true,
+            actions: {
+              forwardTo: [{ emailAddress: { address: coachEmail, name: coachName || coachEmail } }],
+              stopProcessingRules: false
+            }
+          }
+        });
+        return true;
+      }
+    } catch (_) { /* fall through to POST */ }
+    // Create the rule
+    await graphFetch('/users/' + encodeURIComponent(email) + '/mailFolders/inbox/messageRules', {
+      method: 'POST',
+      body: {
+        displayName: ruleName,
+        sequence: 1,
+        isEnabled: true,
+        conditions: {},
+        actions: {
+          forwardTo: [{ emailAddress: { address: coachEmail, name: coachName || coachEmail } }],
+          stopProcessingRules: false
+        }
+      }
+    });
+    return true;
+  }
+
+  function buildSharedMailboxScript(items) {
+    const header = [
+      '# ============================================================',
+      '# GoTeam SOP: Convert to Shared Mailbox (Internal team members)',
+      '# Generated by GoTeam User Management Dashboard',
+      '# Generated at: ' + new Date().toISOString(),
+      '# ============================================================',
+      '# Steps performed per user:',
+      '#   1. Convert mailbox to shared type',
+      '#   2. Grant FullAccess (Read & Manage) to the leadership coach',
+      '#   3. Set mail forwarding to the leadership coach',
+      '# ============================================================',
+      '',
+      '# --- Prerequisites (run these once per PowerShell session) ---',
+      'if (-not (Get-Module -ListAvailable -Name ExchangeOnlineManagement)) {',
+      '  Write-Host "Installing ExchangeOnlineManagement module..." -ForegroundColor Yellow',
+      '  Install-Module -Name ExchangeOnlineManagement -Scope CurrentUser -Force',
+      '}',
+      'Import-Module ExchangeOnlineManagement',
+      'try {',
+      '  Get-OrganizationConfig -ErrorAction Stop | Out-Null',
+      '} catch {',
+      '  Write-Host "Connecting to Exchange Online — sign in when prompted..." -ForegroundColor Yellow',
+      '  Connect-ExchangeOnline -ShowBanner:$false',
+      '}',
+      '',
+      '# --- Bulk conversion for ' + items.length + ' team member(s) ---',
+      ''
+    ].join('\r\n');
+    const body = items.map(it => buildSharedMailboxSnippet(it.email, it.coachEmail, it.name, it.coachName, !!it.needsForwardingInPs)).join('\r\n');
+    const footer = [
+      '',
+      'Write-Host "" -ForegroundColor Green',
+      'Write-Host "===== All ' + items.length + ' mailbox(es) converted =====" -ForegroundColor Green',
+      'Write-Host "" -ForegroundColor Green',
+      'Read-Host "Press Enter to exit"'
+    ].join('\r\n');
+    return header + body + footer;
+  }
+
+  // Show the generated PowerShell in a modal with a Copy button and instructions.
+  function showSharedMailboxScriptModal(script, items) {
+    const listHtml = items.map(it =>
+      '<li style="margin:2px 0;"><strong>' + escapeHtml(it.name) + '</strong> → coach <em>' + escapeHtml(it.coachName || '(unknown)') + '</em> (<code style="font-size:11px;">' + escapeHtml(it.coachEmail) + '</code>)</li>'
+    ).join('');
+    const html =
+      '<div class="modal-overlay show" id="sharedMailboxScriptModal" onclick="if(event.target===this)closeSharedMailboxScriptModal()">' +
+        '<div class="modal modal-wide" onclick="event.stopPropagation()">' +
+          '<div class="modal-header">' +
+            '<h3>Convert to Shared Mailbox — PowerShell script</h3>' +
+            '<button class="btn btn-icon" onclick="closeSharedMailboxScriptModal()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>' +
+          '</div>' +
+          '<div class="modal-body">' +
+            '<p style="font-size:13px;color:var(--muted);margin-bottom:10px;line-height:1.5;">Steps performed per user: (1) convert to shared, (2) grant FullAccess to coach, (3) set forwarding to coach. <strong>Applied to ' + items.length + ' user(s):</strong></p>' +
+            '<ul style="margin:0 0 14px 20px;font-size:12px;color:var(--text);line-height:1.6;">' + listHtml + '</ul>' +
+            '<div style="padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#854d0e;line-height:1.5;margin-bottom:12px;">' +
+              '<strong>How to run:</strong> Click <em>Copy Script</em>, then open PowerShell (Windows Start → PowerShell), paste, and press Enter. The script auto-installs the Exchange Online module and prompts you to sign in with your admin account.' +
+            '</div>' +
+            '<textarea id="sharedMailboxScriptText" readonly style="width:100%;height:260px;padding:12px;border:1px solid #cbd5e1;border-radius:8px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;line-height:1.5;background:#0f172a;color:#e2e8f0;resize:vertical;">' + escapeHtml(script) + '</textarea>' +
+          '</div>' +
+          '<div class="modal-footer">' +
+            '<button class="btn btn-secondary" onclick="closeSharedMailboxScriptModal()">Close</button>' +
+            '<button class="btn btn-secondary" onclick="downloadSharedMailboxScript()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Download .ps1</button>' +
+            '<button class="btn btn-primary" onclick="copySharedMailboxScript()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy Script</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    const holder = document.createElement('div');
+    holder.innerHTML = html;
+    document.body.appendChild(holder.firstChild);
+  }
+  function closeSharedMailboxScriptModal() {
+    const m = document.getElementById('sharedMailboxScriptModal');
+    if (m) m.remove();
+  }
+  function copySharedMailboxScript() {
+    const ta = document.getElementById('sharedMailboxScriptText');
+    if (!ta) return;
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);
+    try {
+      navigator.clipboard.writeText(ta.value).then(() => showToast('PowerShell script copied to clipboard'));
+    } catch (_) {
+      document.execCommand('copy');
+      showToast('PowerShell script copied to clipboard');
+    }
+  }
+  function downloadSharedMailboxScript() {
+    const ta = document.getElementById('sharedMailboxScriptText');
+    if (!ta) return;
+    const blob = new Blob([ta.value], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'convert-to-shared-mailbox-' + new Date().toISOString().slice(0, 10) + '.ps1';
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('Downloaded .ps1 script');
+  }
+
+  // Single-row Convert to Shared Mailbox — SOP: Internal team members only.
+  // Hybrid: Graph handles the forwarding step automatically. The generated
+  // PowerShell only covers Convert-to-Shared + FullAccess grant.
+  async function convertToSharedMailbox(id) {
+    const d = state.departures.find(x => x.id === id);
+    if (!d) return;
+    if (!isInternalTeamMember(d)) {
+      alert('SOP restriction:\n\nConvert to Shared Mailbox applies ONLY to GoTeam internal team members.\n\n' + d.name + ' is assigned to "' + d.company + '" (client-assigned), so this SOP does not apply. Use Revoke Access & License instead.');
+      return;
+    }
+    const email = (d.employeeEmail || '').trim();
+    const coachEmail = (d.leadershipCoachEmail || '').trim();
+    const coachName = d.leadershipCoach || '';
+    if (!email) { alert('Fill in Employee Email first.'); return; }
+    if (!coachEmail) { alert('Fill in Coach Email first — required for FullAccess grant and forwarding target.'); return; }
+    if (!confirm('Convert ' + email + ' to a shared mailbox?\n\n1) Convert to Shared (PowerShell)\n2) Grant FullAccess to ' + coachEmail + ' (PowerShell)\n3) Forward mail to ' + coachEmail + ' (Graph — automatic)')) return;
+
+    // Step 3 first: set up forwarding via Graph (no PowerShell needed for this part)
+    let forwardingOk = false;
+    if (msalAccount) {
+      try {
+        await setupForwardingViaGraph(email, coachEmail, coachName);
+        forwardingOk = true;
+        showToast('Forwarding rule created for ' + email + ' → ' + coachEmail);
+      } catch (e) {
+        console.warn('Graph forwarding setup failed:', e);
+      }
+    }
+
+    // Steps 1 + 2 via PowerShell. If Graph forwarding failed, include step 3 too.
+    const script = buildSharedMailboxScript([{
+      email, coachEmail, name: d.name, coachName,
+      needsForwardingInPs: !forwardingOk
+    }]);
+    showSharedMailboxScriptModal(script, [{ email, coachEmail, name: d.name, coachName, forwardingViaGraph: forwardingOk }]);
+    d.sharedMailboxDone = true;
+    d.sharedMailboxDoneAt = new Date().toISOString();
+    d.sharedMailboxForwardingViaGraph = forwardingOk;
+    save();
+    renderDepartures();
+  }
+
+  // Map Graph @odata.type auth-method suffix → the URL segment for its collection.
+  const AUTH_METHOD_PATHS = {
+    'phoneAuthenticationMethod': 'phoneMethods',
+    'emailAuthenticationMethod': 'emailMethods',
+    'fido2AuthenticationMethod': 'fido2Methods',
+    'microsoftAuthenticatorAuthenticationMethod': 'microsoftAuthenticatorMethods',
+    'softwareOathAuthenticationMethod': 'softwareOathMethods',
+    'temporaryAccessPassAuthenticationMethod': 'temporaryAccessPassMethods',
+    'windowsHelloForBusinessAuthenticationMethod': 'windowsHelloForBusinessMethods'
+    // 'passwordAuthenticationMethod' is intentionally excluded — can't delete the account's password.
+  };
+
+  // SKU part-number → Microsoft Admin Center display name. Sourced from Microsoft's
+  // official product-names-and-service-plan-identifiers reference. Extend as needed.
+  const SKU_FRIENDLY_NAMES = {
+    // Microsoft 365 Business
+    'O365_BUSINESS_ESSENTIALS': 'Microsoft 365 Business Basic',
+    'SMB_BUSINESS_ESSENTIALS': 'Microsoft 365 Business Basic',
+    'O365_BUSINESS_PREMIUM': 'Microsoft 365 Business Standard',
+    'SMB_BUSINESS_PREMIUM': 'Microsoft 365 Business Standard',
+    'SPB': 'Microsoft 365 Business Premium',
+    'O365_BUSINESS': 'Microsoft 365 Apps for Business',
+    'SMB_BUSINESS': 'Microsoft 365 Apps for Business',
+    'OFFICESUBSCRIPTION': 'Microsoft 365 Apps for Enterprise',
+    // Microsoft 365 Enterprise
+    'STANDARDPACK': 'Office 365 E1',
+    'STANDARDWOFFPACK': 'Office 365 E2',
+    'ENTERPRISEPACK': 'Office 365 E3',
+    'DEVELOPERPACK': 'Office 365 E3 Developer',
+    'ENTERPRISEWITHSCAL': 'Office 365 E4',
+    'ENTERPRISEPREMIUM': 'Office 365 E5',
+    'ENTERPRISEPREMIUM_NOPSTNCONF': 'Office 365 E5 without Audio Conferencing',
+    'SPE_E3': 'Microsoft 365 E3',
+    'SPE_E5': 'Microsoft 365 E5',
+    'SPE_F1': 'Microsoft 365 F1',
+    'SPE_F3': 'Microsoft 365 F3',
+    'M365_F1': 'Microsoft 365 F1',
+    'M365EDU_A1': 'Microsoft 365 A1',
+    'M365EDU_A3_FACULTY': 'Microsoft 365 A3 for Faculty',
+    'M365EDU_A3_STUUSEBNFT': 'Microsoft 365 A3 for Students Use Benefit',
+    'M365EDU_A5_FACULTY': 'Microsoft 365 A5 for Faculty',
+    'M365EDU_A5_STUUSEBNFT': 'Microsoft 365 A5 for Students Use Benefit',
+    // Exchange / mail
+    'EXCHANGESTANDARD': 'Exchange Online (Plan 1)',
+    'EXCHANGEENTERPRISE': 'Exchange Online (Plan 2)',
+    'EXCHANGEDESKLESS': 'Exchange Online Kiosk',
+    'EXCHANGEARCHIVE': 'Exchange Online Archiving',
+    'EXCHANGEARCHIVE_ADDON': 'Exchange Online Archiving for Exchange Online',
+    // Teams / calling
+    'TEAMS_EXPLORATORY': 'Microsoft Teams Exploratory',
+    'MCOSTANDARD': 'Skype for Business Online (Plan 2)',
+    'MCOMEETADV': 'Microsoft 365 Audio Conferencing',
+    'MCOEV': 'Microsoft Teams Phone Standard',
+    'PHONESYSTEM_VIRTUALUSER': 'Microsoft Teams Phone Resource Account',
+    'MEETING_ROOM': 'Microsoft Teams Rooms Standard',
+    'MTR_PREM': 'Microsoft Teams Rooms Pro',
+    // Power Platform
+    'POWER_BI_STANDARD': 'Power BI (free)',
+    'POWER_BI_PRO': 'Power BI Pro',
+    'PBI_PREMIUM_PER_USER': 'Power BI Premium Per User',
+    'FLOW_FREE': 'Power Automate Free',
+    'POWERAPPS_VIRAL': 'Power Apps Plan 2 Trial',
+    'POWERAUTOMATE_ATTENDED_RPA': 'Power Automate per user with attended RPA plan',
+    // Security / EMS
+    'EMS': 'Enterprise Mobility + Security E3',
+    'EMSPREMIUM': 'Enterprise Mobility + Security E5',
+    'AAD_PREMIUM': 'Microsoft Entra ID P1',
+    'AAD_PREMIUM_P2': 'Microsoft Entra ID P2',
+    'INTUNE_A': 'Microsoft Intune Plan 1',
+    'INTUNE_SMB': 'Microsoft Intune for Small Business',
+    'ATP_ENTERPRISE': 'Microsoft Defender for Office 365 (Plan 1)',
+    'THREAT_INTELLIGENCE': 'Microsoft Defender for Office 365 (Plan 2)',
+    'IDENTITY_THREAT_PROTECTION': 'Microsoft 365 E5 Security',
+    'INFORMATION_PROTECTION_COMPLIANCE': 'Microsoft 365 E5 Compliance',
+    // Other common
+    'PROJECT_P1': 'Project Plan 1',
+    'PROJECTPROFESSIONAL': 'Project Plan 3',
+    'PROJECTPREMIUM': 'Project Plan 5',
+    'VISIOCLIENT': 'Visio Plan 2',
+    'VISIOONLINE_PLAN1': 'Visio Plan 1',
+    'DYN365_ENTERPRISE_SALES': 'Dynamics 365 Sales Enterprise',
+    'DYN365_BUSCENTRAL_ESSENTIAL': 'Dynamics 365 Business Central Essentials',
+    'WIN10_PRO_ENT_SUB': 'Windows 10/11 Enterprise E3',
+    'WIN10_VDA_E5': 'Windows 10/11 Enterprise E5',
+    'STREAM': 'Microsoft Stream',
+    'MCOPSTN1': 'Microsoft Teams Domestic Calling Plan',
+    'MCOPSTN2': 'Microsoft Teams Domestic and International Calling Plan',
+    'CPC_B_2C_4RAM_128GB': 'Windows 365 Business 2 vCPU, 4 GB, 128 GB',
+    'CPC_E_2C_4GB_128GB': 'Windows 365 Enterprise 2 vCPU, 4 GB, 128 GB'
+  };
+
+  function friendlyLicenseName(partNumber) {
+    if (!partNumber) return partNumber || '';
+    if (SKU_FRIENDLY_NAMES[partNumber]) return SKU_FRIENDLY_NAMES[partNumber];
+    // Fallback: title-case the SKU part number so unmapped ones still read OK.
+    return partNumber.replace(/_/g, ' ')
+      .toLowerCase()
+      .replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  // Cached tenant SKU-ID → friendly-name map. Populated on first revoke.
+  let _skuNameMapCache = null;
+  async function getSkuNameMap() {
+    if (_skuNameMapCache) return _skuNameMapCache;
+    try {
+      const r = await graphFetch('/subscribedSkus');
+      const map = {};
+      (r.value || []).forEach(s => {
+        map[s.skuId] = friendlyLicenseName(s.skuPartNumber) || s.skuId;
+      });
+      _skuNameMapCache = map;
+      return map;
+    } catch (e) { return {}; }
+  }
+
+  // Run the 6-step revoke on a single user. Returns a { log, licensesRemoved } summary.
+  async function performRevoke(d) {
+    const email = (d.employeeEmail || '').trim();
+    const log = [];
+    log.push('--- ' + d.name + ' (' + email + ') ---');
+    if (!email) { log.push('  [SKIP] No email address'); return { log, licensesRemoved: 0, ok: false }; }
+
+    let user;
+    try {
+      user = await graphFetch('/users/' + encodeURIComponent(email) + '?$select=id,userPrincipalName,assignedLicenses,accountEnabled,department');
+    } catch (e) {
+      log.push('  [FAIL] User lookup — ' + e.message.slice(0, 100));
+      return { log, licensesRemoved: 0, ok: false };
+    }
+
+    // 1. Block sign-in (disable the account)
+    try {
+      await graphFetch('/users/' + user.id, { method: 'PATCH', body: { accountEnabled: false } });
+      log.push('  [OK] 1/6 Sign-in blocked');
+    } catch (e) { log.push('  [FAIL] 1/6 Block sign-in — ' + e.message.slice(0, 80)); }
+
+    // 2. Revoke sessions
+    try {
+      await graphFetch('/users/' + user.id + '/revokeSignInSessions', { method: 'POST', body: {} });
+      log.push('  [OK] 2/6 Sessions revoked');
+    } catch (e) { log.push('  [FAIL] 2/6 Revoke sessions — ' + e.message.slice(0, 80)); }
+
+    // 3. Remove from all groups (skip dynamic-membership groups + roles)
+    try {
+      const memberOf = await graphFetch('/users/' + user.id + '/memberOf?$select=id,displayName,groupTypes,membershipRule');
+      const groups = (memberOf.value || []).filter(g =>
+        g['@odata.type'] === '#microsoft.graph.group' &&
+        !((g.groupTypes || []).indexOf('DynamicMembership') > -1)
+      );
+      let removed = 0;
+      for (const g of groups) {
+        try {
+          await graphFetch('/groups/' + g.id + '/members/' + user.id + '/$ref', { method: 'DELETE' });
+          removed++;
+        } catch (e) { /* mail-enabled or M365 sec groups can fail — non-fatal */ }
+      }
+      log.push('  [OK] 3/6 Removed from ' + removed + '/' + groups.length + ' group(s)');
+    } catch (e) { log.push('  [FAIL] 3/6 Remove groups — ' + e.message.slice(0, 80)); }
+
+    // 4. Remove all licenses
+    let licensesRemoved = 0;
+    let licenseNames = [];
+    try {
+      const skusToRemove = (user.assignedLicenses || []).map(l => l.skuId);
+      const nameMap = await getSkuNameMap();
+      licenseNames = skusToRemove.map(id => nameMap[id] || id);
+      if (skusToRemove.length > 0) {
+        await graphFetch('/users/' + user.id + '/assignLicense', {
+          method: 'POST',
+          body: { addLicenses: [], removeLicenses: skusToRemove }
+        });
+      }
+      licensesRemoved = skusToRemove.length;
+      log.push('  [OK] 4/6 Removed ' + licensesRemoved + ' license(s)' + (licenseNames.length ? ': ' + licenseNames.join(', ') : ''));
+    } catch (e) { log.push('  [FAIL] 4/6 Remove licenses — ' + e.message.slice(0, 80)); }
+
+    // 5. Change Department field
+    const newDepartment = isInternalTeamMember(d) ? 'GoTeam' : 'Client-facing';
+    try {
+      await graphFetch('/users/' + user.id, { method: 'PATCH', body: { department: newDepartment } });
+      log.push('  [OK] 5/6 Department set to "' + newDepartment + '"');
+    } catch (e) { log.push('  [FAIL] 5/6 Set department — ' + e.message.slice(0, 80)); }
+
+    // 6. Remove all non-password authentication methods
+    try {
+      const methods = await graphFetch('/users/' + user.id + '/authentication/methods');
+      const items = (methods.value || []).filter(m => {
+        const type = String(m['@odata.type'] || '').replace('#microsoft.graph.', '');
+        return type !== 'passwordAuthenticationMethod' && AUTH_METHOD_PATHS[type];
+      });
+      let deleted = 0;
+      for (const m of items) {
+        const type = String(m['@odata.type'] || '').replace('#microsoft.graph.', '');
+        const path = AUTH_METHOD_PATHS[type];
+        try {
+          await graphFetch('/users/' + user.id + '/authentication/' + path + '/' + m.id, { method: 'DELETE' });
+          deleted++;
+        } catch (e) { /* Windows Hello may be device-bound and refuse deletion */ }
+      }
+      log.push('  [OK] 6/6 Removed ' + deleted + '/' + items.length + ' auth method(s)');
+    } catch (e) { log.push('  [FAIL] 6/6 Remove auth methods — ' + e.message.slice(0, 80)); }
+
+    // Mark done + tick checklist + persist the license list
+    d.accessRevokedDone = true;
+    d.accessRevokedDoneAt = new Date().toISOString();
+    d.licensesRemovedList = licenseNames;
+    const cl = migrateExitChecklist(d.checklist);
+    if (cl[0]) cl[0].done = true;
+    d.checklist = cl;
+    return { log, licensesRemoved, ok: true };
+  }
+
+  // Single-row Revoke (all 6 steps).
+  async function revokeAccessAndLicense(id) {
+    const d = state.departures.find(x => x.id === id);
+    if (!d) return;
+    const email = (d.employeeEmail || '').trim();
+    if (!email) { alert('Fill in Employee Email first.'); return; }
+    if (!msalAccount) { alert('Sign in via the sidebar first.'); return; }
+    const dept = isInternalTeamMember(d) ? 'GoTeam' : 'Client-facing';
+    if (!confirm('Full offboarding for ' + email + '?\n\n' +
+                 '1. Block sign-in\n' +
+                 '2. Revoke all sessions\n' +
+                 '3. Remove from all groups\n' +
+                 '4. Remove all licenses\n' +
+                 '5. Set Department to "' + dept + '"\n' +
+                 '6. Remove all authentication methods (MFA)\n\n' +
+                 'Cannot be undone. Continue?')) return;
+
+    const result = await performRevoke(d);
+    save();
+    renderDepartures();
+    console.log(result.log.join('\n'));
+    showRevokeLogModal([result], 1, result.ok ? 0 : 1, result.licensesRemoved);
+  }
   function addDeparture() {
     const name = document.getElementById('depName').value.trim();
     const company = document.getElementById('depCompany').value.trim();
-    const lastDay = document.getElementById('depDate').value;
-    const reason = document.getElementById('depReason').value;
-    if (!name || !company || !lastDay) { alert('Please fill in all fields.'); return; }
+    const effectiveDate = document.getElementById('depDate').value;
+    const typeOfExit = document.getElementById('depReason').value;
+    const leadershipCoach = (document.getElementById('depCoach') || { value: '' }).value.trim();
+    const exitNoticeRemarks = (document.getElementById('depRemarks') || { value: '' }).value.trim();
+    if (!name || !company || !effectiveDate) { alert('Please fill in Employee Name, Company, and Effective Day.'); return; }
     const newId = Math.max(0, ...state.departures.map(d => d.id)) + 1;
-    state.departures.push({ id: newId, name, company, lastDay, reason, status: 'Notice Period', checklist: defaultExitChecklist() });
+    state.departures.push({
+      id: newId, name, company,
+      effectiveDate,
+      lastDay: effectiveDate, // legacy alias — writes both so old code still works
+      typeOfExit,
+      reason: typeOfExit,     // legacy alias
+      leadershipCoach,
+      employeeEmail: name ? ms365Username(name) : '',
+      leadershipCoachEmail: leadershipCoach ? ms365Username(leadershipCoach) : '',
+      exitNoticeRemarks,
+      status: 'Notice Period',
+      checklist: defaultExitChecklist()
+    });
     save(); renderDepartures();
     closeModal('addDepartureModal');
+    ['depName','depCompany','depDate','depCoach','depRemarks'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
     showToast('Initiated offboarding for ' + name);
     ['depName','depCompany','depDate'].forEach(id => document.getElementById(id).value = '');
   }
@@ -4256,6 +5919,12 @@
     const dep = state.departures.find(d => d.id === id);
     const ul = document.getElementById('exitChecklist');
     if (!dep) { ul.innerHTML = '<li><span style="color:var(--muted)">No departure selected</span></li>'; return; }
+    // Ensure the checklist is in the current 2-item format (migrate on the fly).
+    const migrated = migrateExitChecklist(dep.checklist);
+    if (!dep.checklist || dep.checklist.length !== 2 || dep.checklist[0].label !== CHECKLIST_MS_LABEL) {
+      dep.checklist = migrated;
+      save();
+    }
     ul.innerHTML = dep.checklist.map((item, i) => '<li class="' + (item.done ? 'done' : '') + '"><input type="checkbox" id="chk-' + id + '-' + i + '" ' + (item.done ? 'checked' : '') + ' onchange="toggleChecklistItem(' + id + ', ' + i + ')"><label for="chk-' + id + '-' + i + '">' + item.label + '</label></li>').join('');
     const total = dep.checklist.length;
     const doneCount = dep.checklist.filter(c => c.done).length;
@@ -4411,6 +6080,50 @@
     // If signed in and SharePoint is configured, pull fresh data
     if (msalAccount) autoSyncFromSharePoint();
   } catch (e) { console.warn('MSAL init skipped:', e); }
+
+  // ============ Sidebar + Exit Checklist toggles ============
+  function toggleSidebar() {
+    document.body.classList.toggle('sidebar-hidden');
+    localStorage.setItem('goteam-sidebar-hidden', document.body.classList.contains('sidebar-hidden') ? '1' : '0');
+  }
+  // Mobile drawer toggle — only affects the mobile-open class
+  function toggleMobileSidebar() {
+    document.body.classList.toggle('sidebar-mobile-open');
+  }
+  // Close the mobile drawer when a nav item is clicked or when clicking the backdrop
+  document.addEventListener('click', function (e) {
+    if (window.innerWidth > 768) return;
+    if (!document.body.classList.contains('sidebar-mobile-open')) return;
+    // Click was on a nav item inside the drawer → close after navigation
+    const navItem = e.target.closest('.sidebar .nav-item[data-view]');
+    if (navItem) {
+      setTimeout(() => document.body.classList.remove('sidebar-mobile-open'), 100);
+      return;
+    }
+    // Click was outside the sidebar entirely (backdrop) → close
+    const sidebar = e.target.closest('.sidebar');
+    const menuBtn = e.target.closest('#mobileMenuBtn');
+    if (!sidebar && !menuBtn) document.body.classList.remove('sidebar-mobile-open');
+  });
+  function toggleExitChecklist() {
+    const view = document.getElementById('view-offboarding');
+    if (!view) return;
+    view.classList.toggle('checklist-hidden');
+    const hidden = view.classList.contains('checklist-hidden');
+    localStorage.setItem('goteam-checklist-hidden', hidden ? '1' : '0');
+    const lbl = document.getElementById('toggleChecklistLabel');
+    if (lbl) lbl.textContent = hidden ? 'Show Checklist' : 'Hide Checklist';
+  }
+  // Restore preferences on load
+  try {
+    if (localStorage.getItem('goteam-sidebar-hidden') === '1') document.body.classList.add('sidebar-hidden');
+    if (localStorage.getItem('goteam-checklist-hidden') === '1') {
+      const view = document.getElementById('view-offboarding');
+      if (view) view.classList.add('checklist-hidden');
+      const lbl = document.getElementById('toggleChecklistLabel');
+      if (lbl) lbl.textContent = 'Show Checklist';
+    }
+  } catch (e) {}
 </script>
 </body>
 </html>
