@@ -960,6 +960,10 @@
       </div>
       <div id="spListStatus" style="display:none;margin-top:8px;padding:10px 14px;background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;font-size:12px;color:#1e40af;line-height:1.5;"></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+        <button class="btn btn-secondary" onclick="repairSharePointSchema()" title="Add any columns that are missing on your existing SharePoint lists — safe to run repeatedly.">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+          Repair / Update Schema
+        </button>
         <button class="btn btn-secondary" onclick="provisionSharePointLists()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M2 12h20"/></svg>
           Provision Lists in This Site
@@ -1497,6 +1501,7 @@
       { name: 'MS365Password',    text: {} },
       { name: 'MS365CreatedAt',   text: {} },
       { name: 'MS365GraphId',     text: {} },
+      { name: 'MS365LicensesAdded', text: { allowMultipleLines: true } },
       { name: 'TeramindCreated',  boolean: {} },
       { name: 'TeramindPassword', text: {} },
       { name: 'TeramindCreatedAt',text: {} },
@@ -1520,6 +1525,11 @@
       { name: 'ExitNoticeRemarks',text: { allowMultipleLines: true } },
       { name: 'EmployeeEmail',    text: {} },
       { name: 'LeadershipCoachEmail', text: {} },
+      { name: 'AccessRevokedDone', boolean: {} },
+      { name: 'AccessRevokedAt',   text: {} },
+      { name: 'LicensesRemoved',   text: { allowMultipleLines: true } },
+      { name: 'SharedMailboxDone', boolean: {} },
+      { name: 'SharedMailboxDoneAt', text: {} },
       { name: 'LocalId',          number: {} }
     ],
     licenses: [
@@ -1672,6 +1682,54 @@
     }
   }
 
+  // Add any columns from SP_LIST_SCHEMAS that are missing on existing provisioned
+  // lists. Safe to run repeatedly — Graph 400s on duplicates and we swallow it.
+  async function repairSharePointSchema() {
+    if (!msalAccount) { showToast('Sign in first via the sidebar'); return; }
+    const settings = getMSSettings();
+    if (!settings.siteId || !settings.listIds) {
+      showToast('SharePoint not provisioned yet — click Provision first');
+      return;
+    }
+    document.getElementById('spProvisionLog').innerHTML = '';
+    spLog('Repairing SharePoint schema — adding missing columns...', '#60a5fa');
+    let added = 0, skipped = 0;
+    try {
+      for (const key of Object.keys(SP_LIST_NAMES)) {
+        const listId = settings.listIds[key];
+        if (!listId) { spLog('  [SKIP] ' + SP_LIST_NAMES[key] + ' — list not provisioned', '#fbbf24'); continue; }
+        spLog('  Checking ' + SP_LIST_NAMES[key] + '...');
+        // Fetch existing columns
+        let existingCols = {};
+        try {
+          const r = await graphFetch('/sites/' + settings.siteId + '/lists/' + listId + '/columns?$select=name');
+          (r.value || []).forEach(c => { existingCols[c.name] = true; });
+        } catch (e) {
+          spLog('    [WARN] Could not read columns — will try to add all. ' + e.message.slice(0, 80), '#fbbf24');
+        }
+        for (const col of SP_LIST_SCHEMAS[key]) {
+          if (existingCols[col.name]) { skipped++; continue; }
+          try {
+            await graphFetch('/sites/' + settings.siteId + '/lists/' + listId + '/columns', {
+              method: 'POST',
+              body: col
+            });
+            spLog('    [OK] Added column: ' + col.name, '#22c55e');
+            added++;
+          } catch (e) {
+            spLog('    [warn] "' + col.name + '" — ' + e.message.slice(0, 100), '#fbbf24');
+          }
+        }
+      }
+      spLog('', null);
+      spLog('=== Schema repair complete — ' + added + ' added, ' + skipped + ' already present ===', '#22c55e');
+      showToast('Schema repaired — ' + added + ' new column(s)');
+    } catch (e) {
+      spLog('[FAIL] ' + e.message, '#ef4444');
+      console.error(e);
+    }
+  }
+
   // -------- Item shape conversions --------
   function hireToSP(h) {
     return {
@@ -1694,6 +1752,7 @@
       MS365Password: (h.ms365 && h.ms365.password) || '',
       MS365CreatedAt: (h.ms365 && h.ms365.createdAt) || '',
       MS365GraphId: (h.ms365 && h.ms365.graphId) || '',
+      MS365LicensesAdded: Array.isArray(h.ms365LicensesAdded) ? h.ms365LicensesAdded.join(', ') : '',
       TeramindCreated: !!(h.teramind && h.teramind.created),
       TeramindPassword: (h.teramind && h.teramind.password) || '',
       TeramindCreatedAt: (h.teramind && h.teramind.createdAt) || '',
@@ -1722,7 +1781,12 @@
       rescheduleDate: f.RescheduleDate ? f.RescheduleDate.slice(0, 10) : null,
       notes: f.StarterNotes || '',
       ms365: { created: !!f.MS365Created, password: f.MS365Password || '', createdAt: f.MS365CreatedAt || '', graphId: f.MS365GraphId || '' },
-      teramind: { created: !!f.TeramindCreated, password: f.TeramindPassword || '', createdAt: f.TeramindCreatedAt || '', userId: f.TeramindUserId || '' }
+      teramind: { created: !!f.TeramindCreated, password: f.TeramindPassword || '', createdAt: f.TeramindCreatedAt || '', userId: f.TeramindUserId || '' },
+      // Flat mirrors for the table columns
+      ms365Created: !!f.MS365Created,
+      ms365Password: f.MS365Password || '',
+      ms365CreatedAt: f.MS365CreatedAt || '',
+      ms365LicensesAdded: f.MS365LicensesAdded ? String(f.MS365LicensesAdded).split(',').map(s => s.trim()).filter(Boolean) : []
     };
   }
   function departureToSP(d) {
@@ -1744,6 +1808,11 @@
       ExitNoticeRemarks: d.exitNoticeRemarks || '',
       EmployeeEmail: d.employeeEmail || '',
       LeadershipCoachEmail: d.leadershipCoachEmail || '',
+      AccessRevokedDone: !!d.accessRevokedDone,
+      AccessRevokedAt: d.accessRevokedDoneAt || '',
+      LicensesRemoved: Array.isArray(d.licensesRemovedList) ? d.licensesRemovedList.join(', ') : '',
+      SharedMailboxDone: !!d.sharedMailboxDone,
+      SharedMailboxDoneAt: d.sharedMailboxDoneAt || '',
       ChecklistJson: JSON.stringify(d.checklist || []),
       LocalId: d.id || 0
     };
@@ -1774,6 +1843,11 @@
       exitNoticeRemarks: f.ExitNoticeRemarks || '',
       employeeEmail: f.EmployeeEmail || '',
       leadershipCoachEmail: f.LeadershipCoachEmail || '',
+      accessRevokedDone: !!f.AccessRevokedDone,
+      accessRevokedDoneAt: f.AccessRevokedAt || '',
+      licensesRemovedList: f.LicensesRemoved ? String(f.LicensesRemoved).split(',').map(s => s.trim()).filter(Boolean) : [],
+      sharedMailboxDone: !!f.SharedMailboxDone,
+      sharedMailboxDoneAt: f.SharedMailboxDoneAt || '',
       checklist: checklist.length ? checklist : defaultExitChecklist()
     };
   }
@@ -2036,15 +2110,34 @@
       spLog('Pushing ' + t.items.length + ' ' + t.label + '(s)...');
       let created = 0, updated = 0, failed = 0;
 
+      const droppedFields = new Set();
+      // Helper: PATCH with automatic retry that strips unknown fields the
+      // SharePoint list doesn't have yet. Prevents one missing column
+      // (e.g. AccessRevokedAt before Repair Schema was run) from failing
+      // every item's push.
+      async function patchWithFieldRetry(url, body) {
+        let attempt = { ...body };
+        for (let i = 0; i < 8; i++) {
+          try {
+            await graphFetch(url, { method: 'PATCH', body: attempt });
+            return;
+          } catch (e) {
+            const m = /Field '([^']+)' is not recognized/.exec(e.message || '');
+            if (m && attempt[m[1]] !== undefined) {
+              droppedFields.add(m[1]);
+              delete attempt[m[1]];
+              continue;
+            }
+            throw e;
+          }
+        }
+      }
       for (const item of t.items) {
         const fields = t.toSP(item);
         try {
           if (item.spId) {
-            // Update existing
-            await graphFetch(baseUrl + listId + '/items/' + item.spId + '/fields', {
-              method: 'PATCH',
-              body: fields
-            });
+            // Update existing (auto-retry on missing columns)
+            await patchWithFieldRetry(baseUrl + listId + '/items/' + item.spId + '/fields', fields);
             updated++;
           } else {
             // No local spId — first check SharePoint by Title to avoid creating duplicates.
@@ -2079,6 +2172,9 @@
         }
       }
       spLog('  [DONE] ' + t.label + ': ' + created + ' created, ' + updated + ' updated, ' + failed + ' failed', failed === 0 ? '#22c55e' : '#fbbf24');
+      if (droppedFields.size > 0) {
+        spLog('  [WARN] SharePoint list is missing column(s): ' + Array.from(droppedFields).join(', ') + ' — values NOT saved. Click "Repair / Update Schema" then Push again.', '#f59e0b');
+      }
     }
 
     save(); // persist new spIds to localStorage
