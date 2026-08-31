@@ -1091,7 +1091,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-  const STORAGE_KEY = 'goteam-ums-v104';
+  const STORAGE_KEY = 'goteam-ums-v103';
   // Updated by Claude on each "refresh the dashboard" run; static between refreshes.
   const DATA_AS_OF = 'May 28, 2026 (refreshed)';
 
@@ -1327,9 +1327,8 @@
     };
 
     log('Starting Graph user creation for ' + hires.length + ' starter(s)...', '#60a5fa');
-    let ok = 0, failed = 0, reactivatedCount = 0;
+    let ok = 0, failed = 0;
     const createdIds = [];
-    const wasReactivatedList = []; // parallel to createdIds
     const licensesAssignedNames = []; // parallel to hires — friendly names per starter
     // Pre-fetch tenant SKU friendly-name map so we can label whatever SKU we assign.
     const _skuMap = await getSkuNameMap();
@@ -1347,79 +1346,39 @@
 
       log('[' + (i+1) + '/' + hires.length + '] ' + display + ' (' + upn + ')');
       try {
-        // 1. Check whether the user already exists (Recall / rehire case).
-        //    If they do, take the reactivate path instead of POST /users.
-        let newUser = null;
-        let wasReactivated = false;
-        try {
-          const existing = await graphFetch('/users/' + encodeURIComponent(upn) + '?$select=id,accountEnabled,userPrincipalName');
-          newUser = existing;
-          wasReactivated = true;
-          log('    [INFO] Existing user found — reactivating instead of creating', '#60a5fa');
-          // 1a. Unblock sign-in + update role fields
-          await graphFetch('/users/' + existing.id, {
-            method: 'PATCH',
-            body: {
-              accountEnabled: true,
-              jobTitle: h.position || '',
-              department: department,
-              officeLocation: h.companyName || '',
-              employeeId: h.hcId || existing.employeeId || ''
-            }
-          });
-          log('    [OK] Reactivated — sign-in unblocked, jobTitle="' + (h.position || '') + '", department="' + department + '", office="' + (h.companyName || '') + '"', '#22c55e');
-        } catch (existErr) {
-          // 404 (or any non-existence signal) → fall through to create path.
-          newUser = await graphFetch('/users', {
-            method: 'POST',
-            body: {
-              accountEnabled: true,
-              displayName: display,
-              givenName: first,
-              surname: last + (ms365Suffix(h.starterName) ? ' ' + ms365Suffix(h.starterName) : ''),
-              mailNickname: upn.split('@')[0],
-              userPrincipalName: upn,
-              jobTitle: h.position || '',
-              department: department,
-              officeLocation: h.companyName || '',
-              usageLocation: 'PH',
-              employeeId: h.hcId || '',
-              passwordProfile: { forceChangePasswordNextSignIn: true, password: password }
-            }
-          });
-          log('    [OK] Created — id=' + newUser.id, '#22c55e');
-        }
+        // 1. Create user
+        const newUser = await graphFetch('/users', {
+          method: 'POST',
+          body: {
+            accountEnabled: true,
+            displayName: display,
+            givenName: first,
+            surname: last + (ms365Suffix(h.starterName) ? ' ' + ms365Suffix(h.starterName) : ''),
+            mailNickname: upn.split('@')[0],
+            userPrincipalName: upn,
+            jobTitle: h.position || '',
+            department: department,
+            officeLocation: h.companyName || '',
+            usageLocation: 'PH',
+            employeeId: h.hcId || '',
+            passwordProfile: { forceChangePasswordNextSignIn: true, password: password }
+          }
+        });
+        log('    [OK] Created — id=' + newUser.id, '#22c55e');
         createdIds.push(newUser.id);
-        wasReactivatedList.push(wasReactivated);
-        if (wasReactivated) reactivatedCount++;
         const assignedForThis = [];
         licensesAssignedNames.push(assignedForThis);
 
-        // 2. Assign license (skip silently if reactivated user already holds it)
+        // 2. Assign license
         if (skuId) {
           try {
-            // For reactivations, check existing licenses first — avoids a 400 if
-            // the license was never removed.
-            let alreadyHas = false;
-            if (wasReactivated) {
-              try {
-                const u = await graphFetch('/users/' + newUser.id + '?$select=assignedLicenses');
-                alreadyHas = (u.assignedLicenses || []).some(l => l.skuId === skuId);
-              } catch (_) {}
-            }
-            if (alreadyHas) {
-              const licName = _skuMap[skuId] || friendlyLicenseName(skuId);
-              assignedForThis.push(licName);
-              log('    [OK] License already assigned: ' + licName + ' (' + (isInternal ? 'Internal' : 'Client') + ')', '#22c55e');
-            } else {
-              await graphFetch('/users/' + newUser.id + '/assignLicense', {
-                method: 'POST',
-                body: { addLicenses: [{ disabledPlans: [], skuId: skuId }], removeLicenses: [] }
-              });
-              const licName = _skuMap[skuId] || friendlyLicenseName(skuId);
-              assignedForThis.push(licName);
-              log('    [OK] License assigned: ' + licName + ' (' + (isInternal ? 'Internal' : 'Client') + ')', '#22c55e');
-            }
+            await graphFetch('/users/' + newUser.id + '/assignLicense', {
+              method: 'POST',
+              body: { addLicenses: [{ disabledPlans: [], skuId: skuId }], removeLicenses: [] }
+            });
+            const licName = _skuMap[skuId] || friendlyLicenseName(skuId);
+            assignedForThis.push(licName);
+            log('    [OK] License assigned: ' + licName + ' (' + (isInternal ? 'Internal' : 'Client') + ')', '#22c55e');
           } catch (e) {
             log('    [WARN] License skipped — ' + e.message.slice(0, 120), '#fbbf24');
           }
@@ -1448,31 +1407,25 @@
     }
 
     log('', null);
-    const createdCount = ok - reactivatedCount;
-    log('=== Complete: ' + createdCount + ' created, ' + reactivatedCount + ' reactivated, ' + failed + ' failed ===', ok > 0 ? '#22c55e' : '#ef4444');
+    log('=== Complete: ' + ok + ' created, ' + failed + ' failed ===', ok > 0 ? '#22c55e' : '#ef4444');
     if (ok > 0) {
-      showToast(createdCount + ' created, ' + reactivatedCount + ' reactivated via Graph');
+      showToast(ok + ' MS365 account(s) created via Graph');
       // Mark created in state
       hires.forEach((h, i) => {
         if (i < createdIds.length) {
           const realHire = state.hires.find(x => x.id === h.id);
           if (realHire) {
             const nowIso = new Date().toISOString();
-            const wasReact = wasReactivatedList[i];
             realHire.ms365 = realHire.ms365 || {};
             realHire.ms365.created = true;
-            // Only overwrite password if this was a fresh create — reactivated
-            // users keep whatever password they already had.
-            if (!wasReact) realHire.ms365.password = passwords[i];
+            realHire.ms365.password = passwords[i];
             realHire.ms365.createdAt = nowIso;
             realHire.ms365.graphId = createdIds[i];
-            realHire.ms365.reactivated = wasReact;
             // Flat fields the table renders (mirrors mark-as-created path)
             realHire.ms365Created = true;
-            if (!wasReact) realHire.ms365Password = passwords[i];
+            realHire.ms365Password = passwords[i];
             realHire.ms365CreatedAt = nowIso;
             realHire.ms365LicensesAdded = licensesAssignedNames[i] || [];
-            realHire.ms365WasReactivated = wasReact;
           }
         }
       });
