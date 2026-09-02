@@ -621,48 +621,164 @@
   <section class="view" id="view-licensing">
     <div class="page-header">
       <div class="page-title">
-        <h2>Licensing</h2>
-        <p>Software license inventory, seat utilization, and assignments</p>
+        <h2>Licensing — Audit View</h2>
+        <p>Live from Microsoft 365. All SKUs, seats, and per-user history.</p>
       </div>
       <div class="header-actions">
+        <span id="licAuditSyncStatus" style="font-size:12px;color:var(--muted);margin-right:8px;"></span>
         <button class="btn btn-secondary" onclick="exportCSV('licensing')">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           Export
         </button>
-        <button class="btn btn-primary" onclick="openModal('assignLicenseModal')">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Assign License
+        <button class="btn btn-primary" onclick="syncLicenseAudit()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><polyline points="21 3 21 8 16 8"/></svg>
+          Sync from Microsoft
         </button>
       </div>
     </div>
 
+    <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+      <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);">
+        <span style="font-weight:600;color:var(--text);">View as of:</span>
+        <div style="display:flex;align-items:center;gap:2px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;padding:2px;">
+          <button class="btn btn-icon" style="padding:4px 8px;background:transparent;border:none;color:var(--muted);cursor:pointer;" title="Previous month" onclick="stepMonthPicker('licStatsMonthPicker', -1); renderLicenseAudit();"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+          <input type="month" id="licStatsMonthPicker" onchange="renderLicenseAudit()" style="border:none;padding:4px 6px;font-size:12px;font-family:inherit;background:transparent;color:var(--text);cursor:pointer;" />
+          <button class="btn btn-icon" style="padding:4px 8px;background:transparent;border:none;color:var(--muted);cursor:pointer;" title="Next month" onclick="stepMonthPicker('licStatsMonthPicker', 1); renderLicenseAudit();"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+          <button class="btn btn-icon" style="padding:4px 8px;background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:11px;" title="Show current (live) values" onclick="clearMonthPicker('licStatsMonthPicker'); renderLicenseAudit();">Now</button>
+        </div>
+      </div>
+    </div>
     <div class="stats-grid">
-      <div class="stat-card"><div class="label">Total Licenses</div><div class="value" id="licStatTotal">240</div><div class="change">Across 6 products</div></div>
-      <div class="stat-card"><div class="label">Assigned Seats</div><div class="value" id="licStatAssigned">187</div><div class="change">78% utilization</div></div>
-      <div class="stat-card"><div class="label">Available</div><div class="value" id="licStatAvail">53</div><div class="change up">Ready to assign</div></div>
-      <div class="stat-card"><div class="label">Monthly Cost</div><div class="value" id="licStatCost">$4,127</div><div class="change">USD/month</div></div>
+      <div class="stat-card"><div class="label">Assigned Seats for F1</div><div class="value" id="licStatF1Assigned">—</div><div class="change" id="licStatF1AssignedSub">M365 F1 Comm</div></div>
+      <div class="stat-card"><div class="label">Available Seats for F1</div><div class="value" id="licStatF1Avail">—</div><div class="change up" id="licStatF1AvailSub">Unassigned</div></div>
+      <div class="stat-card"><div class="label">Assigned Seats for Business Basic</div><div class="value" id="licStatBBAssigned">—</div><div class="change" id="licStatBBAssignedSub">Microsoft 365 Business Basic</div></div>
+      <div class="stat-card"><div class="label">Available Seats for Business Basic</div><div class="value" id="licStatBBAvail">—</div><div class="change up" id="licStatBBAvailSub">Unassigned</div></div>
     </div>
 
     <div class="panel">
-      <div class="panel-header"><div class="panel-title">License Pools</div></div>
-      <div style="overflow-x: auto;">
+      <div class="panel-header" style="cursor:pointer;" onclick="toggleLicPanel('licSummaryBody', 'licSummaryChevron')">
+        <div class="panel-title" style="display:flex;align-items:center;gap:8px;">
+          <svg id="licSummaryChevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="transition:transform 0.2s;"><polyline points="6 9 12 15 18 9"/></svg>
+          License Summary
+          <span id="licSummaryCount" style="font-size:11px;color:var(--muted);font-weight:400;"></span>
+        </div>
+        <span style="font-size:11px;color:var(--muted);">Click a row to filter · Purchased On is editable · Click header to collapse</span>
+      </div>
+      <div id="licSummaryBody" style="overflow-x: auto;">
         <table>
-          <thead><tr><th>Product</th><th>Vendor</th><th>Seats</th><th>Utilization</th><th>Unit Cost</th><th>Renewal</th><th>Actions</th></tr></thead>
-          <tbody id="licensesTbody"></tbody>
+          <thead><tr>
+            <th>License Name</th>
+            <th>SKU Part Number</th>
+            <th>Purchased</th>
+            <th>Assigned</th>
+            <th>Available</th>
+            <th>Utilization</th>
+            <th>Purchased On</th>
+          </tr></thead>
+          <tbody id="licAuditSkusTbody"><tr><td colspan="7"><div class="empty-state"><h4>No data yet</h4><p>Click "Sync from Microsoft" to pull live license data.</p></div></td></tr></tbody>
         </table>
       </div>
     </div>
 
     <div class="panel">
       <div class="panel-header">
-        <div class="panel-title">Recent Assignments</div>
-        <input type="text" class="search-input" id="assignSearch" placeholder="Search assignments..." oninput="renderAssignments()" />
+        <div class="panel-title" style="display:flex;align-items:center;gap:8px;cursor:pointer;" onclick="toggleLicPanel('licHoldersBody', 'licHoldersChevron')">
+          <svg id="licHoldersChevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="transition:transform 0.2s;"><polyline points="6 9 12 15 18 9"/></svg>
+          License Holders
+          <span id="licHoldersCount" style="font-size:11px;color:var(--muted);font-weight:400;"></span>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <div style="display:flex;align-items:center;gap:4px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;padding:2px;" title="Filter Monthly Summary by month">
+            <button class="btn btn-icon" style="padding:4px 8px;background:transparent;border:none;color:var(--muted);cursor:pointer;" title="Previous month" onclick="stepMonthPicker('licHoldersMonthPicker', -1); renderLicenseMovement();"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+            <input type="month" id="licHoldersMonthPicker" onchange="renderLicenseMovement()" style="border:none;padding:4px 6px;font-size:12px;font-family:inherit;background:transparent;color:var(--text);cursor:pointer;" />
+            <button class="btn btn-icon" style="padding:4px 8px;background:transparent;border:none;color:var(--muted);cursor:pointer;" title="Next month" onclick="stepMonthPicker('licHoldersMonthPicker', 1); renderLicenseMovement();"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+            <button class="btn btn-icon" style="padding:4px 8px;background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:11px;" title="Show all months" onclick="clearMonthPicker('licHoldersMonthPicker'); renderLicenseMovement();">All</button>
+          </div>
+          <select class="filter-select" id="licAuditFilter" onchange="_licHoldersPage=1; renderLicenseAuditHolders()">
+            <option value="">All licenses</option>
+          </select>
+          <input type="text" class="search-input" id="licAuditSearch" placeholder="Search users..." oninput="debouncedRenderLicHolders()" />
+        </div>
       </div>
+      <div id="licAuditBulkBar" style="display:none;padding:10px 14px;background:#eff6ff;border-bottom:1px solid #bfdbfe;align-items:center;gap:12px;">
+        <span id="licAuditBulkCount" style="font-size:13px;font-weight:600;color:#1e40af;"></span>
+        <span style="flex:1;"></span>
+        <input type="text" id="licAuditBulkDeptInput" placeholder="New department (e.g. Morning)" style="padding:6px 10px;border:1px solid #93c5fd;border-radius:6px;font-size:12px;font-family:inherit;width:220px;" />
+        <button class="btn btn-primary" style="font-size:12px;padding:6px 14px;" onclick="bulkUpdateLicAuditDepartment()">Update Department</button>
+        <button class="btn btn-secondary" style="font-size:12px;padding:6px 14px;" onclick="clearLicAuditSelection()">Clear</button>
+      </div>
+      <div id="licHoldersBody">
+        <div style="padding:16px 20px 4px 20px;">
+          <div style="background:linear-gradient(135deg,#dbeafe 0%,#eff6ff 100%);border:1px solid #93c5fd;border-radius:12px;padding:18px 20px 20px;box-shadow:0 1px 3px rgba(37,99,235,0.10);">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+              <div style="width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#2563eb,#1d4ed8);display:flex;align-items:center;justify-content:center;box-shadow:0 4px 10px rgba(37,99,235,0.35);">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-4 4 4 5-6"/></svg>
+              </div>
+              <div>
+                <div style="font-size:14px;font-weight:800;color:#1e3a8a;letter-spacing:0.2px;">Monthly Summary</div>
+                <div style="font-size:11px;color:#2563eb;text-transform:uppercase;letter-spacing:0.8px;font-weight:600;">Seats In Use · End of Month</div>
+              </div>
+            </div>
+            <div style="overflow-x:auto;background:white;border-radius:10px;border:1px solid #bfdbfe;box-shadow:0 1px 2px rgba(0,0,0,0.04);">
+              <table id="licMovementSummaryTable" style="width:100%;font-size:12px;border-collapse:collapse;">
+                <thead id="licMovementSummaryThead"></thead>
+                <tbody id="licMovementSummaryTbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       <div style="overflow-x: auto;">
         <table>
-          <thead><tr><th>User</th><th>Product</th><th>Assigned</th><th>Status</th><th>Actions</th></tr></thead>
-          <tbody id="assignmentsTbody"></tbody>
+          <thead id="licAuditHoldersThead"></thead>
+          <tbody id="licAuditHoldersTbody"><tr><td colspan="11"><div class="empty-state"><h4>No holders loaded</h4><p>Run "Sync from Microsoft" first.</p></div></td></tr></tbody>
         </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title" style="display:flex;align-items:center;gap:8px;cursor:pointer;" onclick="toggleLicPanel('licMovementBody', 'licMovementChevron')">
+          <svg id="licMovementChevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="transition:transform 0.2s;"><polyline points="6 9 12 15 18 9"/></svg>
+          License Movement
+          <span id="licMovementCount" style="font-size:11px;color:var(--muted);font-weight:400;"></span>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <div style="display:flex;align-items:center;gap:4px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;padding:2px;" title="Filter Movement Log by month">
+            <button class="btn btn-icon" style="padding:4px 8px;background:transparent;border:none;color:var(--muted);cursor:pointer;" title="Previous month" onclick="stepMonthPicker('licMovementMonthPicker', -1); renderLicenseMovement();"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+            <input type="month" id="licMovementMonthPicker" onchange="renderLicenseMovement()" style="border:none;padding:4px 6px;font-size:12px;font-family:inherit;background:transparent;color:var(--text);cursor:pointer;" />
+            <button class="btn btn-icon" style="padding:4px 8px;background:transparent;border:none;color:var(--muted);cursor:pointer;" title="Next month" onclick="stepMonthPicker('licMovementMonthPicker', 1); renderLicenseMovement();"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+            <button class="btn btn-icon" style="padding:4px 8px;background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:11px;" title="Show all months" onclick="clearMonthPicker('licMovementMonthPicker'); renderLicenseMovement();">All</button>
+          </div>
+          <select class="filter-select" id="licMovementActionFilter" onchange="renderLicenseMovement()">
+            <option value="">All actions</option>
+            <option value="add">Assignments only</option>
+            <option value="remove">Removals only</option>
+          </select>
+          <select class="filter-select" id="licMovementSkuFilter" onchange="renderLicenseMovement()">
+            <option value="">All licenses</option>
+          </select>
+          <input type="text" class="search-input" id="licMovementSearch" placeholder="Search user or actor..." oninput="debouncedRenderLicMovement()" />
+        </div>
+      </div>
+      <div id="licMovementBody">
+        <div style="padding:14px 20px 14px 20px;">
+          <div style="font-size:12px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Movement Log</div>
+          <div style="overflow-x:auto;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date &amp; Time</th>
+                  <th>Action</th>
+                  <th>Employee ID</th>
+                  <th>User</th>
+                  <th>License</th>
+                  <th>Performed By</th>
+                </tr>
+              </thead>
+              <tbody id="licMovementLogTbody"><tr><td colspan="6"><div class="empty-state"><h4>No movements yet</h4><p>Run "Sync from Microsoft" first.</p></div></td></tr></tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </div>
   </section>
@@ -1091,7 +1207,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-  const STORAGE_KEY = 'goteam-ums-v104';
+  const STORAGE_KEY = 'goteam-ums-v105';
   // Updated by Claude on each "refresh the dashboard" run; static between refreshes.
   const DATA_AS_OF = 'May 28, 2026 (refreshed)';
 
@@ -1109,7 +1225,8 @@
     'Sites.ReadWrite.All',
     'Sites.Manage.All',                          // required to create lists & columns
     'Organization.Read.All',
-    'UserAuthenticationMethod.ReadWrite.All'     // for removing MFA/auth methods on offboarding
+    'UserAuthenticationMethod.ReadWrite.All',    // for removing MFA/auth methods on offboarding
+    'AuditLog.Read.All'                           // for license audit backfill (30–90 day window)
   ];
   let msalInstance = null;
   let msalAccount = null;
@@ -1522,7 +1639,9 @@
     hires: 'GoTeam-Hires',
     departures: 'GoTeam-Departures',
     licenses: 'GoTeam-Licenses',
-    assignments: 'GoTeam-Assignments'
+    assignments: 'GoTeam-Assignments',
+    licenseEvents: 'GoTeam-LicenseEvents',
+    licenseMonthly: 'GoTeam-LicenseMonthlySummary'
   };
 
   // Column schemas — Graph creates these on the list at provisioning time.
@@ -1594,6 +1713,28 @@
       { name: 'AssignedDate',  dateTime: { format: 'dateOnly' } },
       { name: 'AssignStatus',  text: {} },
       { name: 'LocalId',       number: {} }
+    ],
+    licenseEvents: [
+      // Title = dedupe key (userId|skuId|action|YYYY-MM-DD-HH:MM) so uniqueness is enforced.
+      { name: 'EventUserId',     text: {} },
+      { name: 'EventUpn',        text: {} },
+      { name: 'EventUserName',   text: {} },
+      { name: 'EventSkuId',      text: {} },
+      { name: 'EventSkuPart',    text: {} },
+      { name: 'EventAction',     text: {} },    // 'add' | 'remove'
+      { name: 'EventDate',       text: {} },    // ISO timestamp
+      { name: 'EventPerformedBy',text: {} }
+    ],
+    licenseMonthly: [
+      // Title = 'YYYY-MM|<skuId>' so uniqueness is enforced per month-per-SKU.
+      { name: 'SnapMonth',      text: {} },
+      { name: 'SnapSkuId',      text: {} },
+      { name: 'SnapSkuPart',    text: {} },
+      { name: 'SnapSkuName',    text: {} },
+      { name: 'SnapSeatsInUse', number: {} },
+      { name: 'SnapAdds',       number: {} },
+      { name: 'SnapRemoves',    number: {} },
+      { name: 'SnapCapturedAt', text: {} }
     ]
   };
 
@@ -1739,9 +1880,37 @@
       return;
     }
     document.getElementById('spProvisionLog').innerHTML = '';
-    spLog('Repairing SharePoint schema — adding missing columns...', '#60a5fa');
-    let added = 0, skipped = 0;
+    spLog('Repairing SharePoint schema — creating missing lists + adding missing columns...', '#60a5fa');
+    let added = 0, skipped = 0, listsCreated = 0;
+    settings.listIds = settings.listIds || {};
     try {
+      // First pass: create any missing lists so Repair is a one-click fix
+      // for newly-added schemas (LicenseEvents, LicenseMonthlySummary, etc.).
+      const existingLists = await graphFetch('/sites/' + settings.siteId + '/lists?$select=id,displayName').catch(() => ({ value: [] }));
+      const existingListMap = {};
+      (existingLists.value || []).forEach(l => { existingListMap[l.displayName] = l.id; });
+      for (const key of Object.keys(SP_LIST_NAMES)) {
+        const listName = SP_LIST_NAMES[key];
+        if (existingListMap[listName]) {
+          settings.listIds[key] = existingListMap[listName];
+          continue;
+        }
+        spLog('  Creating list "' + listName + '"...', '#60a5fa');
+        try {
+          const created = await graphFetch('/sites/' + settings.siteId + '/lists', {
+            method: 'POST',
+            body: { displayName: listName, description: 'GoTeam User Management Dashboard — auto-provisioned', list: { template: 'genericList' } }
+          });
+          settings.listIds[key] = created.id;
+          spLog('    [OK] Created — id=' + created.id.substring(0, 16) + '...', '#22c55e');
+          listsCreated++;
+        } catch (e) {
+          spLog('    [FAIL] Could not create "' + listName + '" — ' + e.message.slice(0, 120), '#ef4444');
+        }
+      }
+      // Persist listIds so future syncs know about the newly-created lists.
+      localStorage.setItem(MS_SETTINGS_KEY, JSON.stringify(settings));
+
       for (const key of Object.keys(SP_LIST_NAMES)) {
         const listId = settings.listIds[key];
         if (!listId) { spLog('  [SKIP] ' + SP_LIST_NAMES[key] + ' — list not provisioned', '#fbbf24'); continue; }
@@ -1769,8 +1938,8 @@
         }
       }
       spLog('', null);
-      spLog('=== Schema repair complete — ' + added + ' added, ' + skipped + ' already present ===', '#22c55e');
-      showToast('Schema repaired — ' + added + ' new column(s)');
+      spLog('=== Schema repair complete — ' + listsCreated + ' list(s) created, ' + added + ' column(s) added, ' + skipped + ' already present ===', '#22c55e');
+      showToast('Schema repaired — ' + listsCreated + ' new list(s), ' + added + ' new column(s)');
     } catch (e) {
       spLog('[FAIL] ' + e.message, '#ef4444');
       console.error(e);
@@ -3687,12 +3856,30 @@
       return;
     }
 
-    // Pick the active week. Default = week containing today (or earliest with data, or last)
+    // Pick the active week. Default = week containing today. If today's week
+    // has no data, snap to the CLOSEST week that does (nearest future first,
+    // else nearest past). We also snap to today's week when the user hasn't
+    // manually navigated yet this session (_defaultOnboardingWeek === true)
+    // and today's week has data — this handles the "SharePoint sync loaded
+    // fresh data after the first render" case.
+    if (window._defaultOnboardingWeek !== false) {
+      const _todayK = weekKey(new Date().toISOString().slice(0, 10));
+      if (groups[_todayK]) state.activeWeekKey = _todayK;
+    }
     if (!state.activeWeekKey || !groups[state.activeWeekKey]) {
       const today = new Date();
       const todayKey = weekKey(today.toISOString().slice(0, 10));
-      if (groups[todayKey]) state.activeWeekKey = todayKey;
-      else state.activeWeekKey = sortedKeys[0];
+      if (groups[todayKey]) {
+        state.activeWeekKey = todayKey;
+      } else {
+        const future = sortedKeys.filter(k => k >= todayKey).sort();
+        if (future.length) {
+          state.activeWeekKey = future[0];
+        } else {
+          // No future — pick the most recent past week.
+          state.activeWeekKey = sortedKeys[sortedKeys.length - 1];
+        }
+      }
     }
 
     // Compute "Week N of <Month>" labels for each key
@@ -3783,6 +3970,7 @@
 
 
   function switchWeek(key) {
+    window._defaultOnboardingWeek = false; // user navigated — stop auto-defaulting
     state.activeWeekKey = key;
     save();
     renderHires();
@@ -3791,6 +3979,7 @@
   // Called when the onboarding date-picker changes: find the Monday-of-that-week
   // and switch. Snap to nearest week with hires if the exact week has none.
   function onboardingDateChanged(dateStr) {
+    window._defaultOnboardingWeek = false;
     if (!dateStr) return;
     const targetKey = weekKey(dateStr);
     const groups = {};
@@ -5118,6 +5307,7 @@
   }
 
   function switchOffboardingWeek(key) {
+    window._defaultOffboardingWeek = false; // user navigated — stop auto-defaulting
     state.activeOffboardingWeekKey = key;
     save();
     renderDepartures();
@@ -5127,6 +5317,7 @@
   // switch to that group. If no group exists for that week, snap to the closest
   // available week that has departures.
   function offboardingDateChanged(dateStr) {
+    window._defaultOffboardingWeek = false;
     if (!dateStr) return;
     const targetKey = weekKey(dateStr);
     // See if any group matches. Rebuild groups quickly.
@@ -5395,6 +5586,10 @@
     });
     const sortedKeys = Object.keys(groups).sort();
 
+    if (window._defaultOffboardingWeek !== false) {
+      const _todayK = weekKey(new Date().toISOString().slice(0, 10));
+      if (groups[_todayK]) state.activeOffboardingWeekKey = _todayK;
+    }
     if (!state.activeOffboardingWeekKey || !groups[state.activeOffboardingWeekKey]) {
       const today = new Date();
       const todayKey = weekKey(today.toISOString().slice(0, 10));
@@ -6088,8 +6283,1328 @@
     save(); renderChecklist();
   }
 
+  // ============================================================
+  // Licensing — Audit View (live from Microsoft Graph)
+  // ============================================================
+  // state.licenseAudit shape:
+  //   {
+  //     lastSyncedAt: ISO,
+  //     skus:    [ { skuId, skuPartNumber, friendlyName, prepaidEnabled, consumedUnits, purchasedOn } ],
+  //     holders: [ { userId, displayName, upn, jobTitle, accountEnabled, userCreatedAt,
+  //                   licenses: [ { skuId, assignedAt, removedAt } ] } ],
+  //     auditWindowDays: 30 | 90,
+  //     filter: { skuId: '' }
+  //   }
+  function ensureLicenseAuditState() {
+    if (!state.licenseAudit) {
+      state.licenseAudit = { lastSyncedAt: null, skus: [], holders: [], auditWindowDays: 90, filter: { skuId: '' }, panels: { summary: true, holders: true, movement: true }, sort: { field: 'displayName', dir: 'asc' } };
+    }
+    if (!state.licenseAudit.panels) state.licenseAudit.panels = { summary: true, holders: true };
+    if (!state.licenseAudit.sort) state.licenseAudit.sort = { field: 'displayName', dir: 'asc' };
+    if (!state.licenseAudit.auditWindowDays) state.licenseAudit.auditWindowDays = 90; // tenant-detected max; capped in sync
+    return state.licenseAudit;
+  }
+
+  // Selected user IDs for bulk actions on the License Holders table.
+  const _licAuditSelected = new Set();
+
+  // Debounced re-renders so typing in the search box doesn't rebuild the
+  // ~5,600-row holders table on every keystroke (the main freeze cause).
+  let _licHoldersDebounce = null;
+  function debouncedRenderLicHolders() {
+    if (_licHoldersDebounce) clearTimeout(_licHoldersDebounce);
+    _licHoldersDebounce = setTimeout(() => { _licHoldersDebounce = null; _licHoldersPage = 1; renderLicenseAuditHolders(); }, 250);
+  }
+  let _licMovementDebounce = null;
+  function debouncedRenderLicMovement() {
+    if (_licMovementDebounce) clearTimeout(_licMovementDebounce);
+    _licMovementDebounce = setTimeout(() => { _licMovementDebounce = null; renderLicenseMovement(); }, 250);
+  }
+  // Pagination for the License Holders table.
+  let _licHoldersPage = 1;
+  let _licHoldersPageSize = 30;
+  function setLicHoldersPage(p) { _licHoldersPage = Math.max(1, p); renderLicenseAuditHolders(); }
+  function setLicHoldersPageSize(n) { _licHoldersPageSize = parseInt(n, 10) || 30; _licHoldersPage = 1; renderLicenseAuditHolders(); }
+  function toggleLicAuditRow(userId) {
+    if (_licAuditSelected.has(userId)) _licAuditSelected.delete(userId);
+    else _licAuditSelected.add(userId);
+    updateLicAuditBulkBar();
+    // Sync visible checkboxes without full re-render (keeps scroll position).
+    document.querySelectorAll('.lic-audit-row-cb[data-uid="' + userId + '"]').forEach(cb => cb.checked = _licAuditSelected.has(userId));
+    const header = document.getElementById('licAuditSelectAll');
+    if (header) {
+      const visible = document.querySelectorAll('.lic-audit-row-cb');
+      const checked = document.querySelectorAll('.lic-audit-row-cb:checked');
+      header.checked = visible.length > 0 && checked.length === visible.length;
+      header.indeterminate = checked.length > 0 && checked.length < visible.length;
+    }
+  }
+  function toggleLicAuditSelectAll(cb) {
+    const rowBoxes = document.querySelectorAll('.lic-audit-row-cb');
+    rowBoxes.forEach(b => {
+      const uid = b.dataset.uid;
+      if (cb.checked) _licAuditSelected.add(uid);
+      else _licAuditSelected.delete(uid);
+      b.checked = cb.checked;
+    });
+    updateLicAuditBulkBar();
+  }
+  function clearLicAuditSelection() {
+    _licAuditSelected.clear();
+    document.querySelectorAll('.lic-audit-row-cb').forEach(b => b.checked = false);
+    const header = document.getElementById('licAuditSelectAll');
+    if (header) { header.checked = false; header.indeterminate = false; }
+    updateLicAuditBulkBar();
+  }
+  function updateLicAuditBulkBar() {
+    const bar = document.getElementById('licAuditBulkBar');
+    const count = document.getElementById('licAuditBulkCount');
+    if (!bar || !count) return;
+    const n = _licAuditSelected.size;
+    if (n === 0) { bar.style.display = 'none'; return; }
+    bar.style.display = 'flex';
+    count.textContent = n + ' user' + (n === 1 ? '' : 's') + ' selected';
+  }
+
+  // Persist a single Remarks edit → PATCH extensionAttribute1 for that user.
+  // Fires on blur or Enter. Skips the request if the value hasn't changed.
+  async function saveLicHolderRemark(inputEl) {
+    if (!msalAccount) { showToast('Sign in first'); return; }
+    const uid = inputEl.dataset.uid;
+    const original = inputEl.dataset.original || '';
+    const newVal = (inputEl.value || '').trim();
+    if (newVal === original) return; // no-op
+
+    // Visual feedback while saving
+    inputEl.disabled = true;
+    inputEl.style.background = '#fef3c7';
+    try {
+      await graphFetch('/users/' + uid, {
+        method: 'PATCH',
+        body: { onPremisesExtensionAttributes: { extensionAttribute1: newVal || null } }
+      });
+      // Success: update local state so future re-renders show the new value.
+      const audit = ensureLicenseAuditState();
+      const h = (audit.holders || []).find(x => x.userId === uid);
+      if (h) h.remarks = newVal;
+      inputEl.dataset.original = newVal;
+      inputEl.style.background = '#d1fae5';
+      setTimeout(() => { inputEl.style.background = 'white'; }, 900);
+      save();
+      showToast('Remark saved');
+    } catch (e) {
+      console.error('PATCH extensionAttribute1 failed:', e);
+      inputEl.value = original; // revert
+      inputEl.style.background = '#fee2e2';
+      setTimeout(() => { inputEl.style.background = 'white'; }, 1600);
+      alert('Failed to save remark: ' + e.message.slice(0, 200));
+    } finally {
+      inputEl.disabled = false;
+    }
+  }
+
+  async function bulkUpdateLicAuditDepartment() {
+    if (!msalAccount) { showToast('Sign in first'); return; }
+    const input = document.getElementById('licAuditBulkDeptInput');
+    const newDept = (input.value || '').trim();
+    if (!newDept) { alert('Type the new department first.'); input.focus(); return; }
+    const ids = Array.from(_licAuditSelected);
+    if (ids.length === 0) return;
+    if (!confirm('Set Department = "' + newDept + '" for ' + ids.length + ' user(s)?\n\nThis PATCHes each Graph user directly. Cannot be undone.')) return;
+
+    const audit = ensureLicenseAuditState();
+    let ok = 0, failed = 0;
+    for (const uid of ids) {
+      try {
+        await graphFetch('/users/' + uid, { method: 'PATCH', body: { department: newDept } });
+        // Reflect in local state so the table updates without a full resync.
+        const h = audit.holders.find(x => x.userId === uid);
+        if (h) h.department = newDept;
+        ok++;
+      } catch (e) {
+        console.error('PATCH department failed for ' + uid, e);
+        failed++;
+      }
+    }
+    save();
+    input.value = '';
+    _licAuditSelected.clear();
+    renderLicenseAuditHolders();
+    updateLicAuditBulkBar();
+    showToast(ok + ' updated' + (failed ? ', ' + failed + ' failed — see console' : ''));
+  }
+
+  // Generic month picker step / clear — target any input by id.
+  function stepMonthPicker(id, delta) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    let cur = el.value; // YYYY-MM
+    if (!cur) {
+      const t = new Date();
+      cur = t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0');
+    }
+    const [y, m] = cur.split('-').map(n => parseInt(n, 10));
+    const d = new Date(y, m - 1 + delta, 1);
+    el.value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  }
+  function clearMonthPicker(id) {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  }
+
+  function setLicAuditSort(field) {
+    const audit = ensureLicenseAuditState();
+    if (audit.sort.field === field) audit.sort.dir = audit.sort.dir === 'asc' ? 'desc' : 'asc';
+    else { audit.sort.field = field; audit.sort.dir = 'asc'; }
+    save();
+    renderLicenseAuditHolders();
+  }
+
+  // Collapse/expand a licensing panel body; chevron rotates 90° when collapsed.
+  function toggleLicPanel(bodyId, chevronId) {
+    const body = document.getElementById(bodyId);
+    const chev = document.getElementById(chevronId);
+    if (!body || !chev) return;
+    const audit = ensureLicenseAuditState();
+    const isCollapsed = body.style.display === 'none';
+    body.style.display = isCollapsed ? '' : 'none';
+    chev.style.transform = isCollapsed ? 'rotate(0deg)' : 'rotate(-90deg)';
+    if (bodyId === 'licSummaryBody') audit.panels.summary = isCollapsed;
+    else if (bodyId === 'licHoldersBody') audit.panels.holders = isCollapsed;
+    else if (bodyId === 'licMovementBody') audit.panels.movement = isCollapsed;
+    save();
+  }
+
+  // Apply saved collapsed/expanded state on first render.
+  function applyLicPanelState() {
+    const audit = ensureLicenseAuditState();
+    const apply = (bodyId, chevronId, visible) => {
+      const body = document.getElementById(bodyId);
+      const chev = document.getElementById(chevronId);
+      if (!body || !chev) return;
+      body.style.display = visible ? '' : 'none';
+      chev.style.transform = visible ? 'rotate(0deg)' : 'rotate(-90deg)';
+    };
+    apply('licSummaryBody', 'licSummaryChevron', audit.panels.summary !== false);
+    apply('licHoldersBody', 'licHoldersChevron', audit.panels.holders !== false);
+    apply('licMovementBody', 'licMovementChevron', audit.panels.movement !== false);
+  }
+
+  // SKU part numbers excluded ONLY from the License Movement panel (free / trial
+  // / infra SKUs whose noise clutters the audit but whose seat counts still
+  // belong in the License Summary + Holders tables). Match on skuPartNumber.
+  const HIDDEN_SKUS_MOVEMENT = new Set([
+    'CCIBOTS_PRIVPREV_VIRAL',
+    'CPC_E_4C_16GB_128GB',
+    'CPC_E_8C_32GB_128GB',
+    'MICROSOFT_COPILOT_FOR_FINANCE_TRIAL',
+    'POWERAPPS_VIRAL',                        // Power Apps Plan 2 Trial
+    'FLOW_FREE',                              // Power Automate Free
+    'POWER_BI_STANDARD',                      // Power BI (free)
+    'POWER_PAGES_VTRIAL_FOR_MAKERS',
+    'POWERAPPS_DEV',
+    'TEAMS_PREMIUM_(FOR_DEPARTMENTS)',
+    'ATP_ENTERPRISE',                         // Microsoft Defender for Office 365 (Plan 1)
+    'WINDOWS_STORE'
+  ]);
+
+  // Stable dedupe key for a movement event. Minute precision keeps duplicate
+  // audit records (Add user + Change user license fired in the same second)
+  // collapsed into one row.
+  function movementDedupeKey(m) {
+    return (m.userId || '') + '|' +
+           String(m.skuId || '').toLowerCase() + '|' +
+           (m.action || '') + '|' +
+           String(m.ts || '').slice(0, 16);
+  }
+
+  // Pull all license events from SharePoint into audit.movements. Called on
+  // sync BEFORE the fresh Graph audit fetch so we retain history that has
+  // already scrolled past the 30-day window.
+  async function pullLicenseEventsFromSP(settings, audit) {
+    if (!settings || !settings.siteId || !settings.listIds || !settings.listIds.licenseEvents) return [];
+    try {
+      const items = await graphPageAll('/sites/' + settings.siteId + '/lists/' + settings.listIds.licenseEvents + '/items?$expand=fields&$top=999');
+      return items.map(it => {
+        const f = it.fields || {};
+        return {
+          spId: it.id,
+          userId: f.EventUserId || '',
+          upn: f.EventUpn || '',
+          userName: f.EventUserName || '',
+          skuId: f.EventSkuId || '',
+          skuPart: f.EventSkuPart || '',
+          action: f.EventAction || '',
+          ts: f.EventDate || '',
+          actor: f.EventPerformedBy || ''
+        };
+      }).filter(m => m.userId && m.skuId && m.ts);
+    } catch (e) {
+      console.warn('pullLicenseEventsFromSP failed:', e);
+      return [];
+    }
+  }
+
+  // Push movement events to SharePoint that don't already exist there (dedupe
+  // by Title = movement key). Fire-and-forget style — errors log to console
+  // but never block the render.
+  async function pushLicenseEventsToSP(settings, newMoves) {
+    if (!settings || !settings.siteId || !settings.listIds || !settings.listIds.licenseEvents) return { created: 0, skipped: 0, failed: 0 };
+    if (!newMoves || newMoves.length === 0) return { created: 0, skipped: 0, failed: 0 };
+    const listId = settings.listIds.licenseEvents;
+    const base = '/sites/' + settings.siteId + '/lists/' + listId;
+    // Fetch existing Title values so we don't POST duplicates.
+    let existingKeys = new Set();
+    try {
+      const items = await graphPageAll(base + '/items?$expand=fields($select=Title)&$top=999');
+      items.forEach(it => { if (it.fields && it.fields.Title) existingKeys.add(it.fields.Title); });
+    } catch (e) {
+      console.warn('licenseEvents dedupe lookup failed — may write duplicates:', e);
+    }
+    let created = 0, skipped = 0, failed = 0;
+    for (const m of newMoves) {
+      const key = movementDedupeKey(m);
+      if (existingKeys.has(key)) { skipped++; continue; }
+      try {
+        await graphFetch(base + '/items', {
+          method: 'POST',
+          body: { fields: {
+            Title: key,
+            EventUserId: m.userId || '',
+            EventUpn: m.upn || '',
+            EventUserName: m.userName || '',
+            EventSkuId: m.skuId || '',
+            EventSkuPart: m.skuPart || '',
+            EventAction: m.action || '',
+            EventDate: m.ts || '',
+            EventPerformedBy: m.actor || ''
+          }}
+        });
+        created++;
+      } catch (e) {
+        failed++;
+        console.warn('licenseEvents insert failed for ' + key, e);
+      }
+    }
+    return { created, skipped, failed };
+  }
+
+  // Persist the Monthly Summary (end-of-month seats in use per SKU × month) to
+  // a dedicated SharePoint list. Upserts by Title = 'YYYY-MM|<skuId>' so
+  // re-syncs update the latest figure instead of duplicating rows.
+  async function pushLicenseMonthlyToSP(settings, snapshots) {
+    if (!settings || !settings.siteId || !settings.listIds || !settings.listIds.licenseMonthly) return { created: 0, updated: 0, skipped: 0, failed: 0 };
+    if (!snapshots || snapshots.length === 0) return { created: 0, updated: 0, skipped: 0, failed: 0 };
+    const listId = settings.listIds.licenseMonthly;
+    const base = '/sites/' + settings.siteId + '/lists/' + listId;
+    // Pull existing rows keyed by Title so we know whether to POST or PATCH.
+    const existingByTitle = {};
+    try {
+      const items = await graphPageAll(base + '/items?$expand=fields($select=Title,SnapSeatsInUse,SnapAdds,SnapRemoves)&$top=999');
+      items.forEach(it => { if (it.fields && it.fields.Title) existingByTitle[it.fields.Title] = it; });
+    } catch (e) {
+      console.warn('licenseMonthly lookup failed — may create duplicates:', e);
+    }
+    let created = 0, updated = 0, skipped = 0, failed = 0;
+    const now = new Date().toISOString();
+    for (const snap of snapshots) {
+      const key = snap.month + '|' + snap.skuId;
+      const fields = {
+        Title: key,
+        SnapMonth: snap.month,
+        SnapSkuId: snap.skuId,
+        SnapSkuPart: snap.skuPart || '',
+        SnapSkuName: snap.skuName || '',
+        SnapSeatsInUse: snap.seatsInUse || 0,
+        SnapAdds: snap.adds || 0,
+        SnapRemoves: snap.removes || 0,
+        SnapCapturedAt: now
+      };
+      try {
+        const existing = existingByTitle[key];
+        if (existing) {
+          // Skip if nothing meaningful changed.
+          const f = existing.fields;
+          if (Number(f.SnapSeatsInUse) === fields.SnapSeatsInUse &&
+              Number(f.SnapAdds) === fields.SnapAdds &&
+              Number(f.SnapRemoves) === fields.SnapRemoves) {
+            skipped++;
+            continue;
+          }
+          await graphFetch(base + '/items/' + existing.id + '/fields', {
+            method: 'PATCH',
+            body: fields
+          });
+          updated++;
+        } else {
+          await graphFetch(base + '/items', { method: 'POST', body: { fields: fields } });
+          created++;
+        }
+      } catch (e) {
+        failed++;
+        console.warn('licenseMonthly upsert failed for ' + key, e);
+      }
+    }
+    return { created, updated, skipped, failed };
+  }
+
+  // ---- License Movement panel ----
+  function renderLicenseMovement() {
+    const audit = ensureLicenseAuditState();
+    const movements = audit.movements || [];
+    const skuNameById = {};
+    audit.skus.forEach(s => {
+      skuNameById[s.skuId] = s.friendlyName;
+      skuNameById[String(s.skuId || '').toLowerCase()] = s.friendlyName;
+    });
+
+    // Populate SKU filter dropdown (once)
+    const skuFilterSel = document.getElementById('licMovementSkuFilter');
+    if (skuFilterSel) {
+      const currentVal = skuFilterSel.value;
+      // Only rebuild if the option count is off (fresh sync)
+      const visibleSkus = audit.skus.filter(s => !HIDDEN_SKUS_MOVEMENT.has(String(s.skuPartNumber || '').toUpperCase()));
+      if (skuFilterSel.options.length !== visibleSkus.length + 1) {
+        skuFilterSel.innerHTML = '<option value="">All licenses</option>' +
+          visibleSkus.map(s => '<option value="' + s.skuId + '">' + s.friendlyName + '</option>').join('');
+        if (currentVal) skuFilterSel.value = currentVal;
+      }
+    }
+
+    const actionFilter = (document.getElementById('licMovementActionFilter') || {}).value || '';
+    const skuFilter    = (document.getElementById('licMovementSkuFilter') || {}).value || '';
+    const searchEl     = document.getElementById('licMovementSearch');
+    const search       = searchEl ? searchEl.value.toLowerCase() : '';
+
+    // Build holder lookup for enriched search (matches displayName + employeeId too).
+    const holderByIdForSearch = {};
+    (audit.holders || []).forEach(h => { holderByIdForSearch[h.userId] = h; });
+    // Two independent month pickers:
+    //   #licHoldersMonthPicker  → filters the Monthly Summary pivot.
+    //   #licMovementMonthPicker → filters the Movement Log table.
+    const summaryPicker = document.getElementById('licHoldersMonthPicker');
+    const summaryMonthFilter = summaryPicker ? summaryPicker.value : '';
+    const logPicker = document.getElementById('licMovementMonthPicker');
+    const monthFilter = logPicker ? logPicker.value : ''; // used by the log path below
+    // Convert an ISO UTC timestamp → YYYY-MM in the viewer's local timezone.
+    // Audit ts is UTC (e.g. 2026-08-31T20:20Z which is Sep 1 in Manila). The
+    // date column above renders in local time via formatDateTime, so we bucket
+    // and filter by local month too — otherwise the picker for "August" would
+    // silently include events that display as "Sep 1".
+    const localMonth = ts => {
+      if (!ts) return '';
+      const d = new Date(ts);
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+    };
+    // Movement panel excludes free / trial SKUs even though they're kept in the
+    // Summary + Holders tables (see HIDDEN_SKUS_MOVEMENT above).
+    const partById = {};
+    audit.skus.forEach(s => { partById[String(s.skuId || '').toLowerCase()] = String(s.skuPartNumber || '').toUpperCase(); });
+    const knownSkuIds = new Set(audit.skus.map(s => String(s.skuId || '').toLowerCase()));
+    // Shared filters (applied to both summary + log). Month filter is applied
+    // per-render below so each picker can act independently.
+    const sharedFiltered = movements.filter(m => {
+      const idLc = String(m.skuId || '').toLowerCase();
+      if (!knownSkuIds.has(idLc)) return false;
+      if (HIDDEN_SKUS_MOVEMENT.has(partById[idLc])) return false;
+      if (actionFilter && m.action !== actionFilter) return false;
+      if (skuFilter && String(m.skuId).toLowerCase() !== String(skuFilter).toLowerCase()) return false;
+      if (search) {
+        const h = holderByIdForSearch[m.userId];
+        const hay = [
+          m.userName || '', m.actor || '',
+          h ? h.displayName : '', h ? h.employeeId : '', h ? h.upn : ''
+        ].join(' ').toLowerCase();
+        if (!hay.includes(search)) return false;
+      }
+      return true;
+    });
+
+    // Apply the two month filters independently.
+    const summaryFiltered = summaryMonthFilter
+      ? sharedFiltered.filter(m => localMonth(m.ts) === summaryMonthFilter)
+      : sharedFiltered;
+    const filtered = monthFilter
+      ? sharedFiltered.filter(m => localMonth(m.ts) === monthFilter)
+      : sharedFiltered;
+
+    const countEl = document.getElementById('licMovementCount');
+    if (countEl) countEl.textContent = movements.length ? '(' + filtered.length + '/' + movements.length + ' events)' : '';
+
+    // ---- Monthly Summary (per SKU, end-of-month seats in use) ----
+    // Show EVERY major SKU (all subscribed SKUs minus the free/trial list),
+    // not just SKUs that had movements this month. That way an empty month
+    // like September still renders every license with its current seat count.
+    const pivotSkus = audit.skus
+      .filter(s => !HIDDEN_SKUS_MOVEMENT.has(String(s.skuPartNumber || '').toUpperCase()))
+      .map(s => ({ id: s.skuId, name: s.friendlyName || s.skuPartNumber || s.skuId }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    // Bucket by LOCAL month (matches the row date shown in the log). The
+    // Monthly Summary uses summaryFiltered → driven by the HOLDERS month picker.
+    const monthMap = {}; // { 'YYYY-MM': { skuId: { add, remove } } }
+    summaryFiltered.forEach(m => {
+      const month = localMonth(m.ts);
+      if (!month) return;
+      monthMap[month] = monthMap[month] || {};
+      monthMap[month][m.skuId] = monthMap[month][m.skuId] || { add: 0, remove: 0 };
+      monthMap[month][m.skuId][m.action]++;
+    });
+    // Ensure the currently-picked summary month (or today's month) is included.
+    const now = new Date();
+    const thisMonth = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+    const forceMonth = summaryMonthFilter || thisMonth;
+    if (!monthMap[forceMonth]) monthMap[forceMonth] = {};
+    const months = Object.keys(monthMap).sort().reverse(); // newest first
+
+    const summaryThead = document.getElementById('licMovementSummaryThead');
+    const summaryTbody = document.getElementById('licMovementSummaryTbody');
+    if (summaryThead && summaryTbody) {
+      if (pivotSkus.length === 0 || months.length === 0) {
+        summaryThead.innerHTML = '';
+        summaryTbody.innerHTML = '<tr><td style="text-align:center;padding:12px;color:var(--muted);font-size:12px;">No movements to summarize.</td></tr>';
+      } else {
+        summaryThead.innerHTML = '<tr style="background:linear-gradient(180deg,#2563eb,#1d4ed8);">' +
+          '<th style="padding:11px 12px;text-align:left;font-size:11px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase;position:sticky;left:0;background:#1d4ed8;color:#ffffff !important;">Month</th>' +
+          pivotSkus.map(s => '<th style="padding:11px 8px;text-align:center;font-size:10.5px;font-weight:700;letter-spacing:0.4px;text-transform:uppercase;border-left:1px solid rgba(255,255,255,0.25);line-height:1.35;color:#ffffff !important;">' + s.name + '</th>').join('') +
+          '<th style="padding:11px 14px;text-align:center;font-size:11px;font-weight:800;letter-spacing:0.8px;text-transform:uppercase;background:linear-gradient(180deg,#f59e0b,#d97706);color:white;border-left:2px solid rgba(255,255,255,0.35);">Total</th>' +
+        '</tr>';
+        // Compute end-of-month running totals per SKU by working backward from
+        // the current consumedUnits. months[] is already newest-first.
+        // endOfMonth[month][skuId] = seats in use at end of that month.
+        // Formula: end-of-M = currentUsed − sum(net changes in months after M).
+        const netByMonthSku = {}; // { month: { skuId: net } }
+        months.forEach(month => {
+          netByMonthSku[month] = {};
+          pivotSkus.forEach(s => {
+            const b = monthMap[month][s.id] || { add: 0, remove: 0 };
+            netByMonthSku[month][s.id] = b.add - b.remove;
+          });
+        });
+        // Cumulative net for months STRICTLY after month M, per SKU.
+        // Since months is newest-first, iterate and accumulate.
+        const currentUsedById = {};
+        audit.skus.forEach(s => { currentUsedById[s.skuId] = s.consumedUnits || 0; });
+        const laterCumulative = {}; // { skuId: cumulative net of months processed so far }
+        pivotSkus.forEach(s => { laterCumulative[s.id] = 0; });
+        const endOfMonth = {}; // { month: { skuId: value } }
+        months.forEach((month, idx) => {
+          endOfMonth[month] = {};
+          pivotSkus.forEach(s => {
+            const cur = currentUsedById[s.id] || 0;
+            // End-of-M = current − nets applied AFTER M. For newest month (idx 0),
+            // that's 0 → equals current. Then we add THIS month's net to the
+            // accumulator so the next (older) row subtracts it.
+            endOfMonth[month][s.id] = cur - laterCumulative[s.id];
+          });
+          pivotSkus.forEach(s => {
+            laterCumulative[s.id] += netByMonthSku[month][s.id];
+          });
+        });
+
+        summaryTbody.innerHTML = months.map((month, rowIdx) => {
+          const [y, m] = month.split('-');
+          const monthLabel = new Date(parseInt(y, 10), parseInt(m, 10) - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+          const zebra = rowIdx % 2 === 0 ? '#ffffff' : '#f8fafc';
+          const isCurrentMonth = month === (new Date().getFullYear() + '-' + String(new Date().getMonth() + 1).padStart(2, '0'));
+          const cells = pivotSkus.map(s => {
+            const used = endOfMonth[month][s.id] || 0;
+            const bucket = monthMap[month][s.id] || { add: 0, remove: 0 };
+            const net = bucket.add - bucket.remove;
+            const netLabel = net === 0 ? '' : ' <span style="font-size:10px;font-weight:600;color:' + (net > 0 ? '#059669' : '#dc2626') + ';">' + (net > 0 ? '▲' : '▼') + Math.abs(net) + '</span>';
+            const tooltip = 'End of ' + monthLabel + ': ' + used + ' seats · This month +' + bucket.add + ' / −' + bucket.remove;
+            const usedColor = used === 0 ? '#cbd5e1' : '#111827';
+            return '<td style="padding:12px 8px;text-align:center;font-weight:700;color:' + usedColor + ';font-size:13px;border-left:1px solid #f1f5f9;" title="' + tooltip + '">' + used.toLocaleString() + netLabel + '</td>';
+          }).join('');
+          const totalUsed = pivotSkus.reduce((sum, sk) => sum + (endOfMonth[month][sk.id] || 0), 0);
+          const monthLabelCell = '<td style="padding:12px 14px;font-weight:700;color:#1e3a8a;background:' + zebra + ';position:sticky;left:0;border-right:1px solid #dbeafe;font-size:12.5px;white-space:nowrap;">' +
+            (isCurrentMonth ? '<span style="display:inline-block;background:#2563eb;color:white;font-size:9px;font-weight:800;padding:2px 6px;border-radius:8px;margin-right:6px;letter-spacing:0.5px;">NOW</span>' : '') +
+            monthLabel + '</td>';
+          return '<tr style="background:' + zebra + ';border-top:1px solid #dbeafe;">' +
+            monthLabelCell +
+            cells +
+            '<td style="padding:12px 14px;text-align:center;background:linear-gradient(180deg,#fef3c7,#fde68a);color:#92400e;font-weight:900;font-size:14px;border-left:2px solid #f59e0b;">' + totalUsed.toLocaleString() + '</td>' +
+          '</tr>';
+        }).join('');
+      }
+    }
+
+    // ---- Movement Log ----
+    const logTbody = document.getElementById('licMovementLogTbody');
+    if (!logTbody) return;
+    if (filtered.length === 0) {
+      logTbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><h4>No movements match</h4><p>Adjust the filters.</p></div></td></tr>';
+      return;
+    }
+    // Index holders by userId so we can enrich each movement row with the
+    // person's real displayName + employeeId (audit targetResources often
+    // stores only the UPN in displayName).
+    const holderById = {};
+    (audit.holders || []).forEach(h => { holderById[h.userId] = h; });
+    logTbody.innerHTML = filtered.slice(0, 500).map(m => {
+      const licName = skuNameById[m.skuId] || skuNameById[String(m.skuId).toLowerCase()] || friendlyLicenseName(m.skuId) || m.skuId;
+      const actionPill = m.action === 'add'
+        ? '<span style="font-size:11px;color:#065f46;background:#d1fae5;padding:2px 8px;border-radius:10px;font-weight:600;">Assigned</span>'
+        : '<span style="font-size:11px;color:#991b1b;background:#fee2e2;padding:2px 8px;border-radius:10px;font-weight:600;">Removed</span>';
+      const h = holderById[m.userId];
+      // Prefer holder.displayName; if the fallback userName from the audit
+      // event was a UPN (contains "@"), don't use it as the display.
+      const rawName = m.userName || '';
+      const looksLikeEmail = rawName.indexOf('@') > -1;
+      const display = (h && h.displayName) || (looksLikeEmail ? (rawName.split('@')[0].replace(/\./g, ' ').replace(/\b\w/g, c => c.toUpperCase())) : rawName) || m.userId;
+      const empId = h && h.employeeId ? h.employeeId : '';
+      return '<tr>' +
+        '<td><span style="font-size:12px;color:#111827;white-space:nowrap;" title="' + new Date(m.ts).toString() + '">' + formatDateTime(m.ts) + '</span></td>' +
+        '<td>' + actionPill + '</td>' +
+        '<td>' + (empId ? '<span class="id-chip">' + empId + '</span>' : '<span style="color:#cbd5e1;font-size:12px;">—</span>') + '</td>' +
+        '<td><strong style="font-size:12px;">' + display + '</strong></td>' +
+        '<td><span style="font-size:12px;">' + licName + '</span></td>' +
+        '<td><span style="font-size:12px;color:var(--muted);">' + (m.actor || '—') + '</span></td>' +
+      '</tr>';
+    }).join('') + (filtered.length > 500 ? '<tr><td colspan="6" style="padding:8px;text-align:center;color:var(--muted);font-size:11px;">Showing first 500 of ' + filtered.length + ' events. Narrow the filter to see specific ones.</td></tr>' : '');
+  }
+
+  async function graphPageAll(url) {
+    // Follow @odata.nextLink until exhausted. Returns concatenated .value arrays.
+    let all = [];
+    let next = url;
+    let pages = 0;
+    while (next && pages < 50) {
+      const r = await graphFetch(next);
+      all = all.concat(r.value || []);
+      next = r['@odata.nextLink'] ? r['@odata.nextLink'].replace('https://graph.microsoft.com/v1.0', '') : null;
+      pages++;
+    }
+    return all;
+  }
+
+  async function syncLicenseAudit() {
+    if (!msalAccount) { showToast('Sign in first via the sidebar'); return; }
+    const audit = ensureLicenseAuditState();
+    const status = document.getElementById('licAuditSyncStatus');
+    status.textContent = 'Syncing…';
+    status.style.color = '#0284c7';
+    try {
+      // 1. Fetch all SKUs
+      status.textContent = 'Fetching SKUs…';
+      const skuResp = await graphFetch('/subscribedSkus');
+      const rawSkus = skuResp.value || [];
+      const existingPurchased = {};
+      (audit.skus || []).forEach(s => { if (s.skuId) existingPurchased[s.skuId] = s.purchasedOn || ''; });
+      audit.skus = rawSkus
+        .filter(s => (s.capabilityStatus || '').toLowerCase() !== 'deleted')
+        .map(s => ({
+          skuId: s.skuId,
+          skuPartNumber: s.skuPartNumber || '',
+          friendlyName: friendlyLicenseName(s.skuPartNumber) || s.skuPartNumber,
+          prepaidEnabled: (s.prepaidUnits && s.prepaidUnits.enabled) || 0,
+          consumedUnits: s.consumedUnits || 0,
+          purchasedOn: existingPurchased[s.skuId] || ''
+        }))
+        .sort((a, b) => a.friendlyName.localeCompare(b.friendlyName));
+
+      // 2. Fetch all users (paginated). We include disabled + unlicensed users
+      //    so the holders table covers everyone the tenant knows about.
+      status.textContent = 'Fetching all users…';
+      const userSelect = '$select=id,displayName,userPrincipalName,jobTitle,department,officeLocation,accountEnabled,createdDateTime,assignedLicenses,employeeId,onPremisesExtensionAttributes';
+      const users = await graphPageAll('/users?' + userSelect + '&$top=999');
+      // Everyone gets a row: currently-licensed users, users whose licenses were
+      // removed inside the audit window, and any account that is disabled (even
+      // if it never had a license or the removal is beyond the audit window).
+      const licensedUsers = users.filter(u =>
+        (u.assignedLicenses || []).length > 0 || u.accountEnabled === false
+      );
+
+      // 3. Fetch audit log for license changes + account disables. Tries the
+      //    configured window first (up to 90 days), then falls back to shorter
+      //    ranges if the tenant's retention is smaller (Entra Free = 30 days).
+      let auditEvents = [];
+      let auditFetchError = null;
+      let effectiveWindowDays = audit.auditWindowDays;
+      const attempts = [audit.auditWindowDays, 30, 7];
+      for (let idx = 0; idx < attempts.length; idx++) {
+        const days = attempts[idx];
+        status.textContent = 'Fetching audit log (last ' + days + ' days)…';
+        const sinceIso = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+        try {
+          auditEvents = await graphPageAll(
+            "/auditLogs/directoryAudits?$filter=activityDateTime ge " + sinceIso +
+            " and (activityDisplayName eq 'Change user license' or activityDisplayName eq 'Update user' or activityDisplayName eq 'Add user')&$top=999"
+          );
+          effectiveWindowDays = days;
+          audit.auditWindowDays = days; // persist the max window this tenant tolerates
+          auditFetchError = null;
+          break;
+        } catch (e) {
+          auditFetchError = e;
+          const msg = String(e.message || '');
+          // "Minimum allowed time for activityDateTime is …" → shrink window and retry.
+          if (/Minimum allowed time/i.test(msg) && idx < attempts.length - 1) continue;
+          // Permission / consent-style errors → don't retry, tell the user.
+          if (/AuditLog\.Read\.All|Authorization_RequestDenied|insufficient privileges|Forbidden|401|403/i.test(msg)) break;
+          // Any other error on last attempt: bail.
+          if (idx === attempts.length - 1) break;
+        }
+      }
+      if (auditFetchError) {
+        const msg = String(auditFetchError.message || '');
+        const isConsent = /AuditLog\.Read\.All|Authorization_RequestDenied|insufficient privileges|Forbidden|401|403/i.test(msg);
+        console.warn('Audit log fetch failed:', auditFetchError);
+        alert(isConsent
+          ? 'Audit log fetch failed — the "License Assigned" and "License Removed" dates will be blank.\n\n' +
+            'This usually means AuditLog.Read.All admin consent is missing. An M365 admin needs to grant it.\n\n' +
+            'Error detail: ' + msg.slice(0, 300)
+          : 'Audit log fetch failed after trying multiple window sizes. The dates will be blank.\n\n' +
+            'Error detail: ' + msg.slice(0, 400));
+      } else {
+        status.textContent = 'Parsing ' + auditEvents.length + ' audit event(s) from last ' + effectiveWindowDays + ' days…';
+      }
+
+      // Helper: extract every UUID that looks like a SkuId out of an arbitrarily
+      // formatted audit value. Microsoft returns three flavours:
+      //   1. JSON array of objects: '[{"SkuId":"<uuid>",...}]'
+      //   2. JSON array of strings: '["<uuid>", ...]'
+      //   3. Dict-repr string: '[[SkuName=..., SkuId=<uuid>, DisabledPlans=[]]]'
+      // We try JSON first; on failure fall back to a regex sweep for GUIDs.
+      const GUID_STR = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
+      const GUID_ONLY_RE = new RegExp('^' + GUID_STR + '$');
+      const GUID_ALL_RE = new RegExp(GUID_STR, 'g');
+      const SKUID_KV_RE = new RegExp('(?:^|[\\s,\\[{])(?:S|s)ku(?:I|i)d\\s*[=:]\\s*"?(' + GUID_STR + ')"?', 'g');
+      function extractSkuIds(raw) {
+        if (!raw) return new Set();
+        const out = new Set();
+        // Path 1: valid JSON — either ["<guid>",...] or [{SkuId:"<guid>",...},...]
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            parsed.forEach(x => {
+              if (typeof x === 'string' && GUID_ONLY_RE.test(x)) out.add(x.toLowerCase());
+              else if (x && typeof x === 'object') {
+                const id = x.SkuId || x.skuId;
+                if (id) out.add(String(id).toLowerCase());
+              }
+            });
+            if (out.size > 0) return out;
+          }
+        } catch (_) {}
+        // Path 2: Microsoft's dict-repr format
+        //   [[Skuname=..., Accountid=<guid>, Skuid=<guid>, Disabledplans=[]], ...]
+        // Anchor to the "Skuid=" prefix so we never confuse it with AccountId.
+        SKUID_KV_RE.lastIndex = 0;
+        let m;
+        while ((m = SKUID_KV_RE.exec(String(raw))) !== null) {
+          out.add(m[1].toLowerCase());
+        }
+        if (out.size > 0) return out;
+        // Path 3: last-resort GUID sweep. Skip the tenant AccountId — that's the
+        // GUID that repeats across every entry (i.e. appears count === entries).
+        const matches = String(raw).match(GUID_ALL_RE) || [];
+        const counts = {};
+        matches.forEach(g => { const k = g.toLowerCase(); counts[k] = (counts[k] || 0) + 1; });
+        // Rough entry count = number of "[" openings inside brackets.
+        const entries = Math.max(1, (String(raw).match(/\[[^\[\]]*=/g) || []).length);
+        Object.keys(counts).forEach(k => {
+          if (counts[k] >= entries && Object.keys(counts).length > 1) return; // AccountId
+          out.add(k);
+        });
+        return out;
+      }
+
+      // 4. Build per-user license-change map from audit events
+      //    key = userId; value = [ { skuId, action:'add'|'remove', ts, actor } ]
+      //    Also assemble a flat movement log for the License Movement panel.
+      const changeMap = {};
+      const movementLog = [];
+      auditEvents.forEach(ev => {
+        const actor = (ev.initiatedBy && ev.initiatedBy.user && (ev.initiatedBy.user.userPrincipalName || ev.initiatedBy.user.displayName))
+                   || (ev.initiatedBy && ev.initiatedBy.app && (ev.initiatedBy.app.displayName || 'Application'))
+                   || 'System';
+        const targets = ev.targetResources || [];
+        targets.forEach(t => {
+          const uid = t.id;
+          if (!uid) return;
+          const targetName = t.displayName || t.userPrincipalName || '';
+          (t.modifiedProperties || []).forEach(p => {
+            if (p.displayName !== 'AssignedLicense' && p.displayName !== 'AssignedLicenses') return;
+            const beforeIds = extractSkuIds(p.oldValue);
+            const afterIds  = extractSkuIds(p.newValue);
+            afterIds.forEach(id => {
+              if (!beforeIds.has(id)) {
+                changeMap[uid] = changeMap[uid] || [];
+                changeMap[uid].push({ skuId: id, action: 'add', ts: ev.activityDateTime, actor: actor });
+                movementLog.push({ ts: ev.activityDateTime, action: 'add', userId: uid, userName: targetName, skuId: id, actor: actor });
+              }
+            });
+            beforeIds.forEach(id => {
+              if (!afterIds.has(id)) {
+                changeMap[uid] = changeMap[uid] || [];
+                changeMap[uid].push({ skuId: id, action: 'remove', ts: ev.activityDateTime, actor: actor });
+                movementLog.push({ ts: ev.activityDateTime, action: 'remove', userId: uid, userName: targetName, skuId: id, actor: actor });
+              }
+            });
+          });
+          // Detect account disable events (activity Update user with AccountEnabled false)
+          (t.modifiedProperties || []).forEach(p => {
+            if (p.displayName !== 'AccountEnabled') return;
+            let after = null;
+            try { after = JSON.parse(p.newValue || 'null'); } catch (_) {}
+            if (after === false) {
+              changeMap[uid] = changeMap[uid] || [];
+              changeMap[uid].push({ action: 'disable', ts: ev.activityDateTime });
+            }
+          });
+        });
+      });
+
+      // 4b. Pull any SharePoint-preserved license events and fold them into
+      //     changeMap so holders' Date-Assigned / Date-Removed columns keep
+      //     history even after Microsoft's 30-day window purges the event.
+      status.textContent = 'Loading license history from SharePoint…';
+      const spPreservedMoves = await pullLicenseEventsFromSP(getMSSettings(), audit);
+      spPreservedMoves.forEach(m => {
+        if (!m.userId || !m.skuId || !m.ts || (m.action !== 'add' && m.action !== 'remove')) return;
+        changeMap[m.userId] = changeMap[m.userId] || [];
+        // Dedupe by key so we don't add the same event twice when SP + Graph agree.
+        const key = movementDedupeKey(m);
+        const already = changeMap[m.userId].some(c => movementDedupeKey({ userId: m.userId, skuId: c.skuId, action: c.action, ts: c.ts }) === key);
+        if (!already) changeMap[m.userId].push({ skuId: m.skuId, action: m.action, ts: m.ts, actor: m.actor });
+      });
+
+      // 5. Assemble holders array
+      audit.holders = [];
+      licensedUsers.forEach(u => {
+        const changes = changeMap[u.id] || [];
+        // Latest add per SKU still present
+        const licenses = (u.assignedLicenses || []).map(al => {
+          const alId = String(al.skuId || '').toLowerCase();
+          const adds = changes.filter(c => c.action === 'add' && String(c.skuId).toLowerCase() === alId).map(c => c.ts).sort();
+          const removes = changes.filter(c => c.action === 'remove' && String(c.skuId).toLowerCase() === alId).map(c => c.ts).sort();
+          // Fallback: if we have no explicit "add" event but the user is younger
+          // than the audit window, treat the user's createdDateTime as the assign
+          // date. Safe because it's the earliest possible time the license could
+          // have been assigned to this account.
+          let assignedAt = adds[adds.length - 1] || '';
+          if (!assignedAt && u.createdDateTime) {
+            const createdMs = new Date(u.createdDateTime).getTime();
+            const cutoffMs = Date.now() - (audit.auditWindowDays || 30) * 24 * 60 * 60 * 1000;
+            if (createdMs >= cutoffMs) assignedAt = u.createdDateTime;
+          }
+          return { skuId: al.skuId, assignedAt: assignedAt, removedAt: '' };
+        });
+        // Also include historical removed licenses (still shown for audit)
+        const currentSkuSet = new Set((u.assignedLicenses || []).map(al => String(al.skuId || '').toLowerCase()));
+        const removedHistory = {};
+        changes.forEach(c => {
+          const cid = String(c.skuId || '').toLowerCase();
+          if (c.action === 'remove' && !currentSkuSet.has(cid)) {
+            // Keep the LATEST removal per SKU (ISO strings sort correctly).
+            if (!removedHistory[cid] || String(c.ts) > String(removedHistory[cid])) {
+              removedHistory[cid] = c.ts;
+            }
+          }
+        });
+        Object.keys(removedHistory).sort().forEach(skuId => {
+          // Find the LATEST add event for this SKU that happened BEFORE the
+          // remove, so the row shows the full lifecycle (assigned … removed).
+          const removedTs = removedHistory[skuId];
+          const addsBeforeRemove = changes
+            .filter(c => c.action === 'add' && String(c.skuId || '').toLowerCase() === skuId && String(c.ts) <= String(removedTs))
+            .map(c => c.ts)
+            .sort();
+          const assignedAt = addsBeforeRemove.length ? addsBeforeRemove[addsBeforeRemove.length - 1] : '';
+          licenses.push({ skuId, assignedAt: assignedAt, removedAt: removedTs });
+        });
+        // If a deactivated user has no license rows at all, add one placeholder
+        // so they still appear in the holders table.
+        if (licenses.length === 0 && u.accountEnabled === false) {
+          licenses.push({ skuId: '__none__', assignedAt: '', removedAt: '' });
+        }
+        const disableEvts = changes.filter(c => c.action === 'disable').map(c => c.ts).sort();
+        audit.holders.push({
+          userId: u.id,
+          displayName: u.displayName || '',
+          upn: u.userPrincipalName || '',
+          jobTitle: u.jobTitle || '',
+          department: u.department || '',
+          officeLocation: u.officeLocation || '',
+          employeeId: u.employeeId || '',
+          remarks: (u.onPremisesExtensionAttributes && u.onPremisesExtensionAttributes.extensionAttribute1) || '',
+          accountEnabled: !!u.accountEnabled,
+          userCreatedAt: u.createdDateTime || '',
+          deactivatedAt: !u.accountEnabled ? (disableEvts[disableEvts.length - 1] || '') : '',
+          licenses: licenses
+        });
+      });
+
+      // Also include users who have removed-in-window licenses but no current license
+      const holdersById = new Set(audit.holders.map(h => h.userId));
+      Object.keys(changeMap).forEach(uid => {
+        if (holdersById.has(uid)) return;
+        const u = users.find(x => x.id === uid);
+        if (!u) return;
+        const changes = changeMap[uid];
+        const removedHistory = {};
+        changes.forEach(c => {
+          if (c.action !== 'remove') return;
+          const cid = String(c.skuId || '').toLowerCase();
+          if (!removedHistory[cid] || String(c.ts) > String(removedHistory[cid])) {
+            removedHistory[cid] = c.ts;
+          }
+        });
+        if (Object.keys(removedHistory).length === 0) return;
+        const disableEvts = changes.filter(c => c.action === 'disable').map(c => c.ts).sort();
+        audit.holders.push({
+          userId: u.id,
+          displayName: u.displayName || '',
+          upn: u.userPrincipalName || '',
+          jobTitle: u.jobTitle || '',
+          department: u.department || '',
+          officeLocation: u.officeLocation || '',
+          employeeId: u.employeeId || '',
+          remarks: (u.onPremisesExtensionAttributes && u.onPremisesExtensionAttributes.extensionAttribute1) || '',
+          accountEnabled: !!u.accountEnabled,
+          userCreatedAt: u.createdDateTime || '',
+          deactivatedAt: !u.accountEnabled ? (disableEvts[disableEvts.length - 1] || '') : '',
+          licenses: Object.keys(removedHistory).map(sid => ({ skuId: sid, assignedAt: '', removedAt: removedHistory[sid] }))
+        });
+      });
+
+      // Dedupe: Microsoft logs the same license assignment twice when a user is
+      // created + licensed in one operation (once under "Add user", once under
+      // "Change user license"). Key = userId + skuId + action + timestamp minute.
+      // skuId (lowercase) → skuPartNumber map, used to attach a readable SKU
+      // label to each SharePoint license-events row.
+      const partById = {};
+      audit.skus.forEach(s => { partById[String(s.skuId || '').toLowerCase()] = String(s.skuPartNumber || ''); });
+      const seenMoves = new Set();
+      const dedupedMoves = [];
+      movementLog.forEach(m => {
+        const k = movementDedupeKey(m);
+        if (seenMoves.has(k)) return;
+        seenMoves.add(k);
+        // Enrich with skuPart so SharePoint has readable data too.
+        m.skuPart = partById[String(m.skuId || '').toLowerCase()] || '';
+        // Enrich with UPN if we can find the user in the fetched list.
+        if (!m.upn) {
+          const u = users.find(x => x.id === m.userId);
+          if (u) m.upn = u.userPrincipalName || '';
+        }
+        dedupedMoves.push(m);
+      });
+
+      // Merge SharePoint history + fresh Graph events into audit.movements.
+      // (SP pull already happened at step 4b — reuse the result.)
+      const merged = new Map();
+      spPreservedMoves.forEach(m => { merged.set(movementDedupeKey(m), m); });
+      dedupedMoves.forEach(m => { merged.set(movementDedupeKey(m), m); });
+      audit.movements = Array.from(merged.values()).sort((a, b) => String(b.ts).localeCompare(String(a.ts)));
+      // Push any new (fresh) events that aren't in SharePoint yet.
+      status.textContent = 'Saving new events to SharePoint…';
+      const spSaveResult = await pushLicenseEventsToSP(getMSSettings(), dedupedMoves);
+      if (spSaveResult.created > 0 || spSaveResult.failed > 0) {
+        console.log('[License Events → SP] created=' + spSaveResult.created + ', skipped(dupe)=' + spSaveResult.skipped + ', failed=' + spSaveResult.failed);
+      }
+
+      // Compute + push Monthly Summary snapshots (end-of-month seats in use per
+      // SKU × month). Uses same math as the Monthly Summary panel: walk back
+      // from currentUsed subtracting each month's net change.
+      status.textContent = 'Saving Monthly Summary to SharePoint…';
+      const localMonthUtc = ts => {
+        if (!ts) return '';
+        const d = new Date(ts);
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+      };
+      const snapMovesForBuckets = audit.movements.filter(m => {
+        const idLc = String(m.skuId || '').toLowerCase();
+        return !HIDDEN_SKUS_MOVEMENT.has(partById[idLc] ? partById[idLc].toUpperCase() : '');
+      });
+      const monthBuckets = {};
+      snapMovesForBuckets.forEach(m => {
+        const mk = localMonthUtc(m.ts);
+        if (!mk) return;
+        monthBuckets[mk] = monthBuckets[mk] || {};
+        monthBuckets[mk][m.skuId] = monthBuckets[mk][m.skuId] || { add: 0, remove: 0 };
+        monthBuckets[mk][m.skuId][m.action]++;
+      });
+      const nowD = new Date();
+      const thisMk = nowD.getFullYear() + '-' + String(nowD.getMonth() + 1).padStart(2, '0');
+      if (!monthBuckets[thisMk]) monthBuckets[thisMk] = {};
+      const snapshotSkus = audit.skus.filter(s => !HIDDEN_SKUS_MOVEMENT.has(String(s.skuPartNumber || '').toUpperCase()));
+      const snapMonths = Object.keys(monthBuckets).sort().reverse(); // newest → oldest
+      const laterNet = {};
+      snapshotSkus.forEach(s => { laterNet[s.skuId] = 0; });
+      const snapshots = [];
+      snapMonths.forEach(mk => {
+        snapshotSkus.forEach(s => {
+          const bucket = (monthBuckets[mk] && monthBuckets[mk][s.skuId]) || { add: 0, remove: 0 };
+          const seats = (s.consumedUnits || 0) - laterNet[s.skuId];
+          snapshots.push({
+            month: mk,
+            skuId: s.skuId,
+            skuPart: s.skuPartNumber || '',
+            skuName: s.friendlyName || s.skuPartNumber || s.skuId,
+            seatsInUse: seats,
+            adds: bucket.add,
+            removes: bucket.remove
+          });
+        });
+        // Accumulate this month's net so the next (older) iteration subtracts it.
+        snapshotSkus.forEach(s => {
+          const bucket = (monthBuckets[mk] && monthBuckets[mk][s.skuId]) || { add: 0, remove: 0 };
+          laterNet[s.skuId] += bucket.add - bucket.remove;
+        });
+      });
+      const spSnapResult = await pushLicenseMonthlyToSP(getMSSettings(), snapshots);
+      console.log('[License Monthly → SP] created=' + spSnapResult.created + ', updated=' + spSnapResult.updated + ', skipped=' + spSnapResult.skipped + ', failed=' + spSnapResult.failed);
+      // Same dedupe for the per-user changeMap that drives the holders table.
+      Object.keys(changeMap).forEach(uid => {
+        const seen = new Set();
+        changeMap[uid] = changeMap[uid].filter(c => {
+          const k = String(c.skuId || '').toLowerCase() + '|' + c.action + '|' + String(c.ts || '').slice(0, 16);
+          if (seen.has(k)) return false;
+          seen.add(k);
+          return true;
+        });
+      });
+      audit.lastSyncedAt = new Date().toISOString();
+      save();
+      renderLicenseAudit();
+      renderLicenseMovement();
+      const changeUsersCount = Object.keys(changeMap).length;
+      const totalChanges = Object.values(changeMap).reduce((s, arr) => s + arr.length, 0);
+      console.log('[License Audit] SKUs=' + audit.skus.length + ', Holders=' + audit.holders.length + ', Audit events=' + auditEvents.length + ', Users with changes=' + changeUsersCount + ', Total changes=' + totalChanges);
+      status.textContent = 'Last synced ' + formatDateTime(audit.lastSyncedAt) + ' · ' + audit.skus.length + ' SKUs, ' + audit.holders.length + ' holders, ' + auditEvents.length + ' audit event(s)' + (auditFetchError ? ' — AUDIT UNAVAILABLE' : '');
+      status.style.color = '#065f46';
+      showToast('License audit synced: ' + audit.skus.length + ' SKUs, ' + audit.holders.length + ' users');
+    } catch (e) {
+      console.error(e);
+      status.textContent = 'Sync failed: ' + e.message.slice(0, 80);
+      status.style.color = '#dc2626';
+      showToast('Sync failed — see console');
+    }
+  }
+
+  function renderLicenseAudit() {
+    const audit = ensureLicenseAuditState();
+    // Stats
+    const totalSeats = audit.skus.reduce((s, k) => s + (k.prepaidEnabled || 0), 0);
+    const usedSeats  = audit.skus.reduce((s, k) => s + (k.consumedUnits || 0), 0);
+    const util = totalSeats ? Math.round((usedSeats / totalSeats) * 100) : 0;
+    const set = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
+    // Find F1 (M365 F1 Comm) and Business Basic (O365_BUSINESS_ESSENTIALS)
+    const f1Sku = audit.skus.find(s => s.skuPartNumber === 'M365_F1_COMM')
+      || audit.skus.find(s => /F1/i.test(s.skuPartNumber));
+    const bbSku = audit.skus.find(s => s.skuPartNumber === 'O365_BUSINESS_ESSENTIALS')
+      || audit.skus.find(s => /BUSINESS_ESSENTIALS|BUSINESS_BASIC/i.test(s.skuPartNumber));
+    const fmt = n => (n == null ? '—' : Number(n).toLocaleString());
+
+    // If a stats month is picked, walk the movement events back from today's
+    // consumedUnits to compute end-of-that-month usage. Same algorithm as the
+    // Monthly Summary pivot but for just F1 and Business Basic.
+    const statsPicker = document.getElementById('licStatsMonthPicker');
+    const statsMonth = statsPicker ? statsPicker.value : '';
+    const localMonthOf = ts => {
+      if (!ts) return '';
+      const d = new Date(ts);
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+    };
+    function usedAtEndOfMonth(sku) {
+      if (!sku) return null;
+      if (!statsMonth) return sku.consumedUnits || 0;
+      // Sum net (adds − removes) for months strictly AFTER statsMonth.
+      const laterNet = (audit.movements || []).reduce((sum, m) => {
+        const mMonth = localMonthOf(m.ts);
+        if (!mMonth || mMonth <= statsMonth) return sum;
+        if (String(m.skuId || '').toLowerCase() !== String(sku.skuId || '').toLowerCase()) return sum;
+        return sum + (m.action === 'add' ? 1 : m.action === 'remove' ? -1 : 0);
+      }, 0);
+      return (sku.consumedUnits || 0) - laterNet;
+    }
+    const monthLabel = statsMonth
+      ? new Date(parseInt(statsMonth.split('-')[0], 10), parseInt(statsMonth.split('-')[1], 10) - 1, 1)
+          .toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+      : '';
+
+    if (f1Sku) {
+      const used = usedAtEndOfMonth(f1Sku);
+      const total = f1Sku.prepaidEnabled || 0;
+      set('licStatF1Assigned', fmt(used));
+      set('licStatF1AssignedSub', (statsMonth ? 'End of ' + monthLabel + ' · ' : '') + (total ? (used + ' of ' + total + ' — ' + Math.round((used / total) * 100) + '%') : 'M365 F1 Comm'));
+      set('licStatF1Avail', fmt(Math.max(0, total - used)));
+      set('licStatF1AvailSub', (statsMonth ? 'End of ' + monthLabel + ' · ' : '') + 'M365 F1 Comm');
+    } else {
+      set('licStatF1Assigned', '—');
+      set('licStatF1AssignedSub', 'SKU not found in tenant');
+      set('licStatF1Avail', '—');
+    }
+    if (bbSku) {
+      const used = usedAtEndOfMonth(bbSku);
+      const total = bbSku.prepaidEnabled || 0;
+      set('licStatBBAssigned', fmt(used));
+      set('licStatBBAssignedSub', (statsMonth ? 'End of ' + monthLabel + ' · ' : '') + (total ? (used + ' of ' + total + ' — ' + Math.round((used / total) * 100) + '%') : 'Microsoft 365 Business Basic'));
+      set('licStatBBAvail', fmt(Math.max(0, total - used)));
+      set('licStatBBAvailSub', (statsMonth ? 'End of ' + monthLabel + ' · ' : '') + 'Microsoft 365 Business Basic');
+    } else {
+      set('licStatBBAssigned', '—');
+      set('licStatBBAssignedSub', 'SKU not found in tenant');
+      set('licStatBBAvail', '—');
+    }
+    set('licSummaryCount', audit.skus.length ? '(' + audit.skus.length + ' SKUs)' : '');
+    set('licHoldersCount', audit.holders.length ? '(' + audit.holders.length + ' users)' : '');
+    applyLicPanelState();
+
+    // SKU summary table
+    const skusTbody = document.getElementById('licAuditSkusTbody');
+    if (audit.skus.length === 0) {
+      skusTbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><h4>No data yet</h4><p>Click "Sync from Microsoft" to pull live license data.</p></div></td></tr>';
+    } else {
+      const activeSkuId = (audit.filter && audit.filter.skuId) || '';
+      skusTbody.innerHTML = audit.skus.map(s => {
+        const total = s.prepaidEnabled || 0;
+        const used  = s.consumedUnits || 0;
+        const avail = Math.max(0, total - used);
+        const pct   = total ? Math.round((used / total) * 100) : 0;
+        const barClass = pct >= 90 ? 'danger' : pct >= 75 ? 'warning' : 'success';
+        const active = activeSkuId === s.skuId;
+        return '<tr style="cursor:pointer;' + (active ? 'background:#eff6ff;' : '') + '" onclick="setLicenseAuditFilter(\'' + s.skuId + '\')">' +
+          '<td><strong>' + s.friendlyName + '</strong></td>' +
+          '<td><span style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--muted);">' + s.skuPartNumber + '</span></td>' +
+          '<td>' + total + '</td>' +
+          '<td>' + used + '</td>' +
+          '<td>' + avail + '</td>' +
+          '<td style="min-width:150px;"><div style="display:flex;gap:8px;align-items:center;"><div class="progress" style="flex:1;"><div class="progress-bar ' + barClass + '" style="width:' + pct + '%;"></div></div><span style="font-size:11px;color:var(--muted);min-width:32px;text-align:right;">' + pct + '%</span></div></td>' +
+          '<td onclick="event.stopPropagation();"><input type="date" value="' + (s.purchasedOn || '') + '" onchange="updateSkuPurchasedOn(\'' + s.skuId + '\', this.value)" style="font-size:12px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:6px;font-family:inherit;" /></td>' +
+        '</tr>';
+      }).join('');
+    }
+
+    // Populate filter dropdown
+    const filterSel = document.getElementById('licAuditFilter');
+    if (filterSel) {
+      const currentVal = filterSel.value;
+      const activeCount = audit.holders.filter(h => h.accountEnabled).length;
+      const disabledCount = audit.holders.filter(h => !h.accountEnabled).length;
+      filterSel.innerHTML =
+        '<option value="">All users (' + audit.holders.length + ' — ' + activeCount + ' active, ' + disabledCount + ' disabled)</option>' +
+        '<option value="__active__">Active only (' + activeCount + ')</option>' +
+        '<option value="__disabled__">Disabled only (' + disabledCount + ')</option>' +
+        '<option disabled>──────────</option>' +
+        audit.skus.map(s => {
+          const count = audit.holders.filter(h => h.licenses.some(l => l.skuId === s.skuId)).length;
+          return '<option value="' + s.skuId + '"' + (currentVal === s.skuId ? ' selected' : '') + '>' + s.friendlyName + ' (' + count + ')</option>';
+        }).join('');
+      if (audit.filter && audit.filter.skuId) filterSel.value = audit.filter.skuId;
+    }
+    renderLicenseAuditHolders();
+    renderLicenseMovement();
+  }
+
+  function setLicenseAuditFilter(skuId) {
+    const audit = ensureLicenseAuditState();
+    audit.filter = audit.filter || {};
+    audit.filter.skuId = (audit.filter.skuId === skuId) ? '' : skuId;
+    save();
+    renderLicenseAudit();
+  }
+
+  function updateSkuPurchasedOn(skuId, value) {
+    const audit = ensureLicenseAuditState();
+    const s = audit.skus.find(x => x.skuId === skuId);
+    if (!s) return;
+    s.purchasedOn = value || '';
+    save();
+    showToast('Purchase date saved for ' + s.friendlyName);
+  }
+
+  function renderLicenseAuditHolders() {
+    const audit = ensureLicenseAuditState();
+    const tbody = document.getElementById('licAuditHoldersTbody');
+    if (!tbody) return;
+    const skuFilter = (audit.filter && audit.filter.skuId) || (document.getElementById('licAuditFilter') || {}).value || '';
+    const searchEl = document.getElementById('licAuditSearch');
+    const search = searchEl ? searchEl.value.toLowerCase() : '';
+    const skuNameById = {};
+    audit.skus.forEach(s => {
+      skuNameById[s.skuId] = s.friendlyName;
+      skuNameById[String(s.skuId || '').toLowerCase()] = s.friendlyName;
+    });
+
+    // Explode holders into one row per (user, license). Special filter values:
+    //   ''            → all users
+    //   '__active__'  → accountEnabled only
+    //   '__disabled__'→ accountEnabled === false only
+    //   otherwise     → filter by that SKU id
+    const rows = [];
+    audit.holders.forEach(h => {
+      if (skuFilter === '__active__' && !h.accountEnabled) return;
+      if (skuFilter === '__disabled__' && h.accountEnabled) return;
+      const isSkuFilter = skuFilter && skuFilter !== '__active__' && skuFilter !== '__disabled__';
+      const matchedLicenses = h.licenses.filter(l => !isSkuFilter || l.skuId === skuFilter);
+      matchedLicenses.forEach(l => {
+        if (search && !(h.displayName.toLowerCase().includes(search) || h.upn.toLowerCase().includes(search) || (h.jobTitle || '').toLowerCase().includes(search))) return;
+        rows.push({ h, l });
+      });
+    });
+    // Render sortable header
+    const sort = audit.sort || { field: 'displayName', dir: 'asc' };
+    const thead = document.getElementById('licAuditHoldersThead');
+    if (thead) {
+      const sh = (label, field) => {
+        const active = sort.field === field;
+        const arrow = active ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : '';
+        return '<th style="cursor:pointer;user-select:none;' + (active ? 'color:var(--primary);' : '') + '" onclick="setLicAuditSort(\'' + field + '\')">' + label + '<span style="font-size:10px;">' + arrow + '</span></th>';
+      };
+      thead.innerHTML = '<tr>' +
+        '<th class="col-checkbox" style="width:34px;"><input type="checkbox" id="licAuditSelectAll" onchange="toggleLicAuditSelectAll(this)" /></th>' +
+        sh('Employee ID', 'employeeId') +
+        sh('User', 'displayName') +
+        sh('License', 'licenseName') +
+        sh('Department', 'department') +
+        sh('Client', 'officeLocation') +
+        sh('Account', 'accountEnabled') +
+        sh('User Created', 'userCreatedAt') +
+        sh('Date License Assigned', 'assignedAt') +
+        sh('Date License Removed', 'removedAt') +
+        sh('Remarks', 'remarks') +
+      '</tr>';
+    }
+
+    if (rows.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="11"><div class="empty-state"><h4>No holders match</h4><p>Try clearing the filter or search.</p></div></td></tr>';
+      updateLicAuditBulkBar();
+      return;
+    }
+    // Sort by chosen field
+    const mul = sort.dir === 'desc' ? -1 : 1;
+    const getVal = (r, field) => {
+      if (field === 'licenseName') return skuNameById[r.l.skuId] || r.l.skuId || '';
+      if (field === 'assignedAt') return r.l.assignedAt || '';
+      if (field === 'removedAt') return r.l.removedAt || '';
+      if (field === 'accountEnabled') return r.h.accountEnabled ? 'z' : 'a'; // active first when asc
+      return r.h[field] || '';
+    };
+    rows.sort((a, b) => {
+      const av = String(getVal(a, sort.field));
+      const bv = String(getVal(b, sort.field));
+      const cmp = av.localeCompare(bv, undefined, { numeric: true, sensitivity: 'base' });
+      return (cmp || a.h.displayName.localeCompare(b.h.displayName)) * mul;
+    });
+    // Paginate
+    const totalRows = rows.length;
+    const pageSize = _licHoldersPageSize;
+    const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+    if (_licHoldersPage > totalPages) _licHoldersPage = totalPages;
+    const startIdx = (_licHoldersPage - 1) * pageSize;
+    const rowsRendered = rows.slice(startIdx, startIdx + pageSize);
+    tbody.innerHTML = rowsRendered.map(({ h, l }) => {
+      const removed = !!l.removedAt;
+      const rowStyle = removed ? ' style="opacity:0.6;"' : '';
+      const acctPill = h.accountEnabled
+        ? '<span style="font-size:11px;color:#065f46;background:#d1fae5;padding:2px 8px;border-radius:10px;">Active</span>'
+        : '<span style="font-size:11px;color:#991b1b;background:#fee2e2;padding:2px 8px;border-radius:10px;">Disabled</span>';
+      const cell = ts => ts ? '<span style="font-size:11px;color:#374151;white-space:nowrap;" title="' + new Date(ts).toString() + '">' + formatDateTime(ts) + '</span>' : '<span style="color:var(--muted);font-size:11px;">—</span>';
+      const checked = _licAuditSelected.has(h.userId) ? ' checked' : '';
+      return '<tr' + rowStyle + '>' +
+        '<td class="col-checkbox"><input type="checkbox" class="lic-audit-row-cb" data-uid="' + h.userId + '"' + checked + ' onchange="toggleLicAuditRow(\'' + h.userId + '\')" /></td>' +
+        '<td>' + (h.employeeId ? '<span class="id-chip">' + h.employeeId + '</span>' : '<span style="color:#cbd5e1;font-size:12px;">—</span>') + '</td>' +
+        '<td><div class="user-cell"><div class="avatar" style="background:' + avatarColor(h.displayName) + '">' + initials(h.displayName) + '</div>' +
+          '<div>' +
+            '<div class="name" style="font-size:13px;">' + h.displayName + '</div>' +
+            '<div style="font-size:11px;color:var(--muted);">' + h.upn + '</div>' +
+          '</div></div></td>' +
+        '<td>' + (l.skuId === '__none__' ? '<span style="font-size:11px;color:var(--muted);font-style:italic;">no license</span>' : '<strong style="font-size:12px;">' + (skuNameById[l.skuId] || skuNameById[String(l.skuId || '').toLowerCase()] || friendlyLicenseName(l.skuId) || l.skuId) + '</strong>' + (removed ? '<div style="font-size:10px;color:#dc2626;">REMOVED</div>' : '')) + '</td>' +
+        '<td><span style="font-size:12px;color:var(--muted);">' + (h.department || '—') + '</span></td>' +
+        '<td><span style="font-size:12px;color:var(--muted);">' + (h.officeLocation || '—') + '</span></td>' +
+        '<td>' + acctPill + '</td>' +
+        '<td>' + cell(h.userCreatedAt) + '</td>' +
+        '<td>' + cell(l.assignedAt) + '</td>' +
+        '<td>' + cell(l.removedAt || h.deactivatedAt) + '</td>' +
+        '<td>' +
+          '<input type="text" data-uid="' + h.userId + '" data-original="' + escapeHtml(h.remarks || '') + '" value="' + escapeHtml(h.remarks || '') + '" ' +
+            'placeholder="Add remark…" ' +
+            'onblur="saveLicHolderRemark(this)" ' +
+            'onkeydown="if(event.key===\'Enter\'){event.preventDefault();this.blur();}" ' +
+            'style="width:200px;font-size:12px;padding:5px 8px;border:1px solid #cbd5e1;border-radius:6px;font-family:inherit;background:white;" />' +
+        '</td>' +
+      '</tr>';
+    }).join('');
+    // Sync header checkbox state
+    const header = document.getElementById('licAuditSelectAll');
+    if (header) {
+      const visible = document.querySelectorAll('.lic-audit-row-cb');
+      const checkedNow = document.querySelectorAll('.lic-audit-row-cb:checked');
+      header.checked = visible.length > 0 && checkedNow.length === visible.length;
+      header.indeterminate = checkedNow.length > 0 && checkedNow.length < visible.length;
+    }
+    updateLicAuditBulkBar();
+    renderLicHoldersPagination(_licHoldersPage, totalPages, totalRows);
+  }
+
+  // Build a compact pagination bar (« ‹ 1 2 3 … › ») with a page-size picker.
+  // Anchored below the holders table via a dedicated container div.
+  function renderLicHoldersPagination(page, totalPages, totalRows) {
+    let bar = document.getElementById('licHoldersPagination');
+    if (!bar) {
+      const tbody = document.getElementById('licAuditHoldersTbody');
+      if (!tbody) return;
+      const holdersBody = document.getElementById('licHoldersBody');
+      bar = document.createElement('div');
+      bar.id = 'licHoldersPagination';
+      bar.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:12px 20px;background:#f8fafc;border-top:1px solid #e2e8f0;flex-wrap:wrap;gap:12px;';
+      holdersBody.appendChild(bar);
+    }
+    if (totalRows === 0) { bar.style.display = 'none'; return; }
+    bar.style.display = 'flex';
+    // Build window of visible page numbers
+    const win = [];
+    const pushRange = (a, b) => { for (let i = a; i <= b; i++) win.push(i); };
+    if (totalPages <= 7) pushRange(1, totalPages);
+    else {
+      win.push(1);
+      if (page > 4) win.push('…');
+      const a = Math.max(2, page - 1);
+      const b = Math.min(totalPages - 1, page + 1);
+      pushRange(a, b);
+      if (page < totalPages - 3) win.push('…');
+      win.push(totalPages);
+    }
+    const btn = (label, targetPage, opts) => {
+      opts = opts || {};
+      const disabled = opts.disabled;
+      const active = opts.active;
+      const bg = active ? '#2563eb' : '#fff';
+      const color = active ? '#fff' : (disabled ? '#cbd5e1' : '#374151');
+      const border = active ? '#2563eb' : '#cbd5e1';
+      const cursor = disabled ? 'not-allowed' : 'pointer';
+      const click = disabled || active ? '' : ' onclick="setLicHoldersPage(' + targetPage + ')"';
+      return '<button' + click + ' style="min-width:32px;padding:6px 10px;font-size:12px;font-weight:600;background:' + bg + ';color:' + color + ';border:1px solid ' + border + ';border-radius:6px;cursor:' + cursor + ';font-family:inherit;">' + label + '</button>';
+    };
+    const startShown = (page - 1) * _licHoldersPageSize + 1;
+    const endShown = Math.min(page * _licHoldersPageSize, totalRows);
+    bar.innerHTML =
+      '<div style="font-size:12px;color:var(--muted);">Showing <strong style="color:#111827;">' + startShown.toLocaleString() + '–' + endShown.toLocaleString() + '</strong> of <strong style="color:#111827;">' + totalRows.toLocaleString() + '</strong> row(s)</div>' +
+      '<div style="display:flex;align-items:center;gap:4px;">' +
+        btn('«', 1, { disabled: page === 1 }) +
+        btn('‹', page - 1, { disabled: page === 1 }) +
+        win.map(p => p === '…' ? '<span style="padding:0 6px;color:var(--muted);">…</span>' : btn(String(p), p, { active: p === page })).join('') +
+        btn('›', page + 1, { disabled: page === totalPages }) +
+        btn('»', totalPages, { disabled: page === totalPages }) +
+      '</div>' +
+      '<div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);">Show ' +
+        '<select onchange="setLicHoldersPageSize(this.value)" style="padding:5px 8px;font-size:12px;border:1px solid #cbd5e1;border-radius:6px;font-family:inherit;background:white;">' +
+          [10, 30, 50, 100, 200].map(n => '<option value="' + n + '"' + (n === _licHoldersPageSize ? ' selected' : '') + '>' + n + '</option>').join('') +
+        '</select>' +
+      '</div>';
+  }
+  // ============================================================
+  // End Licensing Audit View
+  // ============================================================
+
   function renderLicenses() {
+    // Legacy renderer kept for backward compat with sample data / SharePoint sync.
+    // The visible license tab now uses renderLicenseAudit().
+    renderLicenseAudit();
     const tbody = document.getElementById('licensesTbody');
+    if (!tbody) return;
     tbody.innerHTML = state.licenses.map(l => {
       const pct = Math.round((l.used / l.total) * 100);
       const barClass = pct >= 90 ? 'danger' : pct >= 75 ? 'warning' : 'success';
@@ -6107,13 +7622,17 @@
     updateLicensingStats();
   }
   function updateLicensingStats() {
+    // Legacy stat renderer — the audit view drives these values now via renderLicenseAudit().
+    // Guard element access since #licStatCost was removed from the audit view UI.
+    const costEl = document.getElementById('licStatCost');
+    if (!costEl) return;
     const total = state.licenses.reduce((s, l) => s + l.total, 0);
     const used = state.licenses.reduce((s, l) => s + l.used, 0);
     const cost = state.licenses.reduce((s, l) => s + l.used * l.unitCost, 0);
-    document.getElementById('licStatTotal').textContent = total;
-    document.getElementById('licStatAssigned').textContent = used;
-    document.getElementById('licStatAvail').textContent = total - used;
-    document.getElementById('licStatCost').textContent = '$' + cost.toLocaleString('en-US', { maximumFractionDigits: 0 });
+    const totalEl = document.getElementById('licStatTotal'); if (totalEl) totalEl.textContent = total;
+    const assignedEl = document.getElementById('licStatAssigned'); if (assignedEl) assignedEl.textContent = used;
+    const availEl = document.getElementById('licStatAvail'); if (availEl) availEl.textContent = total - used;
+    costEl.textContent = '$' + cost.toLocaleString('en-US', { maximumFractionDigits: 0 });
   }
   function addSeats(licenseId) {
     const n = parseInt(prompt('How many seats to add?', '5'));
@@ -6122,9 +7641,12 @@
     if (l) { l.total += n; save(); renderLicenses(); showToast('Added ' + n + ' seats to ' + l.product); }
   }
   function renderAssignments() {
-    const search = (document.getElementById('assignSearch').value || '').toLowerCase();
-    const filtered = state.assignments.filter(a => !search || a.user.toLowerCase().includes(search) || a.product.toLowerCase().includes(search));
+    // Legacy — Recent Assignments panel was replaced by License Holders in the audit view.
     const tbody = document.getElementById('assignmentsTbody');
+    if (!tbody) return;
+    const searchEl = document.getElementById('assignSearch');
+    const search = (searchEl && searchEl.value || '').toLowerCase();
+    const filtered = state.assignments.filter(a => !search || a.user.toLowerCase().includes(search) || a.product.toLowerCase().includes(search));
     if (filtered.length === 0) {
       tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><h4>No assignments</h4></div></td></tr>';
     } else {
@@ -6213,6 +7735,15 @@
   // Sync the in-page "Data as of" pill from the constant
   const dataAsOfEl = document.getElementById('dataAsOf');
   if (dataAsOfEl) dataAsOfEl.textContent = DATA_AS_OF;
+
+  // On every page load, reset the Onboarding + Offboarding week pickers to
+  // the current week. The render code falls back to the earliest week with
+  // data when today's week has no rows, so this is safe even in quiet weeks.
+  {
+    const todayKey = weekKey(new Date().toISOString().slice(0, 10));
+    state.activeWeekKey = todayKey;
+    state.activeOffboardingWeekKey = todayKey;
+  }
 
   renderHires();
   renderDepartures();
