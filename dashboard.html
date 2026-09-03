@@ -463,9 +463,9 @@
   </button>
   <div class="sidebar-footer" style="flex-direction:column;align-items:stretch;gap:8px;">
     <div style="display:flex;align-items:center;gap:10px;min-width:0;">
-      <div class="avatar" id="sbAvatar">RM</div>
+      <div class="avatar" id="sbAvatar">—</div>
       <div class="user-info" style="flex:1;min-width:0;">
-        <p id="sbName">Rudy Maneja</p>
+        <p id="sbName">Guest</p>
         <p id="sbStatus">Not signed in to MS365</p>
       </div>
     </div>
@@ -1473,7 +1473,7 @@
           newUser = existing;
           wasReactivated = true;
           log('    [INFO] Existing user found — reactivating instead of creating', '#60a5fa');
-          // 1a. Unblock sign-in + update role fields
+          // 1a. Unblock sign-in + update role fields + reset Remarks to Active
           await graphFetch('/users/' + existing.id, {
             method: 'PATCH',
             body: {
@@ -1481,7 +1481,8 @@
               jobTitle: h.position || '',
               department: department,
               officeLocation: h.companyName || '',
-              employeeId: h.hcId || existing.employeeId || ''
+              employeeId: h.hcId || existing.employeeId || '',
+              onPremisesExtensionAttributes: { extensionAttribute1: 'Active' }
             }
           });
           log('    [OK] Reactivated — sign-in unblocked, jobTitle="' + (h.position || '') + '", department="' + department + '", office="' + (h.companyName || '') + '"', '#22c55e');
@@ -1501,7 +1502,8 @@
               officeLocation: h.companyName || '',
               usageLocation: 'PH',
               employeeId: h.hcId || '',
-              passwordProfile: { forceChangePasswordNextSignIn: true, password: password }
+              passwordProfile: { forceChangePasswordNextSignIn: true, password: password },
+              onPremisesExtensionAttributes: { extensionAttribute1: 'Active' }
             }
           });
           log('    [OK] Created — id=' + newUser.id, '#22c55e');
@@ -6187,6 +6189,19 @@
       log.push('  [OK] 6/6 Removed ' + deleted + '/' + items.length + ' auth method(s)');
     } catch (e) { log.push('  [FAIL] 6/6 Remove auth methods — ' + e.message.slice(0, 80)); }
 
+    // 7. Set Remarks (extensionAttribute1) based on Type of Exit.
+    //    "Recalled" (from Recalled Masterlist / RECALL with NTE) → "Recalled";
+    //    everything else (Resignation, End of Contract, etc.) → "Separated".
+    const typeOfExit = String(d.typeOfExit || d.reason || '').toLowerCase();
+    const remark = typeOfExit.indexOf('recall') > -1 ? 'Recalled' : 'Separated';
+    try {
+      await graphFetch('/users/' + user.id, {
+        method: 'PATCH',
+        body: { onPremisesExtensionAttributes: { extensionAttribute1: remark } }
+      });
+      log.push('  [OK] 7/7 Remarks set to "' + remark + '"');
+    } catch (e) { log.push('  [FAIL] 7/7 Set remarks — ' + e.message.slice(0, 80)); }
+
     // Mark done + tick checklist + persist the license list
     d.accessRevokedDone = true;
     d.accessRevokedDoneAt = new Date().toISOString();
@@ -6205,13 +6220,16 @@
     if (!email) { alert('Fill in Employee Email first.'); return; }
     if (!msalAccount) { alert('Sign in via the sidebar first.'); return; }
     const dept = isInternalTeamMember(d) ? 'GoTeam' : 'Client-facing';
+    const _tox = String(d.typeOfExit || d.reason || '').toLowerCase();
+    const remark = _tox.indexOf('recall') > -1 ? 'Recalled' : 'Separated';
     if (!confirm('Full offboarding for ' + email + '?\n\n' +
                  '1. Block sign-in\n' +
                  '2. Revoke all sessions\n' +
                  '3. Remove from all groups\n' +
                  '4. Remove all licenses\n' +
                  '5. Set Department to "' + dept + '"\n' +
-                 '6. Remove all authentication methods (MFA)\n\n' +
+                 '6. Remove all authentication methods (MFA)\n' +
+                 '7. Set Remarks to "' + remark + '"\n\n' +
                  'Cannot be undone. Continue?')) return;
 
     const result = await performRevoke(d);
@@ -7730,6 +7748,56 @@
     a.href = url; a.download = filename; a.click();
     URL.revokeObjectURL(url);
     showToast('Exported ' + filename);
+  }
+
+  // ============ View-Only mode (for Finance / read-only viewers) ============
+  // Enabled by adding ?view=readonly to the URL. Bookmarkable.
+  //   • Hides Onboarding + Offboarding nav items and forces Licensing as the
+  //     active view.
+  //   • Hides all write-oriented controls in Licensing (bulk-update department
+  //     bar, Push Local Changes, etc.) and turns Remarks + Purchased-On inputs
+  //     into read-only text.
+  //   • Keeps enabled: Sync from Microsoft, Export CSV, search, filters, month
+  //     pickers, sorting, pagination.
+  const _urlParams = new URLSearchParams(location.search);
+  const VIEW_ONLY = _urlParams.get('view') === 'readonly';
+  if (VIEW_ONLY) {
+    document.body.classList.add('view-only');
+    // Hide the two nav items — Licensing is the only view they get.
+    document.querySelectorAll('.nav-item[data-view="onboarding"], .nav-item[data-view="offboarding"]').forEach(b => b.style.display = 'none');
+    // Force Licensing tab to be active on load.
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    const licView = document.getElementById('view-licensing');
+    if (licView) licView.classList.add('active');
+    document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+    const licBtn = document.querySelector('.nav-item[data-view="licensing"]');
+    if (licBtn) licBtn.classList.add('active');
+    // Inject a small badge in the sidebar so the viewer knows they're in
+    // read-only mode.
+    const badge = document.createElement('div');
+    badge.style.cssText = 'padding:6px 10px;margin:8px 12px;background:#0284c7;color:white;font-size:10px;font-weight:700;letter-spacing:0.5px;border-radius:6px;text-align:center;text-transform:uppercase;';
+    badge.textContent = '👁 View Only';
+    const sidebar = document.querySelector('.sidebar');
+    if (sidebar) sidebar.insertBefore(badge, sidebar.querySelector('.nav-item'));
+    // Apply CSS to hide write controls once views render.
+    const style = document.createElement('style');
+    style.textContent = [
+      'body.view-only #licAuditBulkBar { display: none !important; }',
+      'body.view-only #licAuditHoldersTbody .lic-audit-row-cb,',
+      'body.view-only #licAuditSelectAll { display: none !important; }',
+      'body.view-only #licAuditHoldersTbody input[type="text"],',
+      'body.view-only #licAuditSkusTbody input[type="date"] {',
+      '  pointer-events: none !important;',
+      '  background: transparent !important;',
+      '  border-color: transparent !important;',
+      '  color: #6b7280 !important;',
+      '}',
+      // Hide any Push / write bulk actions on Licensing if they exist there.
+      'body.view-only #spMigrateBtn,',
+      'body.view-only #spPushBtn,',
+      'body.view-only #spDedupeBtn { display: none !important; }'
+    ].join('\n');
+    document.head.appendChild(style);
   }
 
   // Sync the in-page "Data as of" pill from the constant
