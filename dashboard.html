@@ -6129,21 +6129,42 @@
       log.push('  [OK] 2/6 Sessions revoked');
     } catch (e) { log.push('  [FAIL] 2/6 Revoke sessions — ' + e.message.slice(0, 80)); }
 
-    // 3. Remove from all groups (skip dynamic-membership groups + roles)
+    // 3. Remove from all groups (skip dynamic-membership groups + roles).
+    //    Mail-enabled security & distribution groups can't be modified via
+    //    Graph — surface those explicitly so the operator knows to fix them
+    //    manually in Exchange admin center.
     try {
-      const memberOf = await graphFetch('/users/' + user.id + '/memberOf?$select=id,displayName,groupTypes,membershipRule');
+      const memberOf = await graphFetch('/users/' + user.id + '/memberOf?$select=id,displayName,groupTypes,membershipRule,mailEnabled,securityEnabled,mail');
       const groups = (memberOf.value || []).filter(g =>
         g['@odata.type'] === '#microsoft.graph.group' &&
         !((g.groupTypes || []).indexOf('DynamicMembership') > -1)
       );
       let removed = 0;
+      const mailEnabledSkipped = [];
+      const otherFailed = [];
       for (const g of groups) {
         try {
           await graphFetch('/groups/' + g.id + '/members/' + user.id + '/$ref', { method: 'DELETE' });
           removed++;
-        } catch (e) { /* mail-enabled or M365 sec groups can fail — non-fatal */ }
+        } catch (e) {
+          const msg = String(e.message || '');
+          const isMailEnabled = g.mailEnabled === true
+                             || /originated within an external service|mail-enabled|distribution/i.test(msg);
+          const label = (g.displayName || g.id) + (g.mail ? ' <' + g.mail + '>' : '');
+          if (isMailEnabled) mailEnabledSkipped.push(label);
+          else otherFailed.push(label + ' — ' + msg.slice(0, 80));
+        }
       }
-      log.push('  [OK] 3/6 Removed from ' + removed + '/' + groups.length + ' group(s)');
+      const parts = ['[OK] 3/6 Removed from ' + removed + '/' + groups.length + ' group(s)'];
+      log.push('  ' + parts[0]);
+      if (mailEnabledSkipped.length > 0) {
+        log.push('    [WARN] Mail-enabled group(s) not modifiable via Graph — remove manually in Exchange:');
+        mailEnabledSkipped.forEach(g => log.push('      • ' + g));
+      }
+      if (otherFailed.length > 0) {
+        log.push('    [WARN] Other group removal failures:');
+        otherFailed.forEach(g => log.push('      • ' + g));
+      }
     } catch (e) { log.push('  [FAIL] 3/6 Remove groups — ' + e.message.slice(0, 80)); }
 
     // 4. Remove all licenses
