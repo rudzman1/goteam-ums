@@ -690,7 +690,7 @@
         <div style="display:flex;gap:8px;align-items:center;">
           <div style="display:flex;align-items:center;gap:4px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;padding:2px;" title="Filter Monthly Summary by month">
             <button class="btn btn-icon" style="padding:4px 8px;background:transparent;border:none;color:var(--muted);cursor:pointer;" title="Previous month" onclick="stepMonthPicker('licHoldersMonthPicker', -1); renderLicenseMovement();"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
-            <input type="month" id="licHoldersMonthPicker" onchange="renderLicenseMovement()" style="border:none;padding:4px 6px;font-size:12px;font-family:inherit;background:transparent;color:var(--text);cursor:pointer;" />
+            <input type="month" id="licHoldersMonthPicker" onchange="_licMovementPage=1; renderLicenseMovement()" style="border:none;padding:4px 6px;font-size:12px;font-family:inherit;background:transparent;color:var(--text);cursor:pointer;" />
             <button class="btn btn-icon" style="padding:4px 8px;background:transparent;border:none;color:var(--muted);cursor:pointer;" title="Next month" onclick="stepMonthPicker('licHoldersMonthPicker', 1); renderLicenseMovement();"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
             <button class="btn btn-icon" style="padding:4px 8px;background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:11px;" title="Show all months" onclick="clearMonthPicker('licHoldersMonthPicker'); renderLicenseMovement();">All</button>
           </div>
@@ -745,16 +745,16 @@
         <div style="display:flex;gap:8px;align-items:center;">
           <div style="display:flex;align-items:center;gap:4px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;padding:2px;" title="Filter Movement Log by month">
             <button class="btn btn-icon" style="padding:4px 8px;background:transparent;border:none;color:var(--muted);cursor:pointer;" title="Previous month" onclick="stepMonthPicker('licMovementMonthPicker', -1); renderLicenseMovement();"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
-            <input type="month" id="licMovementMonthPicker" onchange="renderLicenseMovement()" style="border:none;padding:4px 6px;font-size:12px;font-family:inherit;background:transparent;color:var(--text);cursor:pointer;" />
+            <input type="month" id="licMovementMonthPicker" onchange="_licMovementPage=1; renderLicenseMovement()" style="border:none;padding:4px 6px;font-size:12px;font-family:inherit;background:transparent;color:var(--text);cursor:pointer;" />
             <button class="btn btn-icon" style="padding:4px 8px;background:transparent;border:none;color:var(--muted);cursor:pointer;" title="Next month" onclick="stepMonthPicker('licMovementMonthPicker', 1); renderLicenseMovement();"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
             <button class="btn btn-icon" style="padding:4px 8px;background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:11px;" title="Show all months" onclick="clearMonthPicker('licMovementMonthPicker'); renderLicenseMovement();">All</button>
           </div>
-          <select class="filter-select" id="licMovementActionFilter" onchange="renderLicenseMovement()">
+          <select class="filter-select" id="licMovementActionFilter" onchange="_licMovementPage=1; renderLicenseMovement()">
             <option value="">All actions</option>
             <option value="add">Assignments only</option>
             <option value="remove">Removals only</option>
           </select>
-          <select class="filter-select" id="licMovementSkuFilter" onchange="renderLicenseMovement()">
+          <select class="filter-select" id="licMovementSkuFilter" onchange="_licMovementPage=1; renderLicenseMovement()">
             <option value="">All licenses</option>
           </select>
           <input type="text" class="search-input" id="licMovementSearch" placeholder="Search user or actor..." oninput="debouncedRenderLicMovement()" />
@@ -6336,13 +6336,18 @@
   let _licMovementDebounce = null;
   function debouncedRenderLicMovement() {
     if (_licMovementDebounce) clearTimeout(_licMovementDebounce);
-    _licMovementDebounce = setTimeout(() => { _licMovementDebounce = null; renderLicenseMovement(); }, 250);
+    _licMovementDebounce = setTimeout(() => { _licMovementDebounce = null; _licMovementPage = 1; renderLicenseMovement(); }, 250);
   }
   // Pagination for the License Holders table.
   let _licHoldersPage = 1;
   let _licHoldersPageSize = 30;
   function setLicHoldersPage(p) { _licHoldersPage = Math.max(1, p); renderLicenseAuditHolders(); }
   function setLicHoldersPageSize(n) { _licHoldersPageSize = parseInt(n, 10) || 30; _licHoldersPage = 1; renderLicenseAuditHolders(); }
+  // Pagination for the License Movement log.
+  let _licMovementPage = 1;
+  let _licMovementPageSize = 30;
+  function setLicMovementPage(p) { _licMovementPage = Math.max(1, p); renderLicenseMovement(); }
+  function setLicMovementPageSize(n) { _licMovementPageSize = parseInt(n, 10) || 30; _licMovementPage = 1; renderLicenseMovement(); }
   function toggleLicAuditRow(userId) {
     if (_licAuditSelected.has(userId)) _licAuditSelected.delete(userId);
     else _licAuditSelected.add(userId);
@@ -6858,7 +6863,14 @@
     // stores only the UPN in displayName).
     const holderById = {};
     (audit.holders || []).forEach(h => { holderById[h.userId] = h; });
-    logTbody.innerHTML = filtered.slice(0, 500).map(m => {
+    // Paginate
+    const movTotal = filtered.length;
+    const movPageSize = _licMovementPageSize;
+    const movTotalPages = Math.max(1, Math.ceil(movTotal / movPageSize));
+    if (_licMovementPage > movTotalPages) _licMovementPage = movTotalPages;
+    const movStart = (_licMovementPage - 1) * movPageSize;
+    const paged = filtered.slice(movStart, movStart + movPageSize);
+    logTbody.innerHTML = paged.map(m => {
       const licName = skuNameById[m.skuId] || skuNameById[String(m.skuId).toLowerCase()] || friendlyLicenseName(m.skuId) || m.skuId;
       const actionPill = m.action === 'add'
         ? '<span style="font-size:11px;color:#065f46;background:#d1fae5;padding:2px 8px;border-radius:10px;font-weight:600;">Assigned</span>'
@@ -6878,7 +6890,8 @@
         '<td><span style="font-size:12px;">' + licName + '</span></td>' +
         '<td><span style="font-size:12px;color:var(--muted);">' + (m.actor || '—') + '</span></td>' +
       '</tr>';
-    }).join('') + (filtered.length > 500 ? '<tr><td colspan="6" style="padding:8px;text-align:center;color:var(--muted);font-size:11px;">Showing first 500 of ' + filtered.length + ' events. Narrow the filter to see specific ones.</td></tr>' : '');
+    }).join('');
+    renderMovementLogPagination(_licMovementPage, movTotalPages, movTotal);
   }
 
   async function graphPageAll(url) {
@@ -6986,7 +6999,10 @@
       const GUID_STR = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
       const GUID_ONLY_RE = new RegExp('^' + GUID_STR + '$');
       const GUID_ALL_RE = new RegExp(GUID_STR, 'g');
-      const SKUID_KV_RE = new RegExp('(?:^|[\\s,\\[{])(?:S|s)ku(?:I|i)d\\s*[=:]\\s*"?(' + GUID_STR + ')"?', 'g');
+      // Allow ANY non-hex delimiter chars between "SkuId" and the GUID —
+      // covers "SkuId=abc", "SkuId:abc", "\"SkuId\":\"abc\"", and Microsoft's
+      // double-/triple-escaped audit JSON: \\\"SkuId\\\":\\\"abc\\\".
+      const SKUID_KV_RE = new RegExp('(?:S|s)ku(?:I|i)d[^0-9a-fA-F]{1,30}?(' + GUID_STR + ')', 'g');
       function extractSkuIds(raw) {
         if (!raw) return new Set();
         const out = new Set();
@@ -7034,13 +7050,30 @@
       // additionalDetails when present.
       function extractPropsFromAdditionalDetails(ev) {
         const out = [];
-        (ev.additionalDetails || []).forEach(d => {
-          if (!d || !d.value) return;
+        const details = ev.additionalDetails;
+        if (!details) return out;
+        // Normalize into a list of string values to scan for targetUpdatedProperties.
+        // Microsoft returns EITHER an array of {key, value} OR a plain object like
+        // { a: "...", b: "...", c: "..." }.
+        const candidateStrings = [];
+        if (Array.isArray(details)) {
+          details.forEach(d => {
+            if (!d) return;
+            const v = d.value != null ? d.value : d;
+            candidateStrings.push(typeof v === 'string' ? v : JSON.stringify(v));
+          });
+        } else if (typeof details === 'object') {
+          Object.values(details).forEach(v => {
+            if (v == null) return;
+            candidateStrings.push(typeof v === 'string' ? v : JSON.stringify(v));
+          });
+        }
+        // Also try the raw event stringified — some payloads bury the data deeper.
+        candidateStrings.push(JSON.stringify(details));
+        for (const raw of candidateStrings) {
           try {
-            const outerRaw = typeof d.value === 'string' ? d.value : JSON.stringify(d.value);
-            const outer = JSON.parse(outerRaw);
-            // targetUpdatedProperties is itself a JSON string in some events, a JSON array in others.
-            let props = outer.targetUpdatedProperties;
+            const outer = JSON.parse(raw);
+            let props = outer && (outer.targetUpdatedProperties || outer.TargetUpdatedProperties);
             if (typeof props === 'string') { try { props = JSON.parse(props); } catch (_) {} }
             if (Array.isArray(props)) {
               props.forEach(p => {
@@ -7048,8 +7081,45 @@
                 out.push({ displayName: p.Name, oldValue: JSON.stringify(p.OldValue || []), newValue: JSON.stringify(p.NewValue || []) });
               });
             }
-          } catch (_) {}
-        });
+          } catch (_) { /* not JSON — skip */ }
+          if (out.length > 0) break;
+        }
+        // Last resort: the b/value is a heavily-escaped, possibly-chunked
+        // JSON. Strip ALL backslashes to normalize the escape depth, then find
+        // OldValue/NewValue arrays and extract their SkuIds separately.
+        if (out.length === 0) {
+          const joined = candidateStrings.join(' ');
+          if (/SkuId/i.test(joined)) {
+            // Strip all backslashes → "\\\"OldValue\\\":\\[" becomes "OldValue":[
+            const flat = joined.replace(/\\/g, '');
+            // Find every "OldValue":[...] and "NewValue":[...] array by manual
+            // bracket-matching. Depth counter handles nested arrays.
+            const collect = (marker) => {
+              const spans = [];
+              const key = '"' + marker + '":[';
+              let idx = 0;
+              while ((idx = flat.indexOf(key, idx)) !== -1) {
+                const start = idx + key.length;
+                let depth = 1;
+                let i = start;
+                while (i < flat.length && depth > 0) {
+                  const ch = flat[i];
+                  if (ch === '[') depth++;
+                  else if (ch === ']') depth--;
+                  i++;
+                }
+                spans.push(flat.slice(start, i - 1));
+                idx = i;
+              }
+              return spans.join(' ');
+            };
+            const oldChunk = collect('OldValue');
+            const newChunk = collect('NewValue');
+            if (oldChunk || newChunk) {
+              out.push({ displayName: 'AssignedLicense', oldValue: oldChunk, newValue: newChunk });
+            }
+          }
+        }
         return out;
       }
 
@@ -7644,6 +7714,61 @@
         '</select>' +
       '</div>';
   }
+  // Compact pagination bar for the Movement Log (mirrors License Holders').
+  function renderMovementLogPagination(page, totalPages, totalRows) {
+    let bar = document.getElementById('licMovementPagination');
+    if (!bar) {
+      const tbody = document.getElementById('licMovementLogTbody');
+      if (!tbody) return;
+      const movBody = document.getElementById('licMovementBody');
+      bar = document.createElement('div');
+      bar.id = 'licMovementPagination';
+      bar.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:12px 20px;background:#f8fafc;border-top:1px solid #e2e8f0;flex-wrap:wrap;gap:12px;';
+      movBody.appendChild(bar);
+    }
+    if (totalRows === 0) { bar.style.display = 'none'; return; }
+    bar.style.display = 'flex';
+    const win = [];
+    const pushRange = (a, b) => { for (let i = a; i <= b; i++) win.push(i); };
+    if (totalPages <= 7) pushRange(1, totalPages);
+    else {
+      win.push(1);
+      if (page > 4) win.push('…');
+      const a = Math.max(2, page - 1);
+      const b = Math.min(totalPages - 1, page + 1);
+      pushRange(a, b);
+      if (page < totalPages - 3) win.push('…');
+      win.push(totalPages);
+    }
+    const btn = (label, targetPage, opts) => {
+      opts = opts || {};
+      const disabled = opts.disabled;
+      const active = opts.active;
+      const bg = active ? '#2563eb' : '#fff';
+      const color = active ? '#fff' : (disabled ? '#cbd5e1' : '#374151');
+      const border = active ? '#2563eb' : '#cbd5e1';
+      const cursor = disabled ? 'not-allowed' : 'pointer';
+      const click = disabled || active ? '' : ' onclick="setLicMovementPage(' + targetPage + ')"';
+      return '<button' + click + ' style="min-width:32px;padding:6px 10px;font-size:12px;font-weight:600;background:' + bg + ';color:' + color + ';border:1px solid ' + border + ';border-radius:6px;cursor:' + cursor + ';font-family:inherit;">' + label + '</button>';
+    };
+    const startShown = (page - 1) * _licMovementPageSize + 1;
+    const endShown = Math.min(page * _licMovementPageSize, totalRows);
+    bar.innerHTML =
+      '<div style="font-size:12px;color:var(--muted);">Showing <strong style="color:#111827;">' + startShown.toLocaleString() + '–' + endShown.toLocaleString() + '</strong> of <strong style="color:#111827;">' + totalRows.toLocaleString() + '</strong> event(s)</div>' +
+      '<div style="display:flex;align-items:center;gap:4px;">' +
+        btn('«', 1, { disabled: page === 1 }) +
+        btn('‹', page - 1, { disabled: page === 1 }) +
+        win.map(p => p === '…' ? '<span style="padding:0 6px;color:var(--muted);">…</span>' : btn(String(p), p, { active: p === page })).join('') +
+        btn('›', page + 1, { disabled: page === totalPages }) +
+        btn('»', totalPages, { disabled: page === totalPages }) +
+      '</div>' +
+      '<div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);">Show ' +
+        '<select onchange="setLicMovementPageSize(this.value)" style="padding:5px 8px;font-size:12px;border:1px solid #cbd5e1;border-radius:6px;font-family:inherit;background:white;">' +
+          [10, 30, 50, 100, 200].map(n => '<option value="' + n + '"' + (n === _licMovementPageSize ? ' selected' : '') + '>' + n + '</option>').join('') +
+        '</select>' +
+      '</div>';
+  }
+
   // ============================================================
   // End Licensing Audit View
   // ============================================================
