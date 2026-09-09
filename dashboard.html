@@ -7027,6 +7027,32 @@
         return out;
       }
 
+      // Some Change-user-license events put the license diff in the event's
+      // additionalDetails.value (as an escaped JSON blob containing
+      // "targetUpdatedProperties") instead of on the target's modifiedProperties.
+      // This helper returns a normalized list of {name, oldValue, newValue} from
+      // additionalDetails when present.
+      function extractPropsFromAdditionalDetails(ev) {
+        const out = [];
+        (ev.additionalDetails || []).forEach(d => {
+          if (!d || !d.value) return;
+          try {
+            const outerRaw = typeof d.value === 'string' ? d.value : JSON.stringify(d.value);
+            const outer = JSON.parse(outerRaw);
+            // targetUpdatedProperties is itself a JSON string in some events, a JSON array in others.
+            let props = outer.targetUpdatedProperties;
+            if (typeof props === 'string') { try { props = JSON.parse(props); } catch (_) {} }
+            if (Array.isArray(props)) {
+              props.forEach(p => {
+                if (!p || !p.Name) return;
+                out.push({ displayName: p.Name, oldValue: JSON.stringify(p.OldValue || []), newValue: JSON.stringify(p.NewValue || []) });
+              });
+            }
+          } catch (_) {}
+        });
+        return out;
+      }
+
       // 4. Build per-user license-change map from audit events
       //    key = userId; value = [ { skuId, action:'add'|'remove', ts, actor } ]
       //    Also assemble a flat movement log for the License Movement panel.
@@ -7037,11 +7063,16 @@
                    || (ev.initiatedBy && ev.initiatedBy.app && (ev.initiatedBy.app.displayName || 'Application'))
                    || 'System';
         const targets = ev.targetResources || [];
+        // Fall back to additionalDetails when the target's modifiedProperties is empty.
+        const additionalProps = extractPropsFromAdditionalDetails(ev);
         targets.forEach(t => {
           const uid = t.id;
           if (!uid) return;
           const targetName = t.displayName || t.userPrincipalName || '';
-          (t.modifiedProperties || []).forEach(p => {
+          const propsToScan = (t.modifiedProperties && t.modifiedProperties.length > 0)
+            ? t.modifiedProperties
+            : additionalProps; // fallback
+          propsToScan.forEach(p => {
             if (p.displayName !== 'AssignedLicense' && p.displayName !== 'AssignedLicenses') return;
             const beforeIds = extractSkuIds(p.oldValue);
             const afterIds  = extractSkuIds(p.newValue);
