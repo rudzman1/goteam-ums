@@ -657,7 +657,7 @@
         <span style="font-weight:600;color:var(--text);">View as of:</span>
         <div style="display:flex;align-items:center;gap:2px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;padding:2px;">
           <button class="btn btn-icon" style="padding:4px 8px;background:transparent;border:none;color:var(--muted);cursor:pointer;" title="Previous month" onclick="stepMonthPicker('licStatsMonthPicker', -1); renderLicenseAudit();"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
-          <input type="month" id="licStatsMonthPicker" onchange="renderLicenseAudit()" style="border:none;padding:4px 6px;font-size:12px;font-family:inherit;background:transparent;color:var(--text);cursor:pointer;" />
+          <input type="month" id="licStatsMonthPicker" onchange="renderLicenseAudit()" style="border:none;padding:4px 6px;font-size:12px;font-family:inherit;background:transparent;color:var(--text);cursor:pointer;" data-nofuture="1" />
           <button class="btn btn-icon" style="padding:4px 8px;background:transparent;border:none;color:var(--muted);cursor:pointer;" title="Next month" onclick="stepMonthPicker('licStatsMonthPicker', 1); renderLicenseAudit();"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
           <button class="btn btn-icon" style="padding:4px 8px;background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:11px;" title="Show current (live) values" onclick="clearMonthPicker('licStatsMonthPicker'); renderLicenseAudit();">Now</button>
         </div>
@@ -6828,12 +6828,17 @@
     const thisMonth = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
     const forceMonth = summaryMonthFilter || thisMonth;
     if (!monthMap[forceMonth]) monthMap[forceMonth] = {};
-    // Baseline: only display months >= this cutoff (default = today's month).
-    // Older months drift each sync because our audit window is only 30 days,
-    // so we hide them by default. Bump this baseline forward as time passes
-    // (or drop the guard once historical snapshots are locked in SP).
+    // Baseline: only display months >= this cutoff (default = 2026-09) AND
+    // <= the current month. Past months before the baseline drift each sync
+    // (audit window is only 30 days). Future months are meaningless — we
+    // haven't reached that data yet.
     const SUMMARY_BASELINE_MONTH = '2026-09';
-    Object.keys(monthMap).forEach(k => { if (k < SUMMARY_BASELINE_MONTH) delete monthMap[k]; });
+    const _todayForPivot = new Date();
+    const _thisMonthPivot = _todayForPivot.getFullYear() + '-' + String(_todayForPivot.getMonth() + 1).padStart(2, '0');
+    Object.keys(monthMap).forEach(k => {
+      if (k < SUMMARY_BASELINE_MONTH) delete monthMap[k];
+      if (k > _thisMonthPivot) delete monthMap[k];
+    });
     const months = Object.keys(monthMap).sort().reverse(); // newest first
 
     const summaryThead = document.getElementById('licMovementSummaryThead');
@@ -7474,6 +7479,17 @@
         if (el) el.value = _cur;
       });
     }
+    // Prevent selecting future months on any picker — you can't audit seat
+    // usage for time that hasn't happened. Also snap the current value back
+    // to the current month if a future value slipped in.
+    {
+      const _d = new Date();
+      const _cur = _d.getFullYear() + '-' + String(_d.getMonth() + 1).padStart(2, '0');
+      document.querySelectorAll('input[type="month"][data-nofuture="1"]').forEach(el => {
+        el.max = _cur;
+        if (el.value && el.value > _cur) el.value = _cur;
+      });
+    }
     // Stats
     const totalSeats = audit.skus.reduce((s, k) => s + (k.prepaidEnabled || 0), 0);
     const usedSeats  = audit.skus.reduce((s, k) => s + (k.consumedUnits || 0), 0);
@@ -7496,8 +7512,13 @@
       const d = new Date(ts);
       return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
     };
+    // Guard: refuse to compute for months that haven't happened yet.
+    const _todayDt = new Date();
+    const _thisMonth = _todayDt.getFullYear() + '-' + String(_todayDt.getMonth() + 1).padStart(2, '0');
+    const statsMonthInFuture = statsMonth && statsMonth > _thisMonth;
     function usedAtEndOfMonth(sku) {
       if (!sku) return null;
+      if (statsMonthInFuture) return null; // no seat data for a future month
       if (!statsMonth) return sku.consumedUnits || 0;
       // Sum net (adds − removes) for months strictly AFTER statsMonth.
       const laterNet = (audit.movements || []).reduce((sum, m) => {
@@ -7513,13 +7534,19 @@
           .toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
       : '';
 
+    const futureNote = statsMonthInFuture ? 'Future month · no data yet' : null;
     if (f1Sku) {
       const used = usedAtEndOfMonth(f1Sku);
       const total = f1Sku.prepaidEnabled || 0;
-      set('licStatF1Assigned', fmt(used));
-      set('licStatF1AssignedSub', (statsMonth ? 'End of ' + monthLabel + ' · ' : '') + (total ? (used + ' of ' + total + ' — ' + Math.round((used / total) * 100) + '%') : 'M365 F1 Comm'));
-      set('licStatF1Avail', fmt(Math.max(0, total - used)));
-      set('licStatF1AvailSub', (statsMonth ? 'End of ' + monthLabel + ' · ' : '') + 'M365 F1 Comm');
+      if (statsMonthInFuture) {
+        set('licStatF1Assigned', '—'); set('licStatF1AssignedSub', futureNote);
+        set('licStatF1Avail', '—');    set('licStatF1AvailSub', futureNote);
+      } else {
+        set('licStatF1Assigned', fmt(used));
+        set('licStatF1AssignedSub', (statsMonth ? 'End of ' + monthLabel + ' · ' : '') + (total ? (used + ' of ' + total + ' — ' + Math.round((used / total) * 100) + '%') : 'M365 F1 Comm'));
+        set('licStatF1Avail', fmt(Math.max(0, total - used)));
+        set('licStatF1AvailSub', (statsMonth ? 'End of ' + monthLabel + ' · ' : '') + 'M365 F1 Comm');
+      }
     } else {
       set('licStatF1Assigned', '—');
       set('licStatF1AssignedSub', 'SKU not found in tenant');
@@ -7528,10 +7555,15 @@
     if (bbSku) {
       const used = usedAtEndOfMonth(bbSku);
       const total = bbSku.prepaidEnabled || 0;
-      set('licStatBBAssigned', fmt(used));
-      set('licStatBBAssignedSub', (statsMonth ? 'End of ' + monthLabel + ' · ' : '') + (total ? (used + ' of ' + total + ' — ' + Math.round((used / total) * 100) + '%') : 'Microsoft 365 Business Basic'));
-      set('licStatBBAvail', fmt(Math.max(0, total - used)));
-      set('licStatBBAvailSub', (statsMonth ? 'End of ' + monthLabel + ' · ' : '') + 'Microsoft 365 Business Basic');
+      if (statsMonthInFuture) {
+        set('licStatBBAssigned', '—'); set('licStatBBAssignedSub', futureNote);
+        set('licStatBBAvail', '—');    set('licStatBBAvailSub', futureNote);
+      } else {
+        set('licStatBBAssigned', fmt(used));
+        set('licStatBBAssignedSub', (statsMonth ? 'End of ' + monthLabel + ' · ' : '') + (total ? (used + ' of ' + total + ' — ' + Math.round((used / total) * 100) + '%') : 'Microsoft 365 Business Basic'));
+        set('licStatBBAvail', fmt(Math.max(0, total - used)));
+        set('licStatBBAvailSub', (statsMonth ? 'End of ' + monthLabel + ' · ' : '') + 'Microsoft 365 Business Basic');
+      }
     } else {
       set('licStatBBAssigned', '—');
       set('licStatBBAssignedSub', 'SKU not found in tenant');
