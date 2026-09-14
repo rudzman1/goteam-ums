@@ -5732,7 +5732,9 @@
             </div>\
           </td>\
           <td>' + emailInput(d.employeeEmail || emp, emp || 'firstname.lastname@go.team', 'employeeEmail') + '</td>\
-          <td>' + (d.company || '') + '</td>\
+          <td>' + (isInternalTeamMember(d)
+                    ? '<span title="Internal GoTeam employee — remember to Convert to Shared Mailbox on offboarding" style="display:inline-block;background:#dbeafe;color:#1d4ed8;font-weight:700;font-size:11px;padding:3px 9px;border-radius:10px;border:1px solid #93c5fd;letter-spacing:0.3px;">GoTeam</span>'
+                    : (d.company || '')) + '</td>\
           <td><span style="font-size:12px;">' + (d.leadershipCoach || '<span style="color:var(--muted);">—</span>') + '</span></td>\
           <td>' + emailInput(d.leadershipCoachEmail || coachEmail, coachEmail || 'firstname.lastname@go.team', 'leadershipCoachEmail') + '</td>\
           <td>' + formatDate(eff) + (d.lastDayEstimated ? ' <span style="font-size:10px;color:var(--muted);background:#fef3c7;padding:1px 5px;border-radius:4px;margin-left:4px;" title="Effective date estimated">est.</span>' : '') + (d.originalLastDay ? '<div class="reschedule-note">Changed from ' + formatDate(d.originalLastDay) + (d.lastDayNote ? ' — ' + d.lastDayNote : '') + '</div>' : '') + (d.retractionDate ? '<div class="reschedule-note" style="color:var(--success);">Resignation retracted ' + formatDate(d.retractionDate) + (d.retractionNote ? ' — ' + d.retractionNote : '') + '</div>' : '') + '</td>\
