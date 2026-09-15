@@ -1241,7 +1241,8 @@
     'Sites.Manage.All',                          // required to create lists & columns
     'Organization.Read.All',
     'UserAuthenticationMethod.ReadWrite.All',    // for removing MFA/auth methods on offboarding
-    'AuditLog.Read.All'                           // for license audit backfill (30–90 day window)
+    'AuditLog.Read.All',                          // for license audit backfill (30–90 day window)
+    'RoleManagement.ReadWrite.Directory'          // for removing Device Administrator + other directory role assignments on offboarding
   ];
   let msalInstance = null;
   let msalAccount = null;
@@ -6234,7 +6235,39 @@
       log.push('  [OK] 6/6 Removed ' + deleted + '/' + items.length + ' auth method(s)');
     } catch (e) { log.push('  [FAIL] 6/6 Remove auth methods — ' + e.message.slice(0, 80)); }
 
-    // 7. Set Remarks (extensionAttribute1) based on Type of Exit.
+    // 7. Remove all directory role assignments EXCEPT Global Administrator.
+    //    Covers Device Administrators, User Administrator, License Administrator,
+    //    Privileged Role Administrator, Security Administrator, etc. Global Admin
+    //    is intentionally preserved so an accidental Revoke on the wrong user
+    //    can't lock the tenant out; if the user really is leaving as GA, HR
+    //    should coordinate that removal manually.
+    //    Global Administrator role template id:
+    const GLOBAL_ADMIN_ROLE_ID = '62e90394-69f5-4237-9190-012177145e10';
+    try {
+      const roleAssignments = await graphFetch(
+        "/roleManagement/directory/roleAssignments?$filter=principalId eq '" + user.id + "'"
+      );
+      const assignments = roleAssignments.value || [];
+      let removedRoles = 0;
+      let skippedGA = 0;
+      for (const ra of assignments) {
+        if (String(ra.roleDefinitionId || '').toLowerCase() === GLOBAL_ADMIN_ROLE_ID) {
+          skippedGA++;
+          continue;
+        }
+        try {
+          await graphFetch('/roleManagement/directory/roleAssignments/' + ra.id, { method: 'DELETE' });
+          removedRoles++;
+        } catch (e) { /* some built-in role assignments can't be removed via this API — non-fatal */ }
+      }
+      const okLine = '[OK] 7/8 Removed ' + removedRoles + '/' + (assignments.length - skippedGA) + ' directory role assignment(s)';
+      log.push('  ' + okLine);
+      if (skippedGA > 0) {
+        log.push('    [SKIP] Global Administrator role kept for this user — remove manually in Entra if intended.');
+      }
+    } catch (e) { log.push('  [FAIL] 7/8 Remove role assignments — ' + e.message.slice(0, 80)); }
+
+    // 8. Set Remarks (extensionAttribute1) based on Type of Exit.
     //    "Recalled" (from Recalled Masterlist / RECALL with NTE) → "Recalled";
     //    everything else (Resignation, End of Contract, etc.) → "Separated".
     const typeOfExit = String(d.typeOfExit || d.reason || '').toLowerCase();
@@ -6244,8 +6277,8 @@
         method: 'PATCH',
         body: { onPremisesExtensionAttributes: { extensionAttribute1: remark } }
       });
-      log.push('  [OK] 7/7 Remarks set to "' + remark + '"');
-    } catch (e) { log.push('  [FAIL] 7/7 Set remarks — ' + e.message.slice(0, 80)); }
+      log.push('  [OK] 8/8 Remarks set to "' + remark + '"');
+    } catch (e) { log.push('  [FAIL] 8/8 Set remarks — ' + e.message.slice(0, 80)); }
 
     // Mark done + tick checklist + persist the license list
     d.accessRevokedDone = true;
@@ -6274,7 +6307,8 @@
                  '4. Remove all licenses\n' +
                  '5. Set Department to "' + dept + '"\n' +
                  '6. Remove all authentication methods (MFA)\n' +
-                 '7. Set Remarks to "' + remark + '"\n\n' +
+                 '7. Remove all directory role assignments EXCEPT Global Administrator (Device Administrators, User Admin, License Admin, Privileged Role Admin, etc.)\n' +
+                 '8. Set Remarks to "' + remark + '"\n\n' +
                  'Cannot be undone. Continue?')) return;
 
     const result = await performRevoke(d);
@@ -8397,9 +8431,25 @@
       // Hide any Push / write bulk actions on Licensing if they exist there.
       'body.view-only #spMigrateBtn,',
       'body.view-only #spPushBtn,',
-      'body.view-only #spDedupeBtn { display: none !important; }'
+      'body.view-only #spDedupeBtn { display: none !important; }',
+      // Hide the MS365 Settings button from Finance so they never see the
+      // Tenant ID, Client ID, SKU IDs, or other Azure configuration values.
+      // The settings modal itself is also blocked from opening below.
+      'body.view-only button[onclick*="msSettingsModal"] { display: none !important; }',
+      'body.view-only #msSettingsModal { display: none !important; }'
     ].join('\n');
     document.head.appendChild(style);
+    // Belt-and-suspenders: intercept any programmatic attempt to open the
+    // settings modal in view-only mode (e.g. via the browser console) and
+    // silently no-op. The CSS above hides the button/modal; this guarantees
+    // the modal never opens even if someone calls openModal() directly.
+    const _origOpenModal = window.openModal;
+    window.openModal = function(id) {
+      if (id === 'msSettingsModal') return;
+      if (typeof _origOpenModal === 'function') return _origOpenModal.apply(this, arguments);
+      const el = document.getElementById(id);
+      if (el) el.classList.add('show');
+    };
   }
 
   // Sync the in-page "Data as of" pill from the constant
