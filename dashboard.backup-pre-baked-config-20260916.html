@@ -1230,27 +1230,6 @@
   // Microsoft Graph / MSAL.js integration
   // ============================================================
   const MS_SETTINGS_KEY = 'goteam-ums-mssettings';
-  // ------------------------------------------------------------------
-  // Baked-in Microsoft 365 / SharePoint bootstrap configuration.
-  // These are safe to include in the deployed HTML because:
-  //   • Tenant/Client ID are public identifiers, not secrets.
-  //   • MSAL rejects any sign-in that doesn't originate from the app's
-  //     registered redirect URIs, so stolen IDs are unusable elsewhere.
-  //   • The rest (siteId, listIds, sku IDs, MFA group id) is resolved
-  //     from Graph at runtime after the user signs in — nothing that
-  //     could grant access without a valid signed-in Graph token.
-  // Any new browser (yours, a teammate's, or a Finance viewer's) picks
-  // these up automatically — no MS365 Settings modal to fill in.
-  // ------------------------------------------------------------------
-  const MS_CONFIG_DEFAULTS = {
-    tenantId:    '23dfa179-96b2-40f6-abd4-7fea317f0af6',
-    clientId:    'bb0c8448-af06-4103-b638-dcc8a508a03c',
-    siteUrl:     'https://goteam1.sharepoint.com/sites/ITOperations',
-    domain:      'go.team',
-    mfaGroupId:  '75fb11fe-9b11-42cd-8def-a54f91a78483',   // MFA Security Group (Conditional Access)
-    skuInternal: '3b555118-da6a-4418-894f-7df1e2096870',   // Microsoft 365 Business Basic (O365_BUSINESS_ESSENTIALS) — GoTeam internal staff
-    skuClient:   '50f60901-3181-4b75-8a2c-4c8e4c1d5a72'    // Microsoft 365 F1 Comm (M365_F1_COMM) — client-assigned staff
-  };
   const GRAPH_SCOPES = [
     'User.ReadWrite.All',
     'Group.ReadWrite.All',
@@ -1269,14 +1248,8 @@
   let msalAccount = null;
 
   function getMSSettings() {
-    let stored = {};
-    try { stored = JSON.parse(localStorage.getItem(MS_SETTINGS_KEY)) || {}; }
-    catch (e) { stored = {}; }
-    // Merge the baked-in defaults so a brand-new browser (or a Finance
-    // view-only viewer) has the bootstrap values it needs to sign in
-    // without ever seeing the MS365 Settings modal. Stored values win
-    // over defaults so anything a user explicitly saved is respected.
-    return Object.assign({}, MS_CONFIG_DEFAULTS, stored);
+    try { return JSON.parse(localStorage.getItem(MS_SETTINGS_KEY)) || {}; }
+    catch (e) { return {}; }
   }
   function saveMSSettings() {
     const existing = getMSSettings();
@@ -1393,9 +1366,6 @@
         msalInstance.setActiveAccount(msalAccount);
         updateAuthUI();
         showToast('Signed in as ' + msalAccount.username);
-        // Resolve SharePoint site + list IDs if they're not stored yet (new browser)
-        try { await autoResolveSharePointBackend(); }
-        catch (e) { console.warn('Auto-resolve SP backend failed:', e); }
         // Auto-pull data if SharePoint backend is configured
         autoSyncFromSharePoint();
       } catch (e) {
@@ -1801,51 +1771,6 @@
     if (color) line.style.color = color;
     el.appendChild(line);
     el.scrollTop = el.scrollHeight;
-  }
-
-  // On sign-in in a fresh browser, look up the SP site and list IDs
-  // automatically so the user never needs to open the MS365 Settings modal.
-  // Safe to call repeatedly — no-ops when settings are already populated.
-  async function autoResolveSharePointBackend() {
-    const s = getMSSettings();
-    // Nothing to do if already resolved.
-    if (s.siteId && s.listIds && s.listIds.hires && s.listIds.departures &&
-        s.listIds.licenses && s.listIds.assignments && s.listIds.licenseEvents &&
-        s.listIds.licenseMonthly) return;
-    if (!s.siteUrl) return; // shouldn't happen (bootstrap default provides it)
-    const stored = (function(){ try { return JSON.parse(localStorage.getItem(MS_SETTINGS_KEY)) || {}; } catch(_) { return {}; } })();
-    // Resolve site id if missing
-    if (!stored.siteId) {
-      try { stored.siteId = await resolveSharePointSiteId(s.siteUrl); }
-      catch (e) { console.warn('Could not resolve site id:', e); return; }
-    }
-    // Discover list IDs by displayName lookup on the site.
-    try {
-      const lists = await graphFetch('/sites/' + stored.siteId + '/lists?$select=id,displayName');
-      const map = {};
-      (lists.value || []).forEach(l => { map[l.displayName] = l.id; });
-      stored.listIds = stored.listIds || {};
-      for (const key of Object.keys(SP_LIST_NAMES)) {
-        if (!stored.listIds[key]) {
-          const id = map[SP_LIST_NAMES[key]];
-          if (id) stored.listIds[key] = id;
-        }
-      }
-    } catch (e) {
-      console.warn('Could not enumerate lists:', e);
-    }
-    // Try to resolve default SKU IDs from /subscribedSkus by well-known part numbers.
-    if (!stored.skuInternal || !stored.skuClient) {
-      try {
-        const skus = await graphFetch('/subscribedSkus');
-        const byPart = {};
-        (skus.value || []).forEach(sk => { byPart[String(sk.skuPartNumber || '').toUpperCase()] = sk.skuId; });
-        if (!stored.skuInternal) stored.skuInternal = byPart['O365_BUSINESS_ESSENTIALS'] || byPart['SPB'] || stored.skuInternal;
-        if (!stored.skuClient)   stored.skuClient   = byPart['M365_F1_COMM']         || byPart['SPE_F1'] || stored.skuClient;
-      } catch (e) { /* non-fatal */ }
-    }
-    localStorage.setItem(MS_SETTINGS_KEY, JSON.stringify(stored));
-    console.log('[Auto-resolve] SharePoint backend ready — site + lists discovered from', s.siteUrl);
   }
 
   async function resolveSharePointSiteId(siteUrl) {
