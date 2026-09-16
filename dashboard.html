@@ -8770,6 +8770,14 @@
     const _nowD = new Date();
     const thisMk = _nowD.getFullYear() + '-' + String(_nowD.getMonth() + 1).padStart(2, '0');
     if (!monthBuckets[thisMk]) monthBuckets[thisMk] = {};
+    // Baseline: mirror the dashboard's on-screen Monthly Summary — start from
+    // 2026-09 (older months' data drifts because the audit window is only
+    // 30 days). Also strip anything past the current month (future = no data yet).
+    const EXPORT_BASELINE_MONTH = '2026-09';
+    Object.keys(monthBuckets).forEach(k => {
+      if (k < EXPORT_BASELINE_MONTH) delete monthBuckets[k];
+      if (k > thisMk) delete monthBuckets[k];
+    });
     const monthsForSummary = Object.keys(monthBuckets).sort().reverse(); // newest → oldest
     const laterCumNet = {};
     pivotSkusForSummary.forEach(s => { laterCumNet[s.id] = 0; });
