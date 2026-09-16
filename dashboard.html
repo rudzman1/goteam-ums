@@ -677,20 +677,39 @@
           License Summary
           <span id="licSummaryCount" style="font-size:11px;color:var(--muted);font-weight:400;"></span>
         </div>
-        <span style="font-size:11px;color:var(--muted);">Click a row to filter · Purchased On is editable · Click header to collapse</span>
+        <span style="font-size:11px;color:var(--muted);">Click a row to filter holders · Click header to collapse</span>
       </div>
       <div id="licSummaryBody" style="overflow-x: auto;">
         <table>
-          <thead><tr>
-            <th>License Name</th>
-            <th>SKU Part Number</th>
-            <th>Purchased</th>
-            <th>Assigned</th>
-            <th>Available</th>
-            <th>Utilization</th>
-            <th>Purchased On</th>
-          </tr></thead>
+          <thead id="licAuditSkusThead"></thead>
           <tbody id="licAuditSkusTbody"><tr><td colspan="7"><div class="empty-state"><h4>No data yet</h4><p>Click "Sync from Microsoft" to pull live license data.</p></div></td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title" style="display:flex;align-items:center;gap:8px;cursor:pointer;" onclick="toggleLicPanel('licSeatChangesBody', 'licSeatChangesChevron')">
+          <svg id="licSeatChangesChevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="transition:transform 0.2s;"><polyline points="6 9 12 15 18 9"/></svg>
+          Seat Count Changes
+          <span id="licSeatChangesCount" style="font-size:11px;color:var(--muted);font-weight:400;"></span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <button id="licSeatChangesAddBtn" class="btn btn-secondary" onclick="openManualSeatChangeForm()" style="padding:5px 12px;font-size:12px;">+ Add manual entry</button>
+          <span style="font-size:11px;color:var(--muted);">Detected on each Sync · Purchased Date is editable</span>
+        </div>
+      </div>
+      <div id="licSeatChangesBody" style="overflow-x:auto;">
+        <table>
+          <thead><tr>
+            <th>Detected On</th>
+            <th>License</th>
+            <th style="text-align:center;">Change</th>
+            <th style="text-align:center;">Seats Before</th>
+            <th style="text-align:center;">Seats After</th>
+            <th>Purchased Date</th>
+          </tr></thead>
+          <tbody id="licSeatChangesTbody"><tr><td colspan="6"><div class="empty-state"><h4>No changes yet</h4><p>Seat count changes will appear here after your next Sync from Microsoft.</p></div></td></tr></tbody>
         </table>
       </div>
     </div>
@@ -796,6 +815,7 @@
         </div>
       </div>
     </div>
+
   </section>
 </main>
 
@@ -1441,7 +1461,8 @@
   async function graphFetch(path, options) {
     const token = await getGraphToken();
     const opts = options || {};
-    const url = path.startsWith('http') ? path : ('https://graph.microsoft.com/v1.0' + path);
+    const apiBase = opts.apiVersion === 'beta' ? 'https://graph.microsoft.com/beta' : 'https://graph.microsoft.com/v1.0';
+    const url = path.startsWith('http') ? path : (apiBase + path);
     const res = await fetch(url, {
       method: opts.method || 'GET',
       headers: Object.assign({
@@ -1696,7 +1717,9 @@
     licenses: 'GoTeam-Licenses',
     assignments: 'GoTeam-Assignments',
     licenseEvents: 'GoTeam-LicenseEvents',
-    licenseMonthly: 'GoTeam-LicenseMonthlySummary'
+    licenseMonthly: 'GoTeam-LicenseMonthlySummary',
+    seatChanges: 'GoTeam-LicenseSeatChanges',
+    licenseMeta: 'GoTeam-LicenseMeta'
   };
 
   // Column schemas — Graph creates these on the list at provisioning time.
@@ -1790,6 +1813,26 @@
       { name: 'SnapAdds',       number: {} },
       { name: 'SnapRemoves',    number: {} },
       { name: 'SnapCapturedAt', text: {} }
+    ],
+    licenseMeta: [
+      // Title = skuId — one row per SKU, holds user-entered metadata
+      // (Billing Profile, Purchased On) that Graph doesn't expose.
+      { name: 'MetaSkuId',           text: {} },
+      { name: 'MetaSkuPart',         text: {} },
+      { name: 'MetaBillingProfile',  text: {} },
+      { name: 'MetaPurchasedOn',     text: {} }
+    ],
+    seatChanges: [
+      // Title = '<detectedIso>|<skuId>' — one row per detected delta.
+      { name: 'ChangeSkuId',        text: {} },
+      { name: 'ChangeSkuPart',      text: {} },
+      { name: 'ChangeSkuName',      text: {} },
+      { name: 'ChangeDelta',        number: {} },
+      { name: 'ChangeSeatsBefore',  number: {} },
+      { name: 'ChangeSeatsAfter',   number: {} },
+      { name: 'ChangeType',         text: {} },     // 'purchase' | 'reduction'
+      { name: 'ChangeDetectedAt',   text: {} },     // ISO when the delta was noticed
+      { name: 'ChangePurchasedDate',text: {} }      // user-editable actual purchase/removal date
     ]
   };
 
@@ -6469,7 +6512,7 @@
   //   }
   function ensureLicenseAuditState() {
     if (!state.licenseAudit) {
-      state.licenseAudit = { lastSyncedAt: null, skus: [], holders: [], auditWindowDays: 90, filter: { skuId: '' }, panels: { summary: false, holders: true, movement: true }, sort: { field: 'displayName', dir: 'asc' } };
+      state.licenseAudit = { lastSyncedAt: null, skus: [], holders: [], auditWindowDays: 90, filter: { skuId: '' }, panels: { summary: false, holders: true, movement: true, seatChanges: true }, sort: { field: 'displayName', dir: 'asc' } };
     }
     if (!state.licenseAudit.panels) state.licenseAudit.panels = { summary: true, holders: true };
     if (!state.licenseAudit.sort) state.licenseAudit.sort = { field: 'displayName', dir: 'asc' };
@@ -6649,6 +6692,7 @@
     if (bodyId === 'licSummaryBody') audit.panels.summary = isCollapsed;
     else if (bodyId === 'licHoldersBody') audit.panels.holders = isCollapsed;
     else if (bodyId === 'licMovementBody') audit.panels.movement = isCollapsed;
+    else if (bodyId === 'licSeatChangesBody') audit.panels.seatChanges = isCollapsed;
     save();
   }
 
@@ -6665,6 +6709,278 @@
     apply('licSummaryBody', 'licSummaryChevron', audit.panels.summary !== false);
     apply('licHoldersBody', 'licHoldersChevron', audit.panels.holders !== false);
     apply('licMovementBody', 'licMovementChevron', audit.panels.movement !== false);
+    apply('licSeatChangesBody', 'licSeatChangesChevron', audit.panels.seatChanges !== false);
+  }
+
+  // Render the Seat Count Changes panel from audit.seatChanges.
+  function renderSeatChanges() {
+    const audit = ensureLicenseAuditState();
+    const changes = (audit.seatChanges || []).slice()
+      .sort((a, b) => String(b.detectedAt).localeCompare(String(a.detectedAt)));
+    const tbody = document.getElementById('licSeatChangesTbody');
+    const countEl = document.getElementById('licSeatChangesCount');
+    if (countEl) countEl.textContent = changes.length ? '(' + changes.length + ' change' + (changes.length === 1 ? '' : 's') + ')' : '';
+    if (!tbody) return;
+    if (changes.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><h4>No changes yet</h4><p>Seat count changes will appear here after your next Sync from Microsoft.</p></div></td></tr>';
+      return;
+    }
+    const fmtDate = iso => {
+      if (!iso) return '';
+      try {
+        const d = new Date(iso);
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' · ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+      } catch (_) { return iso; }
+    };
+    // Paginate
+    const scTotal = changes.length;
+    const scPageSize = _licSeatChangesPageSize;
+    const scTotalPages = Math.max(1, Math.ceil(scTotal / scPageSize));
+    if (_licSeatChangesPage > scTotalPages) _licSeatChangesPage = scTotalPages;
+    const scStart = (_licSeatChangesPage - 1) * scPageSize;
+    const paged = changes.slice(scStart, scStart + scPageSize);
+    tbody.innerHTML = paged.map(c => {
+      const isPurchase = c.delta > 0;
+      const pill = isPurchase
+        ? '<span style="font-size:11px;color:#065f46;background:#d1fae5;padding:3px 10px;border-radius:10px;font-weight:700;">+' + c.delta + ' seats · Purchase</span>'
+        : '<span style="font-size:11px;color:#991b1b;background:#fee2e2;padding:3px 10px;border-radius:10px;font-weight:700;">' + c.delta + ' seats · Reduction</span>';
+      const dateInput = c.spId
+        ? '<input type="date" value="' + (c.purchasedDate ? String(c.purchasedDate).slice(0, 10) : '') + '" ' +
+          'onchange="handleSeatChangeDateEdit(\'' + c.spId + '\', this.value, this)" ' +
+          'style="font-size:12px;padding:4px 8px;border:1px solid #cbd5e1;border-radius:6px;font-family:inherit;background:white;" />'
+        : '<span style="color:var(--muted);font-size:11px;">(pending SP save)</span>';
+      return '<tr>' +
+        '<td><span style="font-size:12px;color:#111827;white-space:nowrap;">' + fmtDate(c.detectedAt) + '</span></td>' +
+        '<td><strong style="font-size:12px;">' + (c.skuName || c.skuId) + '</strong>' +
+          (c.skuPart ? '<div style="font-size:10px;color:var(--muted);font-family:ui-monospace,Menlo,Consolas,monospace;">' + c.skuPart + '</div>' : '') + '</td>' +
+        '<td style="text-align:center;">' + pill + '</td>' +
+        '<td style="text-align:center;font-weight:600;">' + Number(c.seatsBefore).toLocaleString() + '</td>' +
+        '<td style="text-align:center;font-weight:600;color:#1d4ed8;">' + Number(c.seatsAfter).toLocaleString() + '</td>' +
+        '<td>' + dateInput + '</td>' +
+      '</tr>';
+    }).join('');
+    renderSeatChangesPagination(_licSeatChangesPage, scTotalPages, scTotal);
+  }
+
+  // Sort for License Summary.
+  function setLicSummarySort(field) {
+    const audit = ensureLicenseAuditState();
+    const cur = audit.summarySort || { field: 'friendlyName', dir: 'asc' };
+    if (cur.field === field) cur.dir = cur.dir === 'asc' ? 'desc' : 'asc';
+    else { cur.field = field; cur.dir = 'asc'; }
+    audit.summarySort = cur;
+    _licSummaryPage = 1;
+    save();
+    renderLicenseAudit();
+  }
+  // Pagination for License Summary.
+  let _licSummaryPage = 1;
+  let _licSummaryPageSize = 10;
+  function setLicSummaryPage(p) { _licSummaryPage = Math.max(1, p); renderLicenseAudit(); }
+  function setLicSummaryPageSize(n) { _licSummaryPageSize = parseInt(n, 10) || 10; _licSummaryPage = 1; renderLicenseAudit(); }
+  function renderLicSummaryPagination(page, totalPages, totalRows) {
+    let bar = document.getElementById('licSummaryPagination');
+    if (!bar) {
+      const body = document.getElementById('licSummaryBody');
+      if (!body) return;
+      bar = document.createElement('div');
+      bar.id = 'licSummaryPagination';
+      bar.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:12px 20px;background:#f8fafc;border-top:1px solid #e2e8f0;flex-wrap:wrap;gap:12px;';
+      body.appendChild(bar);
+    }
+    if (totalRows === 0) { bar.style.display = 'none'; return; }
+    bar.style.display = 'flex';
+    const win = [];
+    if (totalPages <= 7) { for (let i = 1; i <= totalPages; i++) win.push(i); }
+    else {
+      win.push(1);
+      if (page > 4) win.push('…');
+      for (let i = Math.max(2, page - 1); i <= Math.min(totalPages - 1, page + 1); i++) win.push(i);
+      if (page < totalPages - 3) win.push('…');
+      win.push(totalPages);
+    }
+    const btn = (label, tgt, opts) => {
+      opts = opts || {};
+      const bg = opts.active ? '#2563eb' : '#fff';
+      const color = opts.active ? '#fff' : (opts.disabled ? '#cbd5e1' : '#374151');
+      const border = opts.active ? '#2563eb' : '#cbd5e1';
+      const cursor = opts.disabled ? 'not-allowed' : 'pointer';
+      const click = opts.disabled || opts.active ? '' : ' onclick="setLicSummaryPage(' + tgt + ')"';
+      return '<button' + click + ' style="min-width:32px;padding:6px 10px;font-size:12px;font-weight:600;background:' + bg + ';color:' + color + ';border:1px solid ' + border + ';border-radius:6px;cursor:' + cursor + ';font-family:inherit;">' + label + '</button>';
+    };
+    const startShown = (page - 1) * _licSummaryPageSize + 1;
+    const endShown = Math.min(page * _licSummaryPageSize, totalRows);
+    bar.innerHTML =
+      '<div style="font-size:12px;color:var(--muted);">Showing <strong style="color:#111827;">' + startShown + '–' + endShown + '</strong> of <strong style="color:#111827;">' + totalRows + '</strong> SKU(s)</div>' +
+      '<div style="display:flex;align-items:center;gap:4px;">' + btn('«', 1, { disabled: page === 1 }) + btn('‹', page - 1, { disabled: page === 1 }) +
+        win.map(p => p === '…' ? '<span style="padding:0 6px;color:var(--muted);">…</span>' : btn(String(p), p, { active: p === page })).join('') +
+        btn('›', page + 1, { disabled: page === totalPages }) + btn('»', totalPages, { disabled: page === totalPages }) + '</div>' +
+      '<div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);">Show ' +
+        '<select onchange="setLicSummaryPageSize(this.value)" style="padding:5px 8px;font-size:12px;border:1px solid #cbd5e1;border-radius:6px;font-family:inherit;background:white;">' +
+          [10, 30, 50, 100].map(n => '<option value="' + n + '"' + (n === _licSummaryPageSize ? ' selected' : '') + '>' + n + '</option>').join('') +
+        '</select></div>';
+  }
+
+  // Pagination for Seat Count Changes.
+  let _licSeatChangesPage = 1;
+  let _licSeatChangesPageSize = 30;
+  function setLicSeatChangesPage(p) { _licSeatChangesPage = Math.max(1, p); renderSeatChanges(); }
+  function setLicSeatChangesPageSize(n) { _licSeatChangesPageSize = parseInt(n, 10) || 30; _licSeatChangesPage = 1; renderSeatChanges(); }
+  function renderSeatChangesPagination(page, totalPages, totalRows) {
+    let bar = document.getElementById('licSeatChangesPagination');
+    if (!bar) {
+      const body = document.getElementById('licSeatChangesBody');
+      if (!body) return;
+      bar = document.createElement('div');
+      bar.id = 'licSeatChangesPagination';
+      bar.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:12px 20px;background:#f8fafc;border-top:1px solid #e2e8f0;flex-wrap:wrap;gap:12px;';
+      body.appendChild(bar);
+    }
+    if (totalRows === 0) { bar.style.display = 'none'; return; }
+    bar.style.display = 'flex';
+    const win = [];
+    if (totalPages <= 7) { for (let i = 1; i <= totalPages; i++) win.push(i); }
+    else {
+      win.push(1);
+      if (page > 4) win.push('…');
+      for (let i = Math.max(2, page - 1); i <= Math.min(totalPages - 1, page + 1); i++) win.push(i);
+      if (page < totalPages - 3) win.push('…');
+      win.push(totalPages);
+    }
+    const btn = (label, tgt, opts) => {
+      opts = opts || {};
+      const bg = opts.active ? '#2563eb' : '#fff';
+      const color = opts.active ? '#fff' : (opts.disabled ? '#cbd5e1' : '#374151');
+      const border = opts.active ? '#2563eb' : '#cbd5e1';
+      const cursor = opts.disabled ? 'not-allowed' : 'pointer';
+      const click = opts.disabled || opts.active ? '' : ' onclick="setLicSeatChangesPage(' + tgt + ')"';
+      return '<button' + click + ' style="min-width:32px;padding:6px 10px;font-size:12px;font-weight:600;background:' + bg + ';color:' + color + ';border:1px solid ' + border + ';border-radius:6px;cursor:' + cursor + ';font-family:inherit;">' + label + '</button>';
+    };
+    const startShown = (page - 1) * _licSeatChangesPageSize + 1;
+    const endShown = Math.min(page * _licSeatChangesPageSize, totalRows);
+    bar.innerHTML =
+      '<div style="font-size:12px;color:var(--muted);">Showing <strong style="color:#111827;">' + startShown + '–' + endShown + '</strong> of <strong style="color:#111827;">' + totalRows + '</strong> change(s)</div>' +
+      '<div style="display:flex;align-items:center;gap:4px;">' + btn('«', 1, { disabled: page === 1 }) + btn('‹', page - 1, { disabled: page === 1 }) +
+        win.map(p => p === '…' ? '<span style="padding:0 6px;color:var(--muted);">…</span>' : btn(String(p), p, { active: p === page })).join('') +
+        btn('›', page + 1, { disabled: page === totalPages }) + btn('»', totalPages, { disabled: page === totalPages }) + '</div>' +
+      '<div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);">Show ' +
+        '<select onchange="setLicSeatChangesPageSize(this.value)" style="padding:5px 8px;font-size:12px;border:1px solid #cbd5e1;border-radius:6px;font-family:inherit;background:white;">' +
+          [10, 30, 50, 100].map(n => '<option value="' + n + '"' + (n === _licSeatChangesPageSize ? ' selected' : '') + '>' + n + '</option>').join('') +
+        '</select></div>';
+  }
+
+  // ---- Manual seat-change entry form (backfill historical purchases/reductions) ----
+  function openManualSeatChangeForm() {
+    const audit = ensureLicenseAuditState();
+    if (!audit.skus || audit.skus.length === 0) { alert('Sync from Microsoft first so we have SKU choices.'); return; }
+    const skuOpts = audit.skus.slice()
+      .sort((a, b) => (a.friendlyName || a.skuPartNumber).localeCompare(b.friendlyName || b.skuPartNumber))
+      .map(s => '<option value="' + s.skuId + '" data-current="' + (s.prepaidEnabled || 0) + '">' + (s.friendlyName || s.skuPartNumber) + ' — current: ' + (s.prepaidEnabled || 0) + '</option>')
+      .join('');
+    const existing = document.getElementById('manualSeatChangeOverlay');
+    if (existing) existing.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'manualSeatChangeOverlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:10000;padding:20px;';
+    const today = new Date().toISOString().slice(0, 10);
+    overlay.innerHTML =
+      '<div style="background:#fff;border-radius:12px;max-width:560px;width:100%;box-shadow:0 20px 50px rgba(0,0,0,0.3);">' +
+        '<div style="padding:18px 22px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;">' +
+          '<h3 style="margin:0;font-size:16px;color:#111827;">Add Manual Seat Change</h3>' +
+          '<button id="manSCClose" style="background:none;border:none;font-size:22px;cursor:pointer;color:#6b7280;">×</button>' +
+        '</div>' +
+        '<div style="padding:20px 22px;display:grid;gap:14px;">' +
+          '<div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">License</label>' +
+            '<select id="manSCSku" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;">' + skuOpts + '</select></div>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">' +
+            '<div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Seats Before</label>' +
+              '<input type="number" id="manSCBefore" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;" /></div>' +
+            '<div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Seats After</label>' +
+              '<input type="number" id="manSCAfter" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;" /></div>' +
+          '</div>' +
+          '<div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Purchased Date</label>' +
+            '<input type="date" id="manSCDate" value="' + today + '" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;" /></div>' +
+          '<div id="manSCDelta" style="padding:10px 14px;background:#f8fafc;border-radius:8px;font-size:13px;color:var(--muted);text-align:center;">Delta: —</div>' +
+        '</div>' +
+        '<div style="padding:14px 22px;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:10px;">' +
+          '<button id="manSCCancel" style="padding:9px 18px;border:1px solid #d1d5db;background:#fff;border-radius:6px;cursor:pointer;font-size:13px;">Cancel</button>' +
+          '<button id="manSCSave" style="padding:9px 20px;border:none;background:#0284c7;color:#fff;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;">Save</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    const skuSel = overlay.querySelector('#manSCSku');
+    const beforeEl = overlay.querySelector('#manSCBefore');
+    const afterEl = overlay.querySelector('#manSCAfter');
+    const deltaEl = overlay.querySelector('#manSCDelta');
+    const updateDelta = () => {
+      const b = Number(beforeEl.value || 0);
+      const a = Number(afterEl.value || 0);
+      const d = a - b;
+      const color = d > 0 ? '#065f46' : d < 0 ? '#991b1b' : '#6b7280';
+      const label = d > 0 ? 'Purchase' : d < 0 ? 'Reduction' : 'No change';
+      deltaEl.innerHTML = '<strong style="color:' + color + ';">Delta: ' + (d > 0 ? '+' : '') + d + ' seats · ' + label + '</strong>';
+    };
+    // Prefill Seats After to current tenant value; Before defaults to current − 0 (user fills)
+    const opt = skuSel.selectedOptions[0];
+    if (opt) afterEl.value = opt.dataset.current || '';
+    skuSel.onchange = () => {
+      const o = skuSel.selectedOptions[0];
+      if (o) afterEl.value = o.dataset.current || '';
+      updateDelta();
+    };
+    beforeEl.oninput = updateDelta;
+    afterEl.oninput = updateDelta;
+    updateDelta();
+    const close = () => overlay.remove();
+    overlay.querySelector('#manSCClose').onclick = close;
+    overlay.querySelector('#manSCCancel').onclick = close;
+    overlay.querySelector('#manSCSave').onclick = async () => {
+      const skuId = skuSel.value;
+      const before = Number(beforeEl.value || 0);
+      const after = Number(afterEl.value || 0);
+      const delta = after - before;
+      const purchasedDate = overlay.querySelector('#manSCDate').value;
+      if (!skuId || delta === 0) { alert('Choose a license and enter a non-zero delta.'); return; }
+      const sku = audit.skus.find(s => s.skuId === skuId);
+      const change = {
+        skuId: skuId,
+        skuPart: sku ? (sku.skuPartNumber || '') : '',
+        skuName: sku ? (sku.friendlyName || sku.skuPartNumber || sku.skuId) : skuId,
+        seatsBefore: before,
+        seatsAfter: after,
+        delta: delta,
+        type: delta > 0 ? 'purchase' : 'reduction',
+        // Use purchasedDate as detectedAt for manual entries so they sort chronologically.
+        detectedAt: (purchasedDate ? purchasedDate + 'T00:00:00Z' : new Date().toISOString()),
+        purchasedDate: purchasedDate || ''
+      };
+      const spId = await pushSeatChangeToSP(getMSSettings(), change);
+      if (spId) {
+        change.spId = spId;
+        audit.seatChanges = [change].concat(audit.seatChanges || []);
+        // Advance the in-memory baseline so a future sync doesn't re-detect the same delta.
+        audit.seatBaseline = audit.seatBaseline || {};
+        audit.seatBaseline[skuId] = after;
+        save();
+        renderSeatChanges();
+        showToast('Manual seat change saved');
+        close();
+      } else {
+        alert('Failed to save. Make sure GoTeam-LicenseSeatChanges exists (run Repair / Update Schema first).');
+      }
+    };
+  }
+
+  // Fired when the user edits a Purchased Date cell. Saves to SP and shows
+  // a small confirmation flash.
+  async function handleSeatChangeDateEdit(spId, newDate, inputEl) {
+    inputEl.disabled = true;
+    inputEl.style.background = '#fef3c7';
+    const ok = await updateSeatChangePurchasedDate(spId, newDate);
+    inputEl.style.background = ok ? '#d1fae5' : '#fee2e2';
+    setTimeout(() => { inputEl.style.background = 'white'; }, 900);
+    inputEl.disabled = false;
+    if (!ok) alert('Failed to save Purchased Date. Check console for details.');
   }
 
   // SKU part numbers excluded ONLY from the License Movement panel (free / trial
@@ -6831,6 +7147,143 @@
       }
     }
     return { created, updated, skipped, failed, locked };
+  }
+
+  // Pull the SKU metadata dictionary (Billing Profile, Purchased On) from SP.
+  async function pullLicenseMetaFromSP(settings) {
+    if (!settings || !settings.siteId || !settings.listIds || !settings.listIds.licenseMeta) return {};
+    try {
+      const items = await graphPageAll('/sites/' + settings.siteId + '/lists/' + settings.listIds.licenseMeta + '/items?$expand=fields&$top=999');
+      const out = {};
+      items.forEach(it => {
+        const f = it.fields || {};
+        if (f.MetaSkuId) out[f.MetaSkuId] = {
+          spId: it.id,
+          billingProfile: f.MetaBillingProfile || '',
+          purchasedOn: f.MetaPurchasedOn || ''
+        };
+      });
+      return out;
+    } catch (e) { console.warn('pullLicenseMetaFromSP failed:', e); return {}; }
+  }
+  // Upsert a single SKU's metadata to SP (by Title = skuId).
+  async function upsertLicenseMetaToSP(skuId, patch) {
+    const settings = getMSSettings();
+    if (!settings || !settings.siteId || !settings.listIds || !settings.listIds.licenseMeta) {
+      console.warn('licenseMeta list not provisioned — run Repair / Update Schema');
+      return null;
+    }
+    const listId = settings.listIds.licenseMeta;
+    const base = '/sites/' + settings.siteId + '/lists/' + listId;
+    // Look up existing row by Title = skuId
+    let existing = null;
+    try {
+      const safe = String(skuId).replace(/'/g, "''");
+      const r = await graphFetch(base + "/items?$expand=fields&$filter=fields/Title eq '" + safe + "'&$top=1");
+      if (r.value && r.value.length > 0) existing = r.value[0];
+    } catch (_) {}
+    const audit = ensureLicenseAuditState();
+    const cur = (audit.skus || []).find(x => x.skuId === skuId) || {};
+    const fields = {
+      Title: skuId,
+      MetaSkuId: skuId,
+      MetaSkuPart: cur.skuPartNumber || '',
+      MetaBillingProfile: patch.billingProfile != null ? patch.billingProfile : (cur.billingProfile || ''),
+      MetaPurchasedOn: patch.purchasedOn != null ? patch.purchasedOn : (cur.purchasedOn || '')
+    };
+    try {
+      if (existing) {
+        await graphFetch(base + '/items/' + existing.id + '/fields', { method: 'PATCH', body: fields });
+        return existing.id;
+      } else {
+        const r = await graphFetch(base + '/items', { method: 'POST', body: { fields: fields } });
+        return r.id;
+      }
+    } catch (e) { console.warn('upsertLicenseMetaToSP failed for ' + skuId, e); return null; }
+  }
+
+  // ============================================================
+  // Seat count changes (purchases + reductions)
+  // ============================================================
+  // Detects when a SKU's prepaidUnits.enabled changes between syncs and
+  // records the delta to `GoTeam-LicenseSeatChanges`. Also loads existing
+  // records so the panel + baseline compare survive across sessions.
+  async function pullSeatChangesFromSP(settings) {
+    if (!settings || !settings.siteId || !settings.listIds || !settings.listIds.seatChanges) return [];
+    try {
+      const items = await graphPageAll('/sites/' + settings.siteId + '/lists/' + settings.listIds.seatChanges + '/items?$expand=fields&$top=999');
+      return items.map(it => {
+        const f = it.fields || {};
+        return {
+          spId: it.id,
+          skuId: f.ChangeSkuId || '',
+          skuPart: f.ChangeSkuPart || '',
+          skuName: f.ChangeSkuName || '',
+          delta: Number(f.ChangeDelta || 0),
+          seatsBefore: Number(f.ChangeSeatsBefore || 0),
+          seatsAfter: Number(f.ChangeSeatsAfter || 0),
+          type: f.ChangeType || (Number(f.ChangeDelta || 0) >= 0 ? 'purchase' : 'reduction'),
+          detectedAt: f.ChangeDetectedAt || '',
+          purchasedDate: f.ChangePurchasedDate || ''
+        };
+      }).sort((a, b) => String(b.detectedAt).localeCompare(String(a.detectedAt)));
+    } catch (e) {
+      console.warn('pullSeatChangesFromSP failed:', e);
+      return [];
+    }
+  }
+
+  async function pushSeatChangeToSP(settings, change) {
+    if (!settings || !settings.siteId || !settings.listIds || !settings.listIds.seatChanges) return null;
+    const listId = settings.listIds.seatChanges;
+    const base = '/sites/' + settings.siteId + '/lists/' + listId;
+    const title = change.detectedAt + '|' + change.skuId;
+    try {
+      const r = await graphFetch(base + '/items', {
+        method: 'POST',
+        body: { fields: {
+          Title: title,
+          ChangeSkuId: change.skuId,
+          ChangeSkuPart: change.skuPart || '',
+          ChangeSkuName: change.skuName || '',
+          ChangeDelta: change.delta || 0,
+          ChangeSeatsBefore: change.seatsBefore || 0,
+          ChangeSeatsAfter: change.seatsAfter || 0,
+          ChangeType: change.type,
+          ChangeDetectedAt: change.detectedAt,
+          ChangePurchasedDate: change.purchasedDate || ''
+        }}
+      });
+      return r.id;
+    } catch (e) {
+      console.warn('pushSeatChangeToSP failed for ' + title, e);
+      return null;
+    }
+  }
+
+  // Persist a user-entered PurchasedDate edit back to the SharePoint row.
+  async function updateSeatChangePurchasedDate(spId, newDate) {
+    if (!msalAccount) { showToast('Sign in first'); return false; }
+    const settings = getMSSettings();
+    if (!settings || !settings.siteId || !settings.listIds || !settings.listIds.seatChanges) {
+      showToast('Seat-changes list not configured');
+      return false;
+    }
+    try {
+      await graphFetch('/sites/' + settings.siteId + '/lists/' + settings.listIds.seatChanges + '/items/' + spId + '/fields', {
+        method: 'PATCH',
+        body: { ChangePurchasedDate: newDate || '' }
+      });
+      // Update in-memory state
+      const audit = ensureLicenseAuditState();
+      const rec = (audit.seatChanges || []).find(c => c.spId === spId);
+      if (rec) rec.purchasedDate = newDate || '';
+      save();
+      return true;
+    } catch (e) {
+      console.error('updateSeatChangePurchasedDate failed:', e);
+      return false;
+    }
   }
 
   // ---- License Movement panel ----
@@ -7094,16 +7547,69 @@
       const rawSkus = skuResp.value || [];
       const existingPurchased = {};
       (audit.skus || []).forEach(s => { if (s.skuId) existingPurchased[s.skuId] = s.purchasedOn || ''; });
+      // 1b. Fetch directory subscriptions (beta) — gives us renewal date and
+      //     ownerTenantId (which we map to the billing profile / partner name).
+      //     Best-effort: if the endpoint or scope isn't available, we silently
+      //     fall back to skus-only data.
+      let subscriptions = [];
+      try {
+        const subResp = await graphFetch('/directory/subscriptions', { apiVersion: 'beta' });
+        subscriptions = (subResp && subResp.value) || [];
+      } catch (_) {
+        try {
+          const subResp2 = await graphFetch('/directorySubscriptions', { apiVersion: 'beta' });
+          subscriptions = (subResp2 && subResp2.value) || [];
+        } catch (__) { subscriptions = []; }
+      }
+      // Build a map: skuId → { renewal ISO }
+      // A SKU may have multiple subscriptions (Enabled + Suspended); we pick
+      // the Enabled one with the latest renewal date. Status match is
+      // case-insensitive because Microsoft returns "Enabled"/"Suspended"
+      // with capital letters, and older tenants sometimes return lowercase.
+      const subByKind = {};
+      subscriptions.forEach(sub => {
+        const skuId = String(sub.skuId || '').toLowerCase();
+        const status = String(sub.status || sub.serviceStatus || '').toLowerCase();
+        if (status && status !== 'enabled' && status !== 'active') return;
+        const renewal = sub.nextLifecycleDateTime || '';
+        // Ignore the "never expires" sentinel (9999-12-31) — those are
+        // individually-owned subs like Power BI Dept, not corporate.
+        if (renewal && renewal.startsWith('9999')) return;
+        const prev = subByKind[skuId];
+        if (!prev || String(renewal) > String(prev.renewal || '')) {
+          subByKind[skuId] = { renewal: renewal };
+        }
+      });
+      // Preserve any manually-entered Billing Profile / Purchased On.
+      // Prefer SharePoint (canonical, cross-browser) over local state.
+      const spMeta = await pullLicenseMetaFromSP(getMSSettings());
+      const existingBillingProfile = {};
+      const existingPurchasedOn = {};
+      (audit.skus || []).forEach(s => {
+        if (!s.skuId) return;
+        existingBillingProfile[s.skuId] = s.billingProfile || '';
+        existingPurchasedOn[s.skuId] = s.purchasedOn || '';
+      });
+      // SP wins if it has a value
+      Object.keys(spMeta).forEach(skuId => {
+        if (spMeta[skuId].billingProfile) existingBillingProfile[skuId] = spMeta[skuId].billingProfile;
+        if (spMeta[skuId].purchasedOn) existingPurchasedOn[skuId] = spMeta[skuId].purchasedOn;
+      });
       audit.skus = rawSkus
         .filter(s => (s.capabilityStatus || '').toLowerCase() !== 'deleted')
-        .map(s => ({
-          skuId: s.skuId,
-          skuPartNumber: s.skuPartNumber || '',
-          friendlyName: friendlyLicenseName(s.skuPartNumber) || s.skuPartNumber,
-          prepaidEnabled: (s.prepaidUnits && s.prepaidUnits.enabled) || 0,
-          consumedUnits: s.consumedUnits || 0,
-          purchasedOn: existingPurchased[s.skuId] || ''
-        }))
+        .map(s => {
+          const meta = subByKind[String(s.skuId || '').toLowerCase()] || {};
+          return {
+            skuId: s.skuId,
+            skuPartNumber: s.skuPartNumber || '',
+            friendlyName: friendlyLicenseName(s.skuPartNumber) || s.skuPartNumber,
+            prepaidEnabled: (s.prepaidUnits && s.prepaidUnits.enabled) || 0,
+            consumedUnits: s.consumedUnits || 0,
+            purchasedOn: existingPurchasedOn[s.skuId] || existingPurchased[s.skuId] || '',
+            renewalDate: meta.renewal || '',
+            billingProfile: existingBillingProfile[s.skuId] || ''
+          };
+        })
         .sort((a, b) => a.friendlyName.localeCompare(b.friendlyName));
 
       // 2. Fetch all users (paginated). We include disabled + unlicensed users
@@ -7547,6 +8053,56 @@
       });
       const spSnapResult = await pushLicenseMonthlyToSP(getMSSettings(), snapshots);
       console.log('[License Monthly → SP] created=' + spSnapResult.created + ', updated=' + spSnapResult.updated + ', skipped=' + spSnapResult.skipped + ', failed=' + spSnapResult.failed);
+
+      // ---- Seat-count change detection ----------------------------------
+      // Compare each SKU's current prepaidUnits.enabled against the previous
+      // baseline (either from state or the last row in GoTeam-LicenseSeatChanges).
+      // Any delta → new row in SP + local audit.seatChanges.
+      status.textContent = 'Checking for seat-count changes…';
+      const _settings = getMSSettings();
+      const priorChanges = await pullSeatChangesFromSP(_settings);
+      audit.seatChanges = priorChanges;
+      // Build baseline: latest seatsAfter per skuId (from SP history), or the
+      // current state.licenseAudit.seatBaseline (browser-side fallback if SP
+      // is missing rows for a SKU).
+      const baseline = {};
+      priorChanges.slice().reverse().forEach(c => { baseline[c.skuId] = c.seatsAfter; });
+      const savedBaseline = (audit.seatBaseline || {});
+      Object.keys(savedBaseline).forEach(k => { if (baseline[k] == null) baseline[k] = savedBaseline[k]; });
+      // Detect deltas for each SKU
+      const nowIso = new Date().toISOString();
+      const newChanges = [];
+      for (const sku of audit.skus) {
+        const cur = Number(sku.prepaidEnabled || 0);
+        const prev = baseline[sku.skuId];
+        if (prev == null) {
+          // First observation of this SKU — establish baseline silently, no delta logged.
+          baseline[sku.skuId] = cur;
+          continue;
+        }
+        if (cur === prev) continue;
+        const delta = cur - prev;
+        const change = {
+          skuId: sku.skuId,
+          skuPart: sku.skuPartNumber || '',
+          skuName: sku.friendlyName || sku.skuPartNumber || sku.skuId,
+          seatsBefore: prev,
+          seatsAfter: cur,
+          delta: delta,
+          type: delta > 0 ? 'purchase' : 'reduction',
+          detectedAt: nowIso,
+          purchasedDate: ''
+        };
+        const spId = await pushSeatChangeToSP(_settings, change);
+        if (spId) change.spId = spId;
+        newChanges.push(change);
+        baseline[sku.skuId] = cur;
+      }
+      if (newChanges.length > 0) {
+        audit.seatChanges = newChanges.concat(audit.seatChanges);
+        console.log('[Seat Changes] Detected ' + newChanges.length + ' change(s):', newChanges.map(c => c.skuName + ' ' + (c.delta > 0 ? '+' : '') + c.delta).join(', '));
+      }
+      audit.seatBaseline = baseline;
       // Same dedupe for the per-user changeMap that drives the holders table.
       Object.keys(changeMap).forEach(uid => {
         const seen = new Set();
@@ -7690,23 +8246,83 @@
       skusTbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><h4>No data yet</h4><p>Click "Sync from Microsoft" to pull live license data.</p></div></td></tr>';
     } else {
       const activeSkuId = (audit.filter && audit.filter.skuId) || '';
-      skusTbody.innerHTML = audit.skus.map(s => {
+      const fmtDate = iso => {
+        if (!iso) return '<span style="color:var(--muted);font-size:11px;">—</span>';
+        try {
+          const d = new Date(iso);
+          const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+          const daysToGo = Math.round((d.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+          let hint = '';
+          if (daysToGo >= 0 && daysToGo <= 14) hint = '<div style="font-size:10px;color:#b91c1c;font-weight:600;">In ' + daysToGo + ' day' + (daysToGo === 1 ? '' : 's') + '</div>';
+          else if (daysToGo >= 0 && daysToGo <= 45) hint = '<div style="font-size:10px;color:#c2410c;">In ' + daysToGo + ' days</div>';
+          return '<span style="font-size:12px;color:#111827;white-space:nowrap;">' + dateStr + '</span>' + hint;
+        } catch (_) { return iso; }
+      };
+      // Render sortable header
+      const sort = audit.summarySort || { field: 'friendlyName', dir: 'asc' };
+      const thead = document.getElementById('licAuditSkusThead');
+      if (thead) {
+        const sh = (label, field, extraStyle) => {
+          const active = sort.field === field;
+          const arrow = active ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : '';
+          const style = 'cursor:pointer;user-select:none;' + (extraStyle || '') + (active ? 'color:var(--primary);' : '');
+          return '<th style="' + style + '" onclick="setLicSummarySort(\'' + field + '\')">' + label + '<span style="font-size:10px;">' + arrow + '</span></th>';
+        };
+        thead.innerHTML = '<tr>' +
+          sh('License Name', 'friendlyName') +
+          sh('SKU Part Number', 'skuPartNumber') +
+          sh('Purchased', 'prepaidEnabled') +
+          sh('Assigned', 'consumedUnits') +
+          sh('Available', 'available') +
+          sh('Renewal Date', 'renewalDate') +
+          sh('Billing Profile', 'billingProfile') +
+        '</tr>';
+      }
+      // Sort a working copy — never mutate audit.skus directly (renewal date + BP need original order for save preservation).
+      const mul = sort.dir === 'desc' ? -1 : 1;
+      const getVal = (s, field) => {
+        if (field === 'available') return Math.max(0, (s.prepaidEnabled || 0) - (s.consumedUnits || 0));
+        if (field === 'prepaidEnabled' || field === 'consumedUnits') return Number(s[field] || 0);
+        return String(s[field] || '');
+      };
+      const sortedSkus = audit.skus.slice().sort((a, b) => {
+        const av = getVal(a, sort.field);
+        const bv = getVal(b, sort.field);
+        if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * mul;
+        return String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' }) * mul;
+      });
+      // Paginate the SORTED SKU list
+      const summaryTotal = sortedSkus.length;
+      const summaryPageSize = _licSummaryPageSize;
+      const summaryTotalPages = Math.max(1, Math.ceil(summaryTotal / summaryPageSize));
+      if (_licSummaryPage > summaryTotalPages) _licSummaryPage = summaryTotalPages;
+      const summaryStart = (_licSummaryPage - 1) * summaryPageSize;
+      const pagedSkus = sortedSkus.slice(summaryStart, summaryStart + summaryPageSize);
+      skusTbody.innerHTML = pagedSkus.map(s => {
         const total = s.prepaidEnabled || 0;
         const used  = s.consumedUnits || 0;
         const avail = Math.max(0, total - used);
-        const pct   = total ? Math.round((used / total) * 100) : 0;
-        const barClass = pct >= 90 ? 'danger' : pct >= 75 ? 'warning' : 'success';
         const active = activeSkuId === s.skuId;
+        // Billing Profile is editable because Microsoft Graph doesn't expose
+        // the CSP partner name on CSP-billed subscriptions (ownerType is null
+        // for reseller subs). Fill it in once per SKU (e.g. "SoftwareONE Ltd.
+        // Philippines") and it persists.
+        const bpVal = s.billingProfile ? String(s.billingProfile).replace(/"/g, '&quot;') : '';
+        const bpInput = '<input type="text" value="' + bpVal + '" placeholder="e.g. SoftwareONE Ltd." ' +
+          'onclick="event.stopPropagation();" ' +
+          'onchange="updateSkuBillingProfile(\'' + s.skuId + '\', this.value)" ' +
+          'style="width:190px;font-size:12px;padding:4px 8px;border:1px solid #cbd5e1;border-radius:6px;font-family:inherit;background:white;" />';
         return '<tr style="cursor:pointer;' + (active ? 'background:#eff6ff;' : '') + '" onclick="setLicenseAuditFilter(\'' + s.skuId + '\')">' +
           '<td><strong>' + s.friendlyName + '</strong></td>' +
           '<td><span style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--muted);">' + s.skuPartNumber + '</span></td>' +
           '<td>' + total + '</td>' +
           '<td>' + used + '</td>' +
           '<td>' + avail + '</td>' +
-          '<td style="min-width:150px;"><div style="display:flex;gap:8px;align-items:center;"><div class="progress" style="flex:1;"><div class="progress-bar ' + barClass + '" style="width:' + pct + '%;"></div></div><span style="font-size:11px;color:var(--muted);min-width:32px;text-align:right;">' + pct + '%</span></div></td>' +
-          '<td onclick="event.stopPropagation();"><input type="date" value="' + (s.purchasedOn || '') + '" onchange="updateSkuPurchasedOn(\'' + s.skuId + '\', this.value)" style="font-size:12px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:6px;font-family:inherit;" /></td>' +
+          '<td>' + fmtDate(s.renewalDate) + '</td>' +
+          '<td>' + bpInput + '</td>' +
         '</tr>';
       }).join('');
+      renderLicSummaryPagination(_licSummaryPage, summaryTotalPages, summaryTotal);
     }
 
     // Populate filter dropdown
@@ -7728,6 +8344,7 @@
     }
     renderLicenseAuditHolders();
     renderLicenseMovement();
+    renderSeatChanges();
   }
 
   function setLicenseAuditFilter(skuId) {
@@ -7738,13 +8355,34 @@
     renderLicenseAudit();
   }
 
-  function updateSkuPurchasedOn(skuId, value) {
+  async function updateSkuPurchasedOn(skuId, value) {
     const audit = ensureLicenseAuditState();
     const s = audit.skus.find(x => x.skuId === skuId);
     if (!s) return;
     s.purchasedOn = value || '';
     save();
-    showToast('Purchase date saved for ' + s.friendlyName);
+    if (msalAccount) {
+      const ok = await upsertLicenseMetaToSP(skuId, { purchasedOn: value || '' });
+      showToast(ok ? 'Purchase date saved for ' + s.friendlyName : 'Saved locally — SP save failed');
+    } else {
+      showToast('Purchase date saved locally for ' + s.friendlyName);
+    }
+  }
+
+  async function updateSkuBillingProfile(skuId, value) {
+    const audit = ensureLicenseAuditState();
+    const s = audit.skus.find(x => x.skuId === skuId);
+    if (!s) return;
+    const clean = (value || '').trim();
+    s.billingProfile = clean;
+    save();
+    // Also persist to SharePoint so it survives cache clears and shows for Finance.
+    if (msalAccount) {
+      const ok = await upsertLicenseMetaToSP(skuId, { billingProfile: clean });
+      showToast(ok ? 'Billing profile saved for ' + s.friendlyName : 'Saved locally — SP save failed (check Repair Schema)');
+    } else {
+      showToast('Billing profile saved locally for ' + s.friendlyName);
+    }
   }
 
   function renderLicenseAuditHolders() {
@@ -8497,6 +9135,7 @@
       'body.view-only #licAuditHoldersTbody .lic-audit-row-cb,',
       'body.view-only #licAuditSelectAll { display: none !important; }',
       'body.view-only #licAuditHoldersTbody input[type="text"],',
+      'body.view-only #licAuditSkusTbody input[type="text"],',
       'body.view-only #licAuditSkusTbody input[type="date"] {',
       '  pointer-events: none !important;',
       '  background: transparent !important;',
@@ -8511,7 +9150,16 @@
       // Tenant ID, Client ID, SKU IDs, or other Azure configuration values.
       // The settings modal itself is also blocked from opening below.
       'body.view-only button[onclick*="msSettingsModal"] { display: none !important; }',
-      'body.view-only #msSettingsModal { display: none !important; }'
+      'body.view-only #msSettingsModal { display: none !important; }',
+      // Hide the "+ Add manual entry" button and lock every Purchased Date
+      // input in the Seat Count Changes panel so Finance can only view.
+      'body.view-only #licSeatChangesAddBtn { display: none !important; }',
+      'body.view-only #licSeatChangesTbody input[type="date"] {',
+      '  pointer-events: none !important;',
+      '  background: transparent !important;',
+      '  border-color: transparent !important;',
+      '  color: #6b7280 !important;',
+      '}'
     ].join('\n');
     document.head.appendChild(style);
     // Belt-and-suspenders: intercept any programmatic attempt to open the
