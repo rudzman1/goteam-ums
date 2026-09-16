@@ -8303,15 +8303,18 @@
         const used  = s.consumedUnits || 0;
         const avail = Math.max(0, total - used);
         const active = activeSkuId === s.skuId;
-        // Billing Profile is editable because Microsoft Graph doesn't expose
-        // the CSP partner name on CSP-billed subscriptions (ownerType is null
-        // for reseller subs). Fill it in once per SKU (e.g. "SoftwareONE Ltd.
-        // Philippines") and it persists.
+        // Billing Profile: editable input for admins, plain text for view-only
+        // (avoids the "e.g. SoftwareONE Ltd." placeholder ghosting through the
+        // disabled input Finance sees).
         const bpVal = s.billingProfile ? String(s.billingProfile).replace(/"/g, '&quot;') : '';
-        const bpInput = '<input type="text" value="' + bpVal + '" placeholder="e.g. SoftwareONE Ltd." ' +
-          'onclick="event.stopPropagation();" ' +
-          'onchange="updateSkuBillingProfile(\'' + s.skuId + '\', this.value)" ' +
-          'style="width:190px;font-size:12px;padding:4px 8px;border:1px solid #cbd5e1;border-radius:6px;font-family:inherit;background:white;" />';
+        const bpInput = window.VIEW_ONLY
+          ? (bpVal
+              ? '<span style="font-size:12px;color:#111827;">' + s.billingProfile + '</span>'
+              : '<span style="color:var(--muted);font-size:11px;">—</span>')
+          : '<input type="text" value="' + bpVal + '" placeholder="e.g. SoftwareONE Ltd." ' +
+            'onclick="event.stopPropagation();" ' +
+            'onchange="updateSkuBillingProfile(\'' + s.skuId + '\', this.value)" ' +
+            'style="width:190px;font-size:12px;padding:4px 8px;border:1px solid #cbd5e1;border-radius:6px;font-family:inherit;background:white;" />';
         return '<tr style="cursor:pointer;' + (active ? 'background:#eff6ff;' : '') + '" onclick="setLicenseAuditFilter(\'' + s.skuId + '\')">' +
           '<td><strong>' + s.friendlyName + '</strong></td>' +
           '<td><span style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--muted);">' + s.skuPartNumber + '</span></td>' +
@@ -8323,6 +8326,24 @@
         '</tr>';
       }).join('');
       renderLicSummaryPagination(_licSummaryPage, summaryTotalPages, summaryTotal);
+      // View-only post-processing: replace empty Billing Profile inputs with
+      // an em-dash so Finance never sees the "e.g. SoftwareONE Ltd." hint,
+      // and replace filled inputs with plain text. Runs regardless of any
+      // window.VIEW_ONLY initialization timing quirks — pulls the flag off
+      // <body> where the view-only mode already sets it.
+      if (document.body.classList.contains('view-only')) {
+        document.querySelectorAll('#licAuditSkusTbody input[type="text"], #licAuditSkusTbody input[type="date"]').forEach(el => {
+          const replacement = document.createElement('span');
+          if (el.value) {
+            replacement.textContent = el.value;
+            replacement.style.cssText = 'font-size:12px;color:#111827;';
+          } else {
+            replacement.textContent = '—';
+            replacement.style.cssText = 'font-size:11px;color:#94a3b8;';
+          }
+          el.replaceWith(replacement);
+        });
+      }
     }
 
     // Populate filter dropdown
@@ -9110,6 +9131,7 @@
   //     pickers, sorting, pagination.
   const _urlParams = new URLSearchParams(location.search);
   const VIEW_ONLY = _urlParams.get('view') === 'readonly';
+  window.VIEW_ONLY = VIEW_ONLY;
   if (VIEW_ONLY) {
     document.body.classList.add('view-only');
     // Hide the two nav items — Licensing is the only view they get.
@@ -9141,6 +9163,16 @@
       '  background: transparent !important;',
       '  border-color: transparent !important;',
       '  color: #6b7280 !important;',
+      '}',
+      // Hide placeholder text on view-only inputs so Finance never sees the
+      // "e.g. SoftwareONE Ltd." hint ghosting through empty billing profiles.
+      // Works across Chrome / Edge / Firefox / Safari variants.
+      'body.view-only #licAuditSkusTbody input::placeholder,',
+      'body.view-only #licAuditSkusTbody input::-webkit-input-placeholder,',
+      'body.view-only #licAuditSkusTbody input::-moz-placeholder,',
+      'body.view-only #licAuditSkusTbody input:-ms-input-placeholder {',
+      '  color: transparent !important;',
+      '  opacity: 0 !important;',
       '}',
       // Hide any Push / write bulk actions on Licensing if they exist there.
       'body.view-only #spMigrateBtn,',
