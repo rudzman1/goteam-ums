@@ -138,7 +138,12 @@
   .sidebar-footer .user-info { overflow: hidden; }
   .sidebar-footer .user-info p:first-child { color: white; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .sidebar-footer .user-info p:last-child { color: #64748b; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .main { margin-left: 240px; flex: 1; padding: 28px 36px; max-width: 1500px; width: 100%; }
+  .main { margin-left: 240px; flex: 1; padding: 28px 36px; max-width: 1900px; width: 100%; }
+  /* Larger monitors — scale content proportionally so the UI doesn't feel
+     lost in whitespace on 27" QHD (2560×1440) and 32" 4K displays. */
+  @media (min-width: 1600px) { .main { padding: 32px 48px; font-size: 15px; } }
+  @media (min-width: 1900px) { .main { max-width: 2200px; padding: 36px 60px; font-size: 15.5px; } }
+  @media (min-width: 2400px) { .main { max-width: 2600px; padding: 40px 72px; font-size: 16px; } }
   .page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; flex-wrap: wrap; gap: 16px; }
   .page-title h2 { font-size: 24px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 4px; }
   .page-title p { color: var(--muted); font-size: 14px; }
