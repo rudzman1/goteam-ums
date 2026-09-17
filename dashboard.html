@@ -8915,7 +8915,224 @@
     });
     XLSX.utils.book_append_sheet(wb, sumSheet, 'Summary');
 
-    // ---- Sheet 2: ALL ACTIVE ----
+    // ---- Sheet 2: Billing Cycle ----
+    // Format mirrors your reference: one block per billing cycle (27th of
+    // month N → 26th of month N+1). Left block shows totals (Beginning +
+    // Additions + Removal + Ending). Right block shows per-SKU pivot with
+    // ASSIGNED / REMOVED / ADDITIONAL / REDUCED rows.
+    //   ASSIGNED  = seats added to users (audit.movements action=add)
+    //   REMOVED   = seats taken from users (audit.movements action=remove)
+    //   ADDITIONAL = new seats purchased (positive seat_changes delta)
+    //   REDUCED   = seats reduced by tenant (negative seat_changes delta)
+    const bcRows = [];
+    const bcMerges = [];
+    const bcStyleMap = {};
+    // SKU set for the pivot columns
+    const bcPivotSkus = audit.skus
+      .filter(s => !HIDDEN_SKUS_MOVEMENT.has(String(s.skuPartNumber || '').toUpperCase()))
+      .map(s => ({ id: s.skuId, name: s.friendlyName || s.skuPartNumber, part: s.skuPartNumber || '' }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    // Build cycles. Baseline = Sep 27, 2026 → Oct 26, 2026 (first fully-clean
+    // billing cycle after our data baseline). Only COMPLETED cycles are
+    // included — the current in-progress cycle is skipped so we never publish
+    // partial numbers. When no completed cycle exists yet, the sheet renders
+    // a friendly placeholder telling the user when the first row will appear.
+    const BILLING_CYCLE_DAY = 27;
+    const nowD = new Date();
+    const cycles = [];
+    let cs = new Date(2026, 8, BILLING_CYCLE_DAY);   // Sep 27, 2026
+    while (true) {
+      const ce = new Date(cs); ce.setMonth(ce.getMonth() + 1); ce.setDate(BILLING_CYCLE_DAY - 1);
+      // Only include cycles whose END has already passed (fully complete).
+      if (ce.getTime() >= nowD.getTime()) break;
+      cycles.push({ start: new Date(cs), end: ce });
+      cs.setMonth(cs.getMonth() + 1);
+    }
+    // Helpers
+    const fmtCycleDate = d => (d.getMonth() + 1) + '/' + d.getDate() + '/' + d.getFullYear();
+    const fmtCycleLabel = (a, b) => a.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) + ' - ' + b.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    const fmtMonthYear = d => d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    // Compute per-SKU per-cycle counts
+    function countsForCycle(cy) {
+      const perSku = {};
+      bcPivotSkus.forEach(s => { perSku[s.id] = { assigned: 0, removed: 0, additional: 0, reduced: 0 }; });
+      (audit.movements || []).forEach(m => {
+        if (!m.ts) return;
+        const t = new Date(m.ts).getTime();
+        if (t < cy.start.getTime() || t > cy.end.getTime() + 86400000) return;
+        if (!perSku[m.skuId]) return;
+        if (m.action === 'add') perSku[m.skuId].assigned++;
+        else if (m.action === 'remove') perSku[m.skuId].removed++;
+      });
+      (audit.seatChanges || []).forEach(c => {
+        if (!c.detectedAt) return;
+        const t = new Date(c.detectedAt).getTime();
+        if (t < cy.start.getTime() || t > cy.end.getTime() + 86400000) return;
+        if (!perSku[c.skuId]) return;
+        if (c.delta > 0) perSku[c.skuId].additional += c.delta;
+        else if (c.delta < 0) perSku[c.skuId].reduced += Math.abs(c.delta);
+      });
+      return perSku;
+    }
+    // Beginning of cycle = current used − sum of net changes AFTER cycle start
+    const currentUsedById = {};
+    audit.skus.forEach(s => { currentUsedById[s.skuId] = s.consumedUnits || 0; });
+    const bcBeginning = {}; // { cycleIdx: totalSeats }
+    const bcEnding = {};
+    // Walk each SKU: for each cycle end, compute end-of-cycle seat count
+    // by walking back the SEAT-changes (Additional − Reduced) from current.
+    // Since our audit provides adds/removes on the user level, the "Beginning
+    // of month" is just the seat count in use at start.
+    // We'll compute Beginning of cycle N = Ending of cycle N-1
+    // Approach: for total seats in use per cycle, take audit.movements adds/removes
+    // Since movements are per-user, count of adds/removes = deltas
+    // Beginning value = totalUsed − sum of NET events in later cycles
+    const skuBaselineNow = {};
+    bcPivotSkus.forEach(s => { skuBaselineNow[s.id] = currentUsedById[s.id] || 0; });
+    // Roll backward
+    const cycleTotals = cycles.map((cy, idx) => {
+      const counts = countsForCycle(cy);
+      let netThisCycle = 0;
+      bcPivotSkus.forEach(s => { netThisCycle += (counts[s.id].assigned + counts[s.id].additional) - (counts[s.id].removed + counts[s.id].reduced); });
+      return { counts, netThisCycle };
+    });
+    // End of the last cycle = current total in use
+    const currentTotalInUse = bcPivotSkus.reduce((s, sk) => s + (currentUsedById[sk.id] || 0), 0);
+    // Roll backward to get beginnings/endings per cycle
+    const endings = new Array(cycles.length);
+    const beginnings = new Array(cycles.length);
+    let runningEnd = currentTotalInUse;
+    for (let i = cycles.length - 1; i >= 0; i--) {
+      endings[i] = runningEnd;
+      beginnings[i] = runningEnd - cycleTotals[i].netThisCycle;
+      runningEnd = beginnings[i];
+    }
+    // Styles
+    const BC_BLOCK_HEADER = {
+      font: { bold: true, sz: 11, color: { rgb: '000000' } },
+      fill: { patternType: 'solid', fgColor: { rgb: 'FFFFFF' } },
+      alignment: { horizontal: 'center', vertical: 'center' },
+      border: { top: { style: 'thin', color: { rgb: '000000' } }, bottom: { style: 'thin', color: { rgb: '000000' } }, left: { style: 'thin', color: { rgb: '000000' } }, right: { style: 'thin', color: { rgb: '000000' } } }
+    };
+    const BC_SUBHEADER = {
+      font: { bold: true, sz: 10, color: { rgb: 'FFFFFF' } },
+      fill: { patternType: 'solid', fgColor: { rgb: '2563EB' } },
+      alignment: { horizontal: 'center', vertical: 'center' },
+      border: { top: { style: 'thin', color: { rgb: '000000' } }, bottom: { style: 'thin', color: { rgb: '000000' } }, left: { style: 'thin', color: { rgb: '000000' } }, right: { style: 'thin', color: { rgb: '000000' } } }
+    };
+    const BC_VALUE = {
+      font: { bold: true, sz: 11, color: { rgb: '000000' } },
+      alignment: { horizontal: 'center', vertical: 'center' },
+      border: { top: { style: 'thin', color: { rgb: '000000' } }, bottom: { style: 'thin', color: { rgb: '000000' } }, left: { style: 'thin', color: { rgb: '000000' } }, right: { style: 'thin', color: { rgb: '000000' } } }
+    };
+    const BC_LABEL_LEFT = {
+      font: { bold: true, sz: 10, color: { rgb: '000000' } },
+      alignment: { horizontal: 'left', vertical: 'center' },
+      fill: { patternType: 'solid', fgColor: { rgb: 'DBEAFE' } },
+      border: { top: { style: 'thin', color: { rgb: '000000' } }, bottom: { style: 'thin', color: { rgb: '000000' } }, left: { style: 'thin', color: { rgb: '000000' } }, right: { style: 'thin', color: { rgb: '000000' } } }
+    };
+    // Layout — one block per cycle. Skip cycles where nothing happened AND
+    // beginning=ending (i.e. no data yet).
+    cycles.forEach((cy, ci) => {
+      const nextCyStart = new Date(cy.start); nextCyStart.setMonth(nextCyStart.getMonth() + 1);
+      const nextCyEnd = new Date(cy.end); nextCyEnd.setMonth(nextCyEnd.getMonth() + 1);
+      const rowStart = bcRows.length;
+      // Row A: Left block cycle-range header
+      const rowA = [fmtCycleLabel(cy.start, cy.end), '', '', '', '', fmtCycleLabel(nextCyStart, nextCyEnd), ''];
+      rowA.push('', 'DATE RANGE', '', '', '', '', '', '', '');
+      bcRows.push(rowA);
+      bcMerges.push({ s: { r: rowStart, c: 1 }, e: { r: rowStart, c: 5 } });                   // B-F cycle header
+      bcMerges.push({ s: { r: rowStart, c: 5 }, e: { r: rowStart, c: 6 } });                   // G ending header
+      bcMerges.push({ s: { r: rowStart, c: 9 }, e: { r: rowStart, c: 10 } });                  // J-K DATE RANGE
+      bcStyleMap[rowStart + ',1'] = BC_BLOCK_HEADER;
+      bcStyleMap[rowStart + ',5'] = BC_BLOCK_HEADER;
+      bcStyleMap[rowStart + ',9'] = BC_SUBHEADER;
+      // Row B: sub-headers + date range date row
+      const rowB = ['', 'Beginning of the month of ' + fmtMonthYear(new Date(cy.start.getFullYear(), cy.start.getMonth() + 1, 1)),
+                    'Additions', '', 'Removal', '',
+                    'Ending for the month of ' + fmtMonthYear(new Date(cy.end.getFullYear(), cy.end.getMonth() + 1, 1)),
+                    '', '', fmtCycleDate(cy.start), fmtCycleDate(cy.end), '', '', '', '', ''];
+      bcRows.push(rowB);
+      bcMerges.push({ s: { r: rowStart + 1, c: 2 }, e: { r: rowStart + 1, c: 3 } }); // C-D Additions
+      bcMerges.push({ s: { r: rowStart + 1, c: 4 }, e: { r: rowStart + 1, c: 5 } }); // E-F Removal
+      bcStyleMap[(rowStart + 1) + ',1'] = BC_LABEL_LEFT;
+      bcStyleMap[(rowStart + 1) + ',2'] = BC_SUBHEADER;
+      bcStyleMap[(rowStart + 1) + ',4'] = BC_SUBHEADER;
+      bcStyleMap[(rowStart + 1) + ',6'] = BC_LABEL_LEFT;
+      bcStyleMap[(rowStart + 1) + ',9'] = BC_VALUE;
+      bcStyleMap[(rowStart + 1) + ',10'] = BC_VALUE;
+      // Row C: sub-header labels + per-SKU header row
+      const rowC = ['', '', 'Assigned License', 'Additional License', 'Removed License', 'Reduced License', '', '',
+                    ''];
+      bcPivotSkus.forEach(s => rowC.push(s.name));
+      bcRows.push(rowC);
+      for (let c = 2; c <= 5; c++) bcStyleMap[(rowStart + 2) + ',' + c] = BC_SUBHEADER;
+      bcPivotSkus.forEach((s, i) => { bcStyleMap[(rowStart + 2) + ',' + (9 + i)] = BC_SUBHEADER; });
+      // Row D: values row
+      const counts = cycleTotals[ci].counts;
+      let assignedTotal = 0, additionalTotal = 0, removedTotal = 0, reducedTotal = 0;
+      bcPivotSkus.forEach(s => {
+        assignedTotal += counts[s.id].assigned;
+        additionalTotal += counts[s.id].additional;
+        removedTotal += counts[s.id].removed;
+        reducedTotal += counts[s.id].reduced;
+      });
+      const rowD = ['', beginnings[ci], assignedTotal, additionalTotal, removedTotal, reducedTotal, endings[ci], '', 'ASSIGNED LICENSE'];
+      bcPivotSkus.forEach(s => rowD.push(counts[s.id].assigned));
+      bcRows.push(rowD);
+      bcStyleMap[(rowStart + 3) + ',1'] = BC_VALUE;
+      bcStyleMap[(rowStart + 3) + ',6'] = BC_VALUE;
+      for (let c = 2; c <= 5; c++) bcStyleMap[(rowStart + 3) + ',' + c] = BC_VALUE;
+      bcStyleMap[(rowStart + 3) + ',8'] = BC_LABEL_LEFT;
+      bcPivotSkus.forEach((s, i) => { bcStyleMap[(rowStart + 3) + ',' + (9 + i)] = BC_VALUE; });
+      // Rows E-G: REMOVED, ADDITIONAL, REDUCED
+      const catRows = [
+        { label: 'REMOVED LICENSE', key: 'removed' },
+        { label: 'ADDITIONAL LICENSE', key: 'additional' },
+        { label: 'REDUCED LICENSE', key: 'reduced' }
+      ];
+      catRows.forEach((cat, i) => {
+        const r = new Array(9).fill('');
+        r[8] = cat.label;
+        bcPivotSkus.forEach(s => r.push(counts[s.id][cat.key]));
+        bcRows.push(r);
+        const rr = rowStart + 4 + i;
+        bcStyleMap[rr + ',8'] = BC_LABEL_LEFT;
+        bcPivotSkus.forEach((s, ii) => { bcStyleMap[rr + ',' + (9 + ii)] = BC_VALUE; });
+      });
+      // Spacer row
+      bcRows.push([]);
+    });
+    // Friendly placeholder when no cycle has closed yet (before Oct 27, 2026).
+    if (cycles.length === 0) {
+      const firstCycleEnd = new Date(2026, 9, BILLING_CYCLE_DAY - 1); // Oct 26, 2026
+      const readyStr = firstCycleEnd.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+      bcRows.push(['']);
+      bcRows.push(['', 'No completed billing cycles yet.']);
+      bcRows.push(['', 'The first cycle (Sep 27 – Oct 26, 2026) will appear here after ' + readyStr + '.']);
+      bcRows.push(['', 'The dashboard skips in-progress cycles so audit data is always final, never partial.']);
+      bcStyleMap['1,1'] = { font: { bold: true, sz: 14, color: { rgb: '1D4ED8' } } };
+      bcStyleMap['2,1'] = { font: { sz: 11, color: { rgb: '374151' } } };
+      bcStyleMap['3,1'] = { font: { sz: 10, color: { rgb: '6B7280' }, italic: true } };
+    }
+    const bcSheet = XLSX.utils.aoa_to_sheet(bcRows);
+    bcSheet['!merges'] = bcMerges;
+    // Column widths: A (spacer), B-G (left block), H (spacer), I (label), J-Q (SKUs)
+    bcSheet['!cols'] = [
+      { wch: 3 },                    // A
+      { wch: 32 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 32 }, // B-G
+      { wch: 3 },                    // H spacer
+      { wch: 22 }                    // I labels
+    ].concat(bcPivotSkus.map(() => ({ wch: 18 })));
+    Object.keys(bcStyleMap).forEach(key => {
+      const [r, c] = key.split(',').map(n => parseInt(n, 10));
+      const addr = XLSX.utils.encode_cell({ r, c });
+      if (!bcSheet[addr]) bcSheet[addr] = { t: 's', v: '' };
+      bcSheet[addr].s = bcStyleMap[key];
+    });
+    XLSX.utils.book_append_sheet(wb, bcSheet, 'Billing Cycle');
+
+    // ---- Sheet 3: ALL ACTIVE ----
     const skuNameById = {};
     audit.skus.forEach(s => { skuNameById[String(s.skuId || '').toLowerCase()] = s.friendlyName || s.skuPartNumber; });
     const activeRows = [['Employee ID', 'Name', 'Email', 'Client', 'Licenses', 'Remarks']];
@@ -8942,7 +9159,7 @@
       .filter(s => !HIDDEN_SKUS_MOVEMENT.has(String(s.skuPartNumber || '').toUpperCase()))
       .forEach(s => {
         const skuIdLc = String(s.skuId || '').toLowerCase();
-        const rows = [['Employee ID', 'Name', 'Email', 'License Assign', 'License Assigned Date', 'License Removed Date', 'Remarks']];
+        const rows = [['Employee ID', 'Name', 'Email', 'Client', 'License Assign', 'License Assigned Date', 'License Removed Date', 'Remarks']];
         holdersSorted.forEach(h => {
           const lic = (h.licenses || []).find(l => String(l.skuId || '').toLowerCase() === skuIdLc);
           if (!lic) return;
@@ -8967,6 +9184,7 @@
             h.employeeId || '',
             h.displayName || '',
             h.upn || '',
+            h.officeLocation || '',
             s.friendlyName || s.skuPartNumber,
             fmtDT(lic.assignedAt),
             fmtDT(lic.removedAt || (h.accountEnabled ? '' : h.deactivatedAt)),
@@ -8975,7 +9193,7 @@
         });
         if (rows.length === 1) return; // skip empty sheets
         const ws = XLSX.utils.aoa_to_sheet(rows);
-        ws['!cols'] = [{ wch: 12 }, { wch: 26 }, { wch: 32 }, { wch: 30 }, { wch: 22 }, { wch: 22 }, { wch: 22 }];
+        ws['!cols'] = [{ wch: 12 }, { wch: 26 }, { wch: 32 }, { wch: 24 }, { wch: 30 }, { wch: 22 }, { wch: 22 }, { wch: 22 }];
         paintSeparatedRows(ws, 'Remarks');
         let name = sheetName(s.friendlyName || s.skuPartNumber);
         let suffix = 1;
