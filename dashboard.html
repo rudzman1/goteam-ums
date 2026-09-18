@@ -1288,7 +1288,10 @@
     'Organization.Read.All',
     'UserAuthenticationMethod.ReadWrite.All',    // for removing MFA/auth methods on offboarding
     'AuditLog.Read.All',                          // for license audit backfill (30–90 day window)
-    'RoleManagement.ReadWrite.Directory'          // for removing Device Administrator + other directory role assignments on offboarding
+    'RoleManagement.ReadWrite.Directory',         // for removing Device Administrator + other directory role assignments on offboarding
+    'Device.ReadWrite.All',                       // for disabling the user's Windows Entra-joined devices on offboarding
+    'DeviceManagementManagedDevices.Read.All',    // for listing the user's Intune-managed devices
+    'DeviceManagementManagedDevices.PrivilegedOperations.All'  // for the optional Intune Remote Lock per device
   ];
   let msalInstance = null;
   let msalAccount = null;
@@ -5658,9 +5661,113 @@
     renderDepartures();
     console.log(results.flatMap(r => r.log).join('\n'));
     showRevokeLogModal(results, ok, failed, totalLicensesRemoved);
+    openDeviceActionModalIfNeeded(results);
   }
 
   // Modal that shows step-by-step results of a bulk (or single) revoke.
+  // Semi-manual device action modal. Shows discovered corporate Windows
+  // devices from each revoked user and offers per-device Disable + Lock
+  // actions (each requires explicit admin confirmation).
+  function openDeviceActionModalIfNeeded(results) {
+    const withDevices = (results || []).filter(r => r && r.discoveredDevices && r.discoveredDevices.length > 0);
+    if (withDevices.length === 0) return;
+    const existing = document.getElementById('deviceActionModal');
+    if (existing) existing.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'deviceActionModal';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:10001;padding:20px;';
+    const rowsHtml = withDevices.map(r => {
+      const userHeader = '<tr style="background:#eff6ff;"><td colspan="5" style="padding:10px 14px;font-weight:700;color:#1e40af;">' + (r.userName || r.userUpn) + ' <span style="font-weight:400;color:#6b7280;font-size:12px;">· ' + (r.discoveredDevices.length) + ' device(s)</span></td></tr>';
+      const devRows = r.discoveredDevices.map((dev, idx) => {
+        const key = (r.userUpn || '') + '::' + idx;
+        const lastStr = dev.lastSignIn ? new Date(dev.lastSignIn).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+        const disableBtn = dev.entraId
+          ? '<button data-key="' + key + '" data-action="disable" class="dev-act-btn" style="padding:5px 12px;font-size:11px;background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:6px;cursor:pointer;font-weight:600;">Disable device</button>'
+          : '<span style="color:var(--muted);font-size:11px;">no Entra ID</span>';
+        const lockBtn = dev.managedDeviceId
+          ? '<button data-key="' + key + '" data-action="sync" class="dev-act-btn" style="padding:5px 12px;font-size:11px;background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;border-radius:6px;cursor:pointer;font-weight:600;">Force Sync</button>'
+          : '<span style="color:var(--muted);font-size:11px;">not Intune-managed</span>';
+        return '<tr style="border-top:1px solid #e2e8f0;">' +
+          '<td style="padding:8px 14px;"><strong style="font-size:12px;">' + dev.name + '</strong>' +
+            '<div style="font-size:10px;color:var(--muted);">' + dev.os + (dev.isManaged ? ' · Intune' : '') + (dev.isCompliant ? ' · Compliant' : '') + '</div></td>' +
+          '<td style="padding:8px;font-size:11px;color:var(--muted);white-space:nowrap;">' + lastStr + '</td>' +
+          '<td style="padding:8px;text-align:center;" id="status_' + key + '"><span style="color:var(--muted);font-size:11px;">pending</span></td>' +
+          '<td style="padding:8px;text-align:center;">' + disableBtn + '</td>' +
+          '<td style="padding:8px;text-align:center;">' + lockBtn + '</td>' +
+        '</tr>';
+      }).join('');
+      return userHeader + devRows;
+    }).join('');
+    overlay.innerHTML =
+      '<div style="background:#fff;border-radius:12px;max-width:900px;width:100%;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 50px rgba(0,0,0,0.3);">' +
+        '<div style="padding:18px 22px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;">' +
+          '<div><h3 style="margin:0;font-size:17px;color:#111827;">Device Actions — Confirm per Device</h3>' +
+          '<div style="margin-top:4px;font-size:13px;color:#6b7280;">Click <strong>Disable device</strong> to block the device from Entra sign-in. Click <strong>Force Sync</strong> to push an immediate Intune policy check-in so the block takes effect within seconds.</div></div>' +
+          '<button id="devActClose" style="background:none;border:none;font-size:22px;cursor:pointer;color:#6b7280;">×</button>' +
+        '</div>' +
+        '<div style="flex:1;overflow:auto;">' +
+          '<table style="width:100%;border-collapse:collapse;font-size:12px;">' +
+            '<thead style="background:#f8fafc;position:sticky;top:0;"><tr>' +
+              '<th style="padding:9px 14px;text-align:left;">Device</th>' +
+              '<th style="padding:9px 8px;text-align:left;">Last Sign-in</th>' +
+              '<th style="padding:9px 8px;text-align:center;">Status</th>' +
+              '<th style="padding:9px 8px;text-align:center;">Entra Disable</th>' +
+              '<th style="padding:9px 8px;text-align:center;">Force Sync</th>' +
+            '</tr></thead>' +
+            '<tbody>' + rowsHtml + '</tbody>' +
+          '</table>' +
+        '</div>' +
+        '<div style="padding:14px 22px;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:10px;">' +
+          '<button id="devActDone" style="padding:9px 20px;border:none;background:#0284c7;color:#fff;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;">Done</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    // Flatten device map for click handler
+    const deviceMap = {};
+    withDevices.forEach(r => {
+      r.discoveredDevices.forEach((dev, idx) => {
+        deviceMap[(r.userUpn || '') + '::' + idx] = dev;
+      });
+    });
+    overlay.querySelectorAll('.dev-act-btn').forEach(btn => {
+      btn.onclick = async () => {
+        const key = btn.dataset.key;
+        const action = btn.dataset.action;
+        const dev = deviceMap[key];
+        if (!dev) return;
+        const confirmMsg = action === 'disable'
+          ? 'Disable "' + dev.name + '" in Entra?\n\nThe device will no longer be able to get access tokens. The user\'s Windows Hello PIN will still unlock the local profile, but every M365 call will fail. Cannot be undone via this UI — you\'d have to re-enable in Entra Admin Center.'
+          : 'Remote-lock "' + dev.name + '" via Intune?\n\nWill lock the Windows lock screen on next device check-in. User will need to re-authenticate to unlock (which will fail because their account is disabled).';
+        if (!confirm(confirmMsg)) return;
+        btn.disabled = true;
+        const status = document.getElementById('status_' + key);
+        status.innerHTML = '<span style="color:#0284c7;font-size:11px;">working…</span>';
+        try {
+          if (action === 'disable') {
+            await graphFetch('/devices/' + dev.entraId, {
+              method: 'PATCH',
+              body: { accountEnabled: false }
+            });
+          } else {
+            await graphFetch('/deviceManagement/managedDevices/' + dev.managedDeviceId + '/syncDevice', {
+              method: 'POST'
+            });
+          }
+          status.innerHTML = '<span style="color:#065f46;font-size:11px;font-weight:600;">' + (action === 'disable' ? 'Disabled ✓' : 'Sync queued ✓') + '</span>';
+          btn.style.opacity = '0.5';
+          btn.style.cursor = 'default';
+        } catch (e) {
+          status.innerHTML = '<span style="color:#b91c1c;font-size:11px;" title="' + (e.message || '').replace(/"/g, '&quot;') + '">failed — hover for detail</span>';
+          btn.disabled = false;
+        }
+      };
+    });
+    const close = () => overlay.remove();
+    overlay.querySelector('#devActClose').onclick = close;
+    overlay.querySelector('#devActDone').onclick = close;
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  }
+
   function showRevokeLogModal(results, ok, failed, totalLicensesRemoved) {
     const existing = document.getElementById('revokeLogModal');
     if (existing) existing.remove();
@@ -6403,6 +6510,69 @@
       log.push('  [OK] 8/8 Remarks set to "' + remark + '"');
     } catch (e) { log.push('  [FAIL] 8/8 Set remarks — ' + e.message.slice(0, 80)); }
 
+    // 9. Discover corporate Windows devices for this user. We only DISCOVER
+    //    here — the admin confirms disable/lock actions per device via a
+    //    dedicated modal after Revoke completes.
+    const discoveredDevices = [];
+    try {
+      const seen = new Set();
+      // Entra: registeredDevices
+      try {
+        const reg = await graphFetch('/users/' + user.id + '/registeredDevices?$select=id,deviceId,displayName,operatingSystem,trustType,isCompliant,isManaged,approximateLastSignInDateTime');
+        (reg.value || []).forEach(dev => {
+          const os = String(dev.operatingSystem || '').toLowerCase();
+          if (os !== 'windows') return; // filter to Windows (BPO laptops)
+          if (dev.trustType && dev.trustType !== 'AzureAd') return; // skip BYOD Workplace-joined
+          if (seen.has(dev.id)) return;
+          seen.add(dev.id);
+          discoveredDevices.push({
+            entraId: dev.id,
+            deviceId: dev.deviceId || '',
+            name: dev.displayName || '(unnamed)',
+            os: dev.operatingSystem || '',
+            trustType: dev.trustType || '',
+            isCompliant: !!dev.isCompliant,
+            isManaged: !!dev.isManaged,
+            lastSignIn: dev.approximateLastSignInDateTime || '',
+            managedDeviceId: null // will fill from Intune below
+          });
+        });
+      } catch (_) {}
+      // Intune: managedDevices — same person, primary user filter
+      try {
+        const upn = String(user.userPrincipalName || email).replace(/'/g, "''");
+        const mgmt = await graphFetch("/deviceManagement/managedDevices?$filter=userPrincipalName eq '" + upn + "'");
+        (mgmt.value || []).forEach(md => {
+          const os = String(md.operatingSystem || '').toLowerCase();
+          if (os !== 'windows') return;
+          // Try to match to an Entra device we already found (by azureADDeviceId)
+          const match = discoveredDevices.find(x => x.deviceId && md.azureADDeviceId && x.deviceId.toLowerCase() === String(md.azureADDeviceId).toLowerCase());
+          if (match) { match.managedDeviceId = md.id; return; }
+          // Otherwise add as standalone Intune device (no Entra registration link)
+          discoveredDevices.push({
+            entraId: null,
+            deviceId: md.azureADDeviceId || '',
+            name: md.deviceName || '(unnamed)',
+            os: md.operatingSystem || '',
+            trustType: 'Intune',
+            isCompliant: md.complianceState === 'compliant',
+            isManaged: true,
+            lastSignIn: md.lastSyncDateTime || '',
+            managedDeviceId: md.id
+          });
+        });
+      } catch (_) {}
+      if (discoveredDevices.length > 0) {
+        log.push('  [INFO] 9/9 Found ' + discoveredDevices.length + ' corporate Windows device(s) — admin will confirm actions after Revoke completes.');
+        discoveredDevices.forEach(dev => {
+          const lastStr = dev.lastSignIn ? new Date(dev.lastSignIn).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+          log.push('    • ' + dev.name + ' (' + dev.os + (dev.isManaged ? ', Intune managed' : '') + ', last: ' + lastStr + ')');
+        });
+      } else {
+        log.push('  [OK] 9/9 No corporate Windows devices linked to this user.');
+      }
+    } catch (e) { log.push('  [WARN] 9/9 Device discovery skipped — ' + e.message.slice(0, 80)); }
+
     // Mark done + tick checklist + persist the license list
     d.accessRevokedDone = true;
     d.accessRevokedDoneAt = new Date().toISOString();
@@ -6410,7 +6580,7 @@
     const cl = migrateExitChecklist(d.checklist);
     if (cl[0]) cl[0].done = true;
     d.checklist = cl;
-    return { log, licensesRemoved, ok: true };
+    return { log, licensesRemoved, ok: true, discoveredDevices: discoveredDevices, userName: d.name || email, userUpn: email };
   }
 
   // Single-row Revoke (all 6 steps).
@@ -6431,7 +6601,8 @@
                  '5. Set Department to "' + dept + '"\n' +
                  '6. Remove all authentication methods (MFA)\n' +
                  '7. Remove all directory role assignments EXCEPT Global Administrator (Device Administrators, User Admin, License Admin, Privileged Role Admin, etc.)\n' +
-                 '8. Set Remarks to "' + remark + '"\n\n' +
+                 '8. Set Remarks to "' + remark + '"\n' +
+                 '9. Discover corporate Windows devices (you\'ll confirm disable / Intune lock actions per device after Revoke)\n\n' +
                  'Cannot be undone. Continue?')) return;
 
     const result = await performRevoke(d);
@@ -6439,6 +6610,7 @@
     renderDepartures();
     console.log(result.log.join('\n'));
     showRevokeLogModal([result], 1, result.ok ? 0 : 1, result.licensesRemoved);
+    openDeviceActionModalIfNeeded([result]);
   }
   function addDeparture() {
     const name = document.getElementById('depName').value.trim();
