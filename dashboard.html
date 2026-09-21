@@ -1535,7 +1535,10 @@
       const isInternal = (h.companyName || '').trim().toLowerCase() === 'goteam';
       const department = isInternal ? 'Internal' : detectShiftCategory(h.phShiftSchedule);
       const password = passwords[i];
-      const skuId = isInternal ? settings.skuInternal : settings.skuClient;
+      // Internal (GoTeam) staff get BOTH Business Basic + F1; Client-assigned staff get F1 only.
+      const skuIds = isInternal
+        ? [settings.skuInternal, settings.skuClient].filter(Boolean)
+        : [settings.skuClient].filter(Boolean);
 
       log('[' + (i+1) + '/' + hires.length + '] ' + display + ' (' + upn + ')');
       try {
@@ -1597,32 +1600,32 @@
         licensesAssignedNames.push(assignedForThis);
 
         // 2. Assign license (skip silently if reactivated user already holds it)
-        if (skuId) {
-          try {
-            // For reactivations, check existing licenses first — avoids a 400 if
-            // the license was never removed.
-            let alreadyHas = false;
-            if (wasReactivated) {
-              try {
-                const u = await graphFetch('/users/' + newUser.id + '?$select=assignedLicenses');
-                alreadyHas = (u.assignedLicenses || []).some(l => l.skuId === skuId);
-              } catch (_) {}
-            }
-            if (alreadyHas) {
+        if (skuIds.length > 0) {
+          // For reactivations, fetch existing licenses ONCE so we can skip ones already held.
+          let existingSkuIds = [];
+          if (wasReactivated) {
+            try {
+              const u = await graphFetch('/users/' + newUser.id + '?$select=assignedLicenses');
+              existingSkuIds = (u.assignedLicenses || []).map(l => l.skuId);
+            } catch (_) {}
+          }
+          for (const skuId of skuIds) {
+            try {
               const licName = _skuMap[skuId] || friendlyLicenseName(skuId);
-              assignedForThis.push(licName);
-              log('    [OK] License already assigned: ' + licName + ' (' + (isInternal ? 'Internal' : 'Client') + ')', '#22c55e');
-            } else {
-              await graphFetch('/users/' + newUser.id + '/assignLicense', {
-                method: 'POST',
-                body: { addLicenses: [{ disabledPlans: [], skuId: skuId }], removeLicenses: [] }
-              });
-              const licName = _skuMap[skuId] || friendlyLicenseName(skuId);
-              assignedForThis.push(licName);
-              log('    [OK] License assigned: ' + licName + ' (' + (isInternal ? 'Internal' : 'Client') + ')', '#22c55e');
+              if (existingSkuIds.includes(skuId)) {
+                assignedForThis.push(licName);
+                log('    [OK] License already assigned: ' + licName + ' (' + (isInternal ? 'Internal' : 'Client') + ')', '#22c55e');
+              } else {
+                await graphFetch('/users/' + newUser.id + '/assignLicense', {
+                  method: 'POST',
+                  body: { addLicenses: [{ disabledPlans: [], skuId: skuId }], removeLicenses: [] }
+                });
+                assignedForThis.push(licName);
+                log('    [OK] License assigned: ' + licName + ' (' + (isInternal ? 'Internal' : 'Client') + ')', '#22c55e');
+              }
+            } catch (e) {
+              log('    [WARN] License skipped (' + (_skuMap[skuId] || skuId) + ') — ' + e.message.slice(0, 120), '#fbbf24');
             }
-          } catch (e) {
-            log('    [WARN] License skipped — ' + e.message.slice(0, 120), '#fbbf24');
           }
         } else {
           log('    [SKIP] No SKU ID configured for ' + (isInternal ? 'Internal' : 'Client'), '#fbbf24');
@@ -4394,7 +4397,7 @@
       const upn = stripDiacritics(first + '.' + last.replace(/[\s-]+/g, '')).toLowerCase() + '@go.team';
       const isInternal = (h.companyName || '').trim().toLowerCase() === 'goteam';
       const department = isInternal ? 'Internal' : detectShiftCategory(h.phShiftSchedule);
-      const license = (department === 'Internal') ? 'O365_BUSINESS_ESSENTIALS' : 'M365_F1_COMM';
+      const license = (department === 'Internal') ? 'O365_BUSINESS_ESSENTIALS;M365_F1_COMM' : 'M365_F1_COMM';
       const password = passwords[i];
       rows.push([
         first,
@@ -4490,7 +4493,7 @@
       const upn = stripDiacritics(first + '.' + last.replace(/[\s-]+/g, '')).toLowerCase() + '@go.team';
       const isInternal = (h.companyName || '').trim().toLowerCase() === 'goteam';
       const department = isInternal ? 'Internal' : detectShiftCategory(h.phShiftSchedule);
-      const license = (department === 'Internal') ? 'O365_BUSINESS_ESSENTIALS' : 'M365_F1_COMM';
+      const license = (department === 'Internal') ? 'O365_BUSINESS_ESSENTIALS;M365_F1_COMM' : 'M365_F1_COMM';
       const password = passwords[i];
       const sep = (i < hires.length - 1) ? ',' : '';
       lines.push('    [PSCustomObject]@{');
@@ -4531,12 +4534,16 @@
     lines.push('    try {');
     lines.push('        $newUser = New-MgUser @params');
     lines.push('        Write-Host ("[OK] Created: {0} ({1})" -f $u.DisplayName, $u.UserPrincipalName) -ForegroundColor Green');
-    lines.push('        $sku = Get-MgSubscribedSku | Where-Object SkuPartNumber -EQ $u.LicenseSku');
-    lines.push('        if ($sku) {');
-    lines.push('            Set-MgUserLicense -UserId $newUser.Id -AddLicenses @{SkuId = $sku.SkuId} -RemoveLicenses @()');
-    lines.push('            Write-Host ("     License {0} assigned" -f $u.LicenseSku) -ForegroundColor Cyan');
-    lines.push('        } else {');
-    lines.push('            Write-Warning ("License SKU {0} not found in tenant" -f $u.LicenseSku)');
+    lines.push('        foreach ($skuPart in ($u.LicenseSku -split \';\')) {');
+    lines.push('            $skuPart = $skuPart.Trim()');
+    lines.push('            if (-not $skuPart) { continue }');
+    lines.push('            $sku = Get-MgSubscribedSku | Where-Object SkuPartNumber -EQ $skuPart');
+    lines.push('            if ($sku) {');
+    lines.push('                Set-MgUserLicense -UserId $newUser.Id -AddLicenses @{SkuId = $sku.SkuId} -RemoveLicenses @()');
+    lines.push('                Write-Host ("     License {0} assigned" -f $skuPart) -ForegroundColor Cyan');
+    lines.push('            } else {');
+    lines.push('                Write-Warning ("License SKU {0} not found in tenant" -f $skuPart)');
+    lines.push('            }');
     lines.push('        }');
     lines.push('        # Enforce MFA by adding to the security group targeted by your CA policy');
     lines.push('        if ($mfaGroup) {');
