@@ -468,10 +468,6 @@
     </div>
   </div>
   <p class="nav-section-title">Workspace</p>
-  <button class="nav-item" data-view="allusers">
-    <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
-    <span>All Users</span>
-  </button>
   <button class="nav-item active" data-view="onboarding">
     <span class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg></span>
     <span>Onboarding</span>
@@ -505,193 +501,6 @@
 </aside>
 
 <main class="main">
-
-  <!-- ALL USERS -->
-  <section class="view" id="view-allusers">
-    <div class="page-header">
-      <div class="page-title">
-        <h2>All Users</h2>
-        <p>Revamp existing Entra user details in bulk — Company, Department, Employee Type, Office, Hire Date, Manager, Shift.</p>
-      </div>
-      <div class="header-actions">
-        <button class="btn btn-secondary" id="auLoadBtn" onclick="loadAllUsersView()">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-          Load / Refresh
-        </button>
-        <button class="btn btn-secondary" id="auMirrorOfficeBtn" onclick="auMirrorOfficeToCompanyDept()" title="One-time backfill: copy each user's Office Location into both Company and Department as pending edits.">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3l4 4-4 4"/><path d="M21 7H8a5 5 0 0 0-5 5v0"/><path d="M7 21l-4-4 4-4"/><path d="M3 17h13a5 5 0 0 0 5-5v0"/></svg>
-          Mirror Office → Company + Dept
-        </button>
-        <button class="btn btn-secondary" id="auImportNamelistBtn" onclick="openImportNamelist()" title="Paste rows from the Internal Team Namelist.xlsx (Columns A, C, E, G) to stage Department + Manager updates.">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
-          Import Internal Namelist
-        </button>
-        <button class="btn btn-secondary" id="auImportR24Btn" onclick="openImportR24()" title="Paste from R24 team-members to stage Hire Date + Manager updates. Column indices are configurable.">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-          Import from R24
-        </button>
-        <button class="btn btn-secondary" id="auImportOfficeBtn" onclick="openImportOffice()" title="Paste Employee ID + Office Location rows to stage Office Location updates.">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h1M9 12h1M9 15h1M14 9h1M14 12h1M14 15h1"/></svg>
-          Import Office Location
-        </button>
-        <button class="btn btn-primary" id="auSaveBtn" onclick="saveAllUsersChanges()" disabled>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-          Save <span id="auDirtyCount">0</span> change(s)
-        </button>
-      </div>
-    </div>
-    <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
-      <input type="text" id="auSearch" placeholder="Search name, UPN, department…" oninput="auPage=1;renderAllUsersTable()" style="flex:1;min-width:220px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;" />
-      <select id="auFilterType" onchange="auPage=1;renderAllUsersTable()" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:#fff;">
-        <option value="">All Employee Types</option>
-        <option value="Internal">Internal</option>
-        <option value="Client-Facing">Client-Facing</option>
-        <option value="__unset__">— Unset —</option>
-      </select>
-      <select id="auFilterCompany" onchange="auPage=1;renderAllUsersTable()" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:#fff;">
-        <option value="">All Companies</option>
-      </select>
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);">
-        <input type="checkbox" id="auHideDisabled" checked onchange="auPage=1;renderAllUsersTable()" /> Hide disabled
-      </label>
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);">
-        <input type="checkbox" id="auOnlyDirty" onchange="auPage=1;renderAllUsersTable()" /> Only modified
-      </label>
-      <select id="auPageSize" onchange="auPage=1;renderAllUsersTable()" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:#fff;">
-        <option value="25">25 / page</option>
-        <option value="50" selected>50 / page</option>
-        <option value="100">100 / page</option>
-        <option value="200">200 / page</option>
-      </select>
-    </div>
-    <div id="auStatus" style="font-size:12px;color:var(--muted);margin-bottom:8px;">Click <strong>Load / Refresh</strong> to fetch users from Entra.</div>
-    <div style="overflow-x:auto;border:1px solid var(--border);border-radius:8px;background:#fff;">
-      <table id="auTable" style="width:100%;border-collapse:collapse;font-size:12px;min-width:1400px;">
-        <thead id="auTableHead" style="background:#f8fafc;position:sticky;top:0;z-index:2;"></thead>
-        <tbody id="auTableBody"></tbody>
-      </table>
-    </div>
-    <div id="auPager" style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;font-size:12px;color:var(--muted);"></div>
-  </section>
-
-  <!-- ALL USERS — Import Internal Namelist modal -->
-  <div class="modal-overlay" id="auImportModal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,0.55);z-index:1000;align-items:flex-start;justify-content:center;padding-top:5vh;overflow-y:auto;">
-    <div class="modal" style="background:#fff;border-radius:10px;max-width:960px;width:92%;padding:24px;max-height:88vh;overflow-y:auto;box-shadow:0 20px 40px rgba(0,0,0,0.25);">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
-        <div>
-          <h3 style="margin:0;">Import Internal Namelist</h3>
-          <p style="margin:4px 0 0;font-size:12px;color:var(--muted);">Paste rows from the Internal Team Namelist.xlsx. Employees are matched by Employee ID first, then by Work Email.</p>
-        </div>
-        <button onclick="closeImportNamelist()" style="background:none;border:none;font-size:20px;cursor:pointer;line-height:1;">×</button>
-      </div>
-      <div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px;font-size:12px;line-height:1.6;">
-        <strong>How to copy from Excel:</strong>
-        <ol style="margin:6px 0 0 18px;padding:0;">
-          <li>In the Namelist workbook, select <strong>Columns A through G</strong> (or just cells A:G for the rows you want).</li>
-          <li>Copy (<kbd>Ctrl</kbd>+<kbd>C</kbd>).</li>
-          <li>Click into the box below and paste (<kbd>Ctrl</kbd>+<kbd>V</kbd>).</li>
-          <li>Click <strong>Parse &amp; Match</strong>, review, then <strong>Stage Updates</strong>.</li>
-        </ol>
-        <div style="margin-top:6px;color:var(--muted);">Columns used: <strong>A</strong> = Employee ID · <strong>C</strong> = Work Email · <strong>E</strong> = Department · <strong>G</strong> = Manager. Other columns are ignored. First row is auto-skipped if it looks like a header.</div>
-      </div>
-      <textarea id="auImportPaste" placeholder="Paste the copied range here…" style="width:100%;height:180px;padding:10px;border:1px solid var(--border);border-radius:8px;font-family:'Courier New',monospace;font-size:11px;box-sizing:border-box;"></textarea>
-      <div style="display:flex;gap:10px;margin-top:10px;">
-        <button class="btn btn-secondary" onclick="parseImportNamelist()">Parse &amp; Match</button>
-        <button class="btn btn-primary" id="auStageImportBtn" onclick="stageImportNamelist()" disabled>Stage Updates</button>
-        <div style="flex:1;"></div>
-        <button class="btn btn-secondary" onclick="closeImportNamelist()">Close</button>
-      </div>
-      <div id="auImportPreview" style="margin-top:14px;font-size:12px;"></div>
-    </div>
-  </div>
-
-  <!-- ALL USERS — Import from R24 modal -->
-  <div class="modal-overlay" id="auR24Modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,0.55);z-index:1000;align-items:flex-start;justify-content:center;padding-top:5vh;overflow-y:auto;">
-    <div class="modal" style="background:#fff;border-radius:10px;max-width:1000px;width:94%;padding:24px;max-height:88vh;overflow-y:auto;box-shadow:0 20px 40px rgba(0,0,0,0.25);">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
-        <div>
-          <h3 style="margin:0;">Import from R24 (Hire Date + Manager)</h3>
-          <p style="margin:4px 0 0;font-size:12px;color:var(--muted);">Paste rows from R24 team-members. Set which columns hold the match key, Hire Date, and Leadership Coach (Manager).</p>
-        </div>
-        <button onclick="closeImportR24()" style="background:none;border:none;font-size:20px;cursor:pointer;line-height:1;">×</button>
-      </div>
-      <div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px;font-size:12px;line-height:1.6;">
-        <strong>How to copy from R24:</strong>
-        <ol style="margin:6px 0 0 18px;padding:0;">
-          <li>Open <a href="https://r24.go.team/internal/team-members" target="_blank" rel="noopener">r24.go.team/internal/team-members</a> and set filters so only the rows you want are visible.</li>
-          <li>Select the visible rows (click the first row, hold Shift, click the last), or select the table and Ctrl+C.</li>
-          <li>Paste (<kbd>Ctrl</kbd>+<kbd>V</kbd>) into the box below — Column 1 is column index 1.</li>
-          <li>Adjust the column indices below so they point to the right R24 columns, then click <strong>Parse &amp; Match</strong>.</li>
-        </ol>
-        <div style="margin-top:6px;color:var(--muted);">Tip: after pasting, the first parsed row is shown below with column indices so you can count.</div>
-      </div>
-      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
-        <label style="display:flex;flex-direction:column;font-size:12px;gap:4px;">Match by
-          <select id="auR24MatchType" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;">
-            <option value="empId">Employee ID</option>
-            <option value="email">Work Email</option>
-          </select>
-        </label>
-        <label style="display:flex;flex-direction:column;font-size:12px;gap:4px;">Match column #
-          <input type="number" id="auR24MatchCol" value="1" min="1" style="width:70px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;" />
-        </label>
-        <label style="display:flex;flex-direction:column;font-size:12px;gap:4px;">Hire Date column #
-          <input type="number" id="auR24HireCol" value="2" min="1" style="width:100px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;" />
-        </label>
-        <label style="display:flex;flex-direction:column;font-size:12px;gap:4px;">Manager column #
-          <input type="number" id="auR24MgrCol" value="3" min="1" style="width:100px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;" />
-        </label>
-      </div>
-      <textarea id="auR24Paste" placeholder="Paste the copied rows here…" style="width:100%;height:180px;padding:10px;border:1px solid var(--border);border-radius:8px;font-family:'Courier New',monospace;font-size:11px;box-sizing:border-box;"></textarea>
-      <div id="auR24FirstRow" style="margin-top:6px;font-size:11px;color:var(--muted);"></div>
-      <div style="display:flex;gap:10px;margin-top:10px;">
-        <button class="btn btn-secondary" onclick="parseImportR24()">Parse &amp; Match</button>
-        <button class="btn btn-primary" id="auStageR24Btn" onclick="stageImportR24()" disabled>Stage Updates</button>
-        <div style="flex:1;"></div>
-        <button class="btn btn-secondary" onclick="closeImportR24()">Close</button>
-      </div>
-      <div id="auR24Preview" style="margin-top:14px;font-size:12px;"></div>
-    </div>
-  </div>
-
-  <!-- ALL USERS — Import Office Location modal -->
-  <div class="modal-overlay" id="auOfficeModal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,0.55);z-index:1000;align-items:flex-start;justify-content:center;padding-top:5vh;overflow-y:auto;">
-    <div class="modal" style="background:#fff;border-radius:10px;max-width:900px;width:92%;padding:24px;max-height:88vh;overflow-y:auto;box-shadow:0 20px 40px rgba(0,0,0,0.25);">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
-        <div>
-          <h3 style="margin:0;">Import Office Location</h3>
-          <p style="margin:4px 0 0;font-size:12px;color:var(--muted);">Paste rows to stage Office Location updates. Match by Employee ID or Work Email.</p>
-        </div>
-        <button onclick="closeImportOffice()" style="background:none;border:none;font-size:20px;cursor:pointer;line-height:1;">×</button>
-      </div>
-      <div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px;font-size:12px;line-height:1.6;">
-        Expected format: tab-separated rows, first column matches by Employee ID (or Email), second column is the Office Location value (<code>WFH</code>, <code>i1 Office</code>, or <code>HM Office</code>). Other values pass through as-is.
-      </div>
-      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
-        <label style="display:flex;flex-direction:column;font-size:12px;gap:4px;">Match by
-          <select id="auOfficeMatchType" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;">
-            <option value="empId">Employee ID</option>
-            <option value="email">Work Email</option>
-          </select>
-        </label>
-        <label style="display:flex;flex-direction:column;font-size:12px;gap:4px;">Match column #
-          <input type="number" id="auOfficeMatchCol" value="1" min="1" style="width:70px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;" />
-        </label>
-        <label style="display:flex;flex-direction:column;font-size:12px;gap:4px;">Office column #
-          <input type="number" id="auOfficeCol" value="2" min="1" style="width:80px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;" />
-        </label>
-      </div>
-      <textarea id="auOfficePaste" placeholder="Paste rows here…" style="width:100%;height:180px;padding:10px;border:1px solid var(--border);border-radius:8px;font-family:'Courier New',monospace;font-size:11px;box-sizing:border-box;"></textarea>
-      <div id="auOfficeFirstRow" style="margin-top:6px;font-size:11px;color:var(--muted);"></div>
-      <div style="display:flex;gap:10px;margin-top:10px;">
-        <button class="btn btn-secondary" onclick="parseImportOffice()">Parse &amp; Match</button>
-        <button class="btn btn-primary" id="auStageOfficeBtn" onclick="stageImportOffice()" disabled>Stage Updates</button>
-        <div style="flex:1;"></div>
-        <button class="btn btn-secondary" onclick="closeImportOffice()">Close</button>
-      </div>
-      <div id="auOfficePreview" style="margin-top:14px;font-size:12px;"></div>
-    </div>
-  </div>
 
   <!-- ONBOARDING -->
   <section class="view active" id="view-onboarding">
@@ -1658,52 +1467,26 @@
   }
 
   async function graphFetch(path, options) {
+    const token = await getGraphToken();
     const opts = options || {};
     const apiBase = opts.apiVersion === 'beta' ? 'https://graph.microsoft.com/beta' : 'https://graph.microsoft.com/v1.0';
     const url = path.startsWith('http') ? path : (apiBase + path);
-    // Retry on 429 (Too Many Requests) and 503 (Service Unavailable), honouring Retry-After.
-    // Also retry once on a transient network fetch() failure.
-    const MAX_RETRIES = 5;
-    let lastErr = null;
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      const token = await getGraphToken();
-      let res;
-      try {
-        res = await fetch(url, {
-          method: opts.method || 'GET',
-          headers: Object.assign({
-            'Authorization': 'Bearer ' + token,
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-          }, opts.headers || {}),
-          body: opts.body ? JSON.stringify(opts.body) : undefined
-        });
-      } catch (netErr) {
-        lastErr = netErr;
-        if (attempt < MAX_RETRIES) { await new Promise(r => setTimeout(r, 2000 * (attempt + 1))); continue; }
-        throw netErr;
-      }
-      if (res.status === 429 || res.status === 503) {
-        const retryAfter = parseInt(res.headers.get('Retry-After') || '', 10);
-        // Cap wait so users aren't sitting for minutes; back off up to 60s per attempt.
-        const waitMs = Math.min((isFinite(retryAfter) ? retryAfter : Math.pow(2, attempt) * 2) * 1000, 60000);
-        try { await res.text(); } catch (_) {}
-        if (attempt < MAX_RETRIES) {
-          console.warn('Graph ' + res.status + ' on attempt ' + (attempt + 1) + ' — waiting ' + Math.round(waitMs / 1000) + 's before retry. URL:', url.slice(0, 120));
-          await new Promise(r => setTimeout(r, waitMs));
-          continue;
-        }
-        throw new Error('Graph ' + res.status + ': Too Many Requests (exhausted ' + MAX_RETRIES + ' retries)');
-      }
-      if (!res.ok) {
-        let detail = '';
-        try { detail = JSON.stringify(await res.json()); } catch (_) { detail = await res.text(); }
-        throw new Error('Graph ' + res.status + ': ' + detail.slice(0, 400));
-      }
-      if (res.status === 204) return null;
-      return res.json();
+    const res = await fetch(url, {
+      method: opts.method || 'GET',
+      headers: Object.assign({
+        'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      }, opts.headers || {}),
+      body: opts.body ? JSON.stringify(opts.body) : undefined
+    });
+    if (!res.ok) {
+      let detail = '';
+      try { detail = JSON.stringify(await res.json()); } catch (_) { detail = await res.text(); }
+      throw new Error('Graph ' + res.status + ': ' + detail.slice(0, 400));
     }
-    throw lastErr || new Error('graphFetch: unknown error');
+    if (res.status === 204) return null;
+    return res.json();
   }
 
   // Create selected MS365 users directly via Graph API
@@ -5869,7 +5652,7 @@
                  '  2. All sessions revoked\n' +
                  '  3. Removed from all groups\n' +
                  '  4. All licenses removed\n' +
-                 '  5. CA2 cleared (removed from Dynamic Distros — Department left untouched)\n' +
+                 '  5. Department set to "GoTeam" or "Client-facing"\n' +
                  '  6. All authentication methods (MFA) removed\n\n' +
                  'Cannot be undone. Continue?')) return;
 
@@ -6663,15 +6446,12 @@
       log.push('  [OK] 4/6 Removed ' + licensesRemoved + ' license(s)' + (licenseNames.length ? ': ' + licenseNames.join(', ') : ''));
     } catch (e) { log.push('  [FAIL] 4/6 Remove licenses — ' + e.message.slice(0, 80)); }
 
-    // 5. Clear CA2 (extensionAttribute2) so the user drops out of Dynamic Distribution Lists.
-    //    Department is left untouched — it holds the person's actual org/client team.
+    // 5. Change Department field
+    const newDepartment = isInternalTeamMember(d) ? 'GoTeam' : 'Client-facing';
     try {
-      await graphFetch('/users/' + user.id, {
-        method: 'PATCH',
-        body: { onPremisesExtensionAttributes: { extensionAttribute2: null } }
-      });
-      log.push('  [OK] 5/6 CA2 cleared — removed from Dynamic Distros');
-    } catch (e) { log.push('  [FAIL] 5/6 Clear CA2 — ' + e.message.slice(0, 80)); }
+      await graphFetch('/users/' + user.id, { method: 'PATCH', body: { department: newDepartment } });
+      log.push('  [OK] 5/6 Department set to "' + newDepartment + '"');
+    } catch (e) { log.push('  [FAIL] 5/6 Set department — ' + e.message.slice(0, 80)); }
 
     // 6. Remove all non-password authentication methods
     try {
@@ -6817,6 +6597,7 @@
     const email = (d.employeeEmail || '').trim();
     if (!email) { alert('Fill in Employee Email first.'); return; }
     if (!msalAccount) { alert('Sign in via the sidebar first.'); return; }
+    const dept = isInternalTeamMember(d) ? 'GoTeam' : 'Client-facing';
     const _tox = String(d.typeOfExit || d.reason || '').toLowerCase();
     const remark = _tox.indexOf('recall') > -1 ? 'Recalled' : 'Separated';
     if (!confirm('Full offboarding for ' + email + '?\n\n' +
@@ -6824,7 +6605,7 @@
                  '2. Revoke all sessions\n' +
                  '3. Remove from all groups\n' +
                  '4. Remove all licenses\n' +
-                 '5. Clear CA2 (removed from Dynamic Distros — Department left untouched)\n' +
+                 '5. Set Department to "' + dept + '"\n' +
                  '6. Remove all authentication methods (MFA)\n' +
                  '7. Remove all directory role assignments EXCEPT Global Administrator (Device Administrators, User Admin, License Admin, Privileged Role Admin, etc.)\n' +
                  '8. Set Remarks to "' + remark + '"\n' +
@@ -7925,926 +7706,16 @@
 
   async function graphPageAll(url) {
     // Follow @odata.nextLink until exhausted. Returns concatenated .value arrays.
-    // Adds a small delay between pages to reduce the chance of hitting Graph's per-app
-    // throughput throttle (429). graphFetch already retries individual 429s with backoff.
     let all = [];
     let next = url;
     let pages = 0;
-    while (next && pages < 200) {
+    while (next && pages < 50) {
       const r = await graphFetch(next);
       all = all.concat(r.value || []);
       next = r['@odata.nextLink'] ? r['@odata.nextLink'].replace('https://graph.microsoft.com/v1.0', '') : null;
       pages++;
-      if (next) await new Promise(res => setTimeout(res, 150));
     }
     return all;
-  }
-
-  // ==============================================================
-  // ALL USERS view — bulk revamp of Entra user details.
-  // ==============================================================
-  window._allUsers = [];        // original Graph data, keyed later by id
-  window._allUsersEdits = {};   // { userId: { field: newValue, ... } }
-  window.auPage = 1;
-  window.auSort = { key: 'displayName', dir: 'asc' };
-  const AU_COLUMNS = [
-    { key: 'displayName',     label: 'Name',                sortable: true,  editable: false },
-    { key: 'userPrincipalName', label: 'UPN',               sortable: true,  editable: false },
-    { key: 'employeeId',      label: 'Employee ID',         sortable: true,  editable: true,  type: 'text' },
-    { key: 'companyName',     label: 'Company',             sortable: true,  editable: true,  type: 'text' },
-    { key: 'employeeType',    label: 'Employee Type',       sortable: true,  editable: true,  type: 'select', opts: 'AU_ETYPE_OPTIONS' },
-    { key: 'ca2',             label: 'CA2 (DDL filter)',    sortable: true,  editable: true,  type: 'select', opts: 'AU_CA2_OPTIONS', tip: 'Used by dynamic distribution lists — Internal for GoTeam staff, or shift (Morning/Mid/Night) for client-facing.' },
-    { key: 'department',      label: 'Department',          sortable: true,  editable: true,  type: 'text' },
-    { key: 'officeLocation',  label: 'Office Location',     sortable: true,  editable: true,  type: 'select', opts: 'AU_OFFICE_OPTIONS' },
-    { key: 'employeeHireDate', label: 'Hire Date',          sortable: true,  editable: true,  type: 'date' },
-    { key: 'managerName',     label: 'Manager (full name)', sortable: true,  editable: true,  type: 'text' },
-    { key: '__reset',         label: 'Reset',               sortable: false, editable: false }
-  ];
-
-  function auRenderHead() {
-    const head = document.getElementById('auTableHead');
-    if (!head) return;
-    const cells = AU_COLUMNS.map(c => {
-      const align = c.key === '__reset' ? 'center' : 'left';
-      if (!c.sortable) {
-        return '<th style="padding:10px 8px;text-align:' + align + ';border-bottom:1px solid var(--border);white-space:nowrap;">' + escapeHtml(c.label) + '</th>';
-      }
-      const active = window.auSort.key === c.key;
-      const arrow = active ? (window.auSort.dir === 'asc' ? ' ▲' : ' ▼') : '';
-      const color = active ? '#1e40af' : 'inherit';
-      const tip = c.tip ? ' title="' + escapeHtml(c.tip) + '"' : '';
-      return '<th' + tip + ' onclick="auToggleSort(\'' + c.key + '\')" style="padding:10px 8px;text-align:' + align + ';border-bottom:1px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none;color:' + color + ';">' + escapeHtml(c.label) + arrow + '</th>';
-    }).join('');
-    head.innerHTML = '<tr>' + cells + '</tr>';
-  }
-
-  window.auToggleSort = function(key) {
-    if (window.auSort.key === key) {
-      window.auSort.dir = window.auSort.dir === 'asc' ? 'desc' : 'asc';
-    } else {
-      window.auSort.key = key;
-      window.auSort.dir = 'asc';
-    }
-    renderAllUsersTable();
-  };
-
-  function auSortValue(u, key) {
-    if (key === 'displayName')       return (u.displayName || '').toLowerCase();
-    if (key === 'userPrincipalName') return (u.userPrincipalName || '').toLowerCase();
-    return String(auGetEdited(u, key) || '').toLowerCase();
-  }
-  const AU_OFFICE_OPTIONS = ['i1 Office', 'HM Office', 'WFH'];
-  const AU_ETYPE_OPTIONS  = ['Internal', 'Client-Facing'];
-  const AU_CA2_OPTIONS    = ['Internal', 'Morning', 'Mid', 'Night', 'Flexible'];
-
-  async function loadAllUsersView() {
-    const status = document.getElementById('auStatus');
-    const btn = document.getElementById('auLoadBtn');
-    if (!msalAccount) { status.textContent = 'Sign in to Microsoft first.'; return; }
-    btn.disabled = true;
-    status.textContent = 'Fetching users from Entra…';
-    try {
-      const sel = '$select=id,displayName,userPrincipalName,accountEnabled,companyName,department,jobTitle,officeLocation,employeeType,employeeId,employeeHireDate,onPremisesExtensionAttributes';
-      const exp = '$expand=manager($select=id,displayName,userPrincipalName)';
-      const users = await graphPageAll('/users?' + sel + '&' + exp + '&$top=999');
-      users.sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
-      window._allUsers = users;
-      window._allUsersEdits = {};
-
-      // Populate company filter dropdown from unique company names
-      const companies = Array.from(new Set(users.map(u => (u.companyName || '').trim()).filter(Boolean))).sort();
-      const cfilter = document.getElementById('auFilterCompany');
-      cfilter.innerHTML = '<option value="">All Companies</option>' +
-        '<option value="__unset__">— No Company Set —</option>' +
-        companies.map(c => '<option value="' + escapeHtml(c) + '">' + escapeHtml(c) + '</option>').join('');
-
-      status.textContent = 'Loaded ' + users.length + ' user(s). Edit any cell, then click Save. Changes are cached client-side until you save.';
-      renderAllUsersTable();
-    } catch (e) {
-      status.innerHTML = '<span style="color:#b91c1c;">Load failed: ' + escapeHtml(e.message || String(e)) + '</span>';
-    } finally {
-      btn.disabled = false;
-    }
-  }
-
-  function auGetEdited(user, field) {
-    const e = window._allUsersEdits[user.id];
-    if (e && Object.prototype.hasOwnProperty.call(e, field)) return e[field];
-    return auGetOriginal(user, field);
-  }
-  function auGetOriginal(user, field) {
-    const ext = user.onPremisesExtensionAttributes || {};
-    switch (field) {
-      case 'companyName':     return user.companyName || '';
-      case 'department':      return user.department || '';
-      case 'employeeType':    return user.employeeType || '';
-      case 'officeLocation':  return user.officeLocation || '';
-      case 'employeeHireDate':
-        return user.employeeHireDate ? String(user.employeeHireDate).slice(0, 10) : '';
-      case 'managerName':     return user.manager ? (user.manager.displayName || '') : '';
-      case 'ca2':             return ext.extensionAttribute2 || '';
-      case 'employeeId':      return user.employeeId || '';
-      default: return '';
-    }
-  }
-  function auSetEdit(userId, field, value) {
-    const user = window._allUsers.find(u => u.id === userId);
-    if (!user) return;
-    const orig = auGetOriginal(user, field);
-    if (!window._allUsersEdits[userId]) window._allUsersEdits[userId] = {};
-    if ((value || '') === (orig || '')) {
-      delete window._allUsersEdits[userId][field];
-      if (Object.keys(window._allUsersEdits[userId]).length === 0) delete window._allUsersEdits[userId];
-    } else {
-      window._allUsersEdits[userId][field] = value;
-    }
-    updateAuDirtyCount();
-  }
-  function updateAuDirtyCount() {
-    const n = Object.keys(window._allUsersEdits).length;
-    document.getElementById('auDirtyCount').textContent = n;
-    document.getElementById('auSaveBtn').disabled = (n === 0);
-  }
-
-  function renderAllUsersTable() {
-    const body = document.getElementById('auTableBody');
-    if (!body) return;
-    auRenderHead();
-    const q = (document.getElementById('auSearch').value || '').trim().toLowerCase();
-    const fType = document.getElementById('auFilterType').value;
-    const fCompany = document.getElementById('auFilterCompany').value;
-    const hideDisabled = document.getElementById('auHideDisabled').checked;
-    const onlyDirty = document.getElementById('auOnlyDirty').checked;
-
-    const rows = (window._allUsers || []).filter(u => {
-      if (hideDisabled && u.accountEnabled === false) return false;
-      if (onlyDirty && !window._allUsersEdits[u.id]) return false;
-      if (fType === '__unset__') { if ((auGetEdited(u, 'employeeType') || '') !== '') return false; }
-      else if (fType && auGetEdited(u, 'employeeType') !== fType) return false;
-      if (fCompany === '__unset__') { if ((auGetEdited(u, 'companyName') || '') !== '') return false; }
-      else if (fCompany && auGetEdited(u, 'companyName') !== fCompany) return false;
-      if (q) {
-        const hay = (u.displayName + ' ' + u.userPrincipalName + ' ' + (u.department || '') + ' ' + (u.companyName || '')).toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
-      return true;
-    });
-
-    // Sort filtered rows
-    const sk = window.auSort.key, sd = window.auSort.dir === 'desc' ? -1 : 1;
-    if (sk && sk !== '__reset') {
-      rows.sort((a, b) => {
-        const va = auSortValue(a, sk), vb = auSortValue(b, sk);
-        if (va < vb) return -1 * sd;
-        if (va > vb) return  1 * sd;
-        // Tiebreak on displayName for stable ordering
-        return (a.displayName || '').localeCompare(b.displayName || '');
-      });
-    }
-
-    if (rows.length === 0) {
-      body.innerHTML = '<tr><td colspan="12" style="padding:24px;text-align:center;color:var(--muted);">No users match the current filter.</td></tr>';
-      document.getElementById('auPager').innerHTML = '';
-      return;
-    }
-
-    // Pagination — slice the filtered rows before we generate DOM
-    const pageSize = parseInt(document.getElementById('auPageSize').value || '50', 10);
-    const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
-    if (window.auPage > totalPages) window.auPage = totalPages;
-    if (window.auPage < 1) window.auPage = 1;
-    const start = (window.auPage - 1) * pageSize;
-    const pageRows = rows.slice(start, start + pageSize);
-
-    document.getElementById('auPager').innerHTML =
-      '<div>Showing ' + (start + 1) + '–' + Math.min(start + pageSize, rows.length) + ' of ' + rows.length + ' (of ' + (window._allUsers || []).length + ' total)</div>' +
-      '<div style="display:flex;gap:6px;align-items:center;">' +
-        '<button onclick="auGotoPage(1)" ' + (window.auPage <= 1 ? 'disabled' : '') + ' style="padding:4px 10px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:#fff;cursor:pointer;">« First</button>' +
-        '<button onclick="auGotoPage(auPage-1)" ' + (window.auPage <= 1 ? 'disabled' : '') + ' style="padding:4px 10px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:#fff;cursor:pointer;">‹ Prev</button>' +
-        '<span style="padding:0 8px;">Page ' + window.auPage + ' / ' + totalPages + '</span>' +
-        '<button onclick="auGotoPage(auPage+1)" ' + (window.auPage >= totalPages ? 'disabled' : '') + ' style="padding:4px 10px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:#fff;cursor:pointer;">Next ›</button>' +
-        '<button onclick="auGotoPage(' + totalPages + ')" ' + (window.auPage >= totalPages ? 'disabled' : '') + ' style="padding:4px 10px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:#fff;cursor:pointer;">Last »</button>' +
-      '</div>';
-
-    body.innerHTML = pageRows.map(u => {
-      const dirty = !!window._allUsersEdits[u.id];
-      const rowBg = dirty ? 'background:#fefce8;' : '';
-      const disabled = u.accountEnabled === false ? '<span style="font-size:10px;color:#b91c1c;font-weight:600;margin-left:6px;">DISABLED</span>' : '';
-      const cell = (v) => 'padding:6px 8px;border-bottom:1px solid #f1f5f9;';
-      const input = (field, type) => {
-        const v = auGetEdited(u, field);
-        const changed = dirty && Object.prototype.hasOwnProperty.call(window._allUsersEdits[u.id] || {}, field);
-        const border = changed ? '2px solid #f59e0b' : '1px solid #e5e7eb';
-        return '<input data-uid="' + u.id + '" data-field="' + field + '" type="' + (type || 'text') + '" value="' + escapeHtml(v) + '" style="width:100%;padding:4px 6px;border:' + border + ';border-radius:4px;font-size:12px;box-sizing:border-box;" oninput="auOnEdit(this)" />';
-      };
-      const select = (field, options, blank) => {
-        const v = auGetEdited(u, field);
-        const changed = dirty && Object.prototype.hasOwnProperty.call(window._allUsersEdits[u.id] || {}, field);
-        const border = changed ? '2px solid #f59e0b' : '1px solid #e5e7eb';
-        let opts = (blank !== false ? '<option value=""></option>' : '');
-        opts += options.map(o => '<option value="' + escapeHtml(o) + '"' + (v === o ? ' selected' : '') + '>' + escapeHtml(o) + '</option>').join('');
-        // Preserve unknown existing values so we don't wipe them on render
-        if (v && !options.includes(v)) opts += '<option value="' + escapeHtml(v) + '" selected>' + escapeHtml(v) + ' (existing)</option>';
-        return '<select data-uid="' + u.id + '" data-field="' + field + '" onchange="auOnEdit(this)" style="width:100%;padding:4px 6px;border:' + border + ';border-radius:4px;font-size:12px;box-sizing:border-box;background:#fff;">' + opts + '</select>';
-      };
-      return '<tr style="' + rowBg + '">' +
-        '<td style="' + cell() + 'font-weight:600;white-space:nowrap;">' + escapeHtml(u.displayName || '') + disabled + '</td>' +
-        '<td style="' + cell() + 'color:var(--muted);white-space:nowrap;">' + escapeHtml(u.userPrincipalName || '') + '</td>' +
-        '<td style="' + cell() + 'min-width:100px;">' + input('employeeId') + '</td>' +
-        '<td style="' + cell() + 'min-width:140px;">' + input('companyName') + '</td>' +
-        '<td style="' + cell() + 'min-width:130px;">' + select('employeeType', AU_ETYPE_OPTIONS) + '</td>' +
-        '<td style="' + cell() + 'min-width:130px;">' + select('ca2', AU_CA2_OPTIONS) + '</td>' +
-        '<td style="' + cell() + 'min-width:160px;">' + input('department') + '</td>' +
-        '<td style="' + cell() + 'min-width:120px;">' + select('officeLocation', AU_OFFICE_OPTIONS) + '</td>' +
-        '<td style="' + cell() + 'min-width:130px;">' + input('employeeHireDate', 'date') + '</td>' +
-        '<td style="' + cell() + 'min-width:200px;">' + input('managerName') + '</td>' +
-        '<td style="' + cell() + 'text-align:center;">' +
-          (dirty ? '<button onclick="auResetRow(\'' + u.id + '\')" style="padding:3px 8px;font-size:11px;background:#fff;border:1px solid #e5e7eb;border-radius:4px;cursor:pointer;">↺</button>' : '<span style="color:#cbd5e1;">—</span>') +
-        '</td>' +
-      '</tr>';
-    }).join('');
-  }
-
-  window._auImportParsed = null; // Set after parseImportNamelist runs successfully
-
-  // Progressive-broadening manager resolver. Returns array of matches (may be empty).
-  // Handles middle names ("Timothy Sean Langan" → Entra "Timothy Langan") and
-  // Filipino nicknames ("Ma Lourdes Moria" → Entra "Maria Lourdes Moria").
-  async function auResolveManagerCandidates(fullName) {
-    // Strip common name suffixes (Jr., Sr., II, III, IV) so they don't get mistaken for the last name.
-    const nameRaw = fullName.trim().replace(/\s+/g, ' ');
-    const name = nameRaw.replace(/\s+(jr\.?|sr\.?|ii+|iv|v)\.?$/i, '').trim();
-    if (!name) return [];
-    const parts = name.split(' ');
-    const first = parts[0];
-    const last  = parts[parts.length - 1];
-    // All name tokens (excluding suffix) — used for a bidirectional prefix check against
-    // Entra's first-token, so nicknames derived from middle names ("Phojie" → "Phoj", "Klein" as nickname) match.
-    const allTokens = parts.map(p => p.toLowerCase());
-
-    const searchHeaders = { 'ConsistencyLevel': 'eventual' };
-    const uniqBy = (arr, k) => {
-      const seen = {}; const out = [];
-      arr.forEach(x => { if (!seen[x[k]]) { seen[x[k]] = 1; out.push(x); } });
-      return out;
-    };
-    const containsBoth = (u, f, l) => {
-      const dn = (u.displayName || '').toLowerCase();
-      return dn.indexOf(f.toLowerCase()) >= 0 && dn.indexOf(l.toLowerCase()) >= 0;
-    };
-
-    // Attempt 1 — exact displayName
-    try {
-      const esc = name.replace(/'/g, "''");
-      const r = await graphFetch('/users?$filter=' + encodeURIComponent("displayName eq '" + esc + "'") + '&$select=id,displayName,userPrincipalName&$top=10');
-      if (r.value && r.value.length) return r.value;
-    } catch (_) {}
-
-    // Attempt 2 — $search with full name (tokenised match, order-independent)
-    try {
-      const r = await graphFetch('/users?$search=' + encodeURIComponent('"displayName:' + name + '"') + '&$select=id,displayName,userPrincipalName&$top=25', { headers: searchHeaders });
-      const hits = (r.value || []).filter(u => containsBoth(u, first, last));
-      if (hits.length) return uniqBy(hits, 'id');
-    } catch (_) {}
-
-    // Attempt 3 — first + last only (drops middle names like "Sean" or "Lourdes")
-    if (parts.length > 2) {
-      try {
-        const r = await graphFetch('/users?$search=' + encodeURIComponent('"displayName:' + first + ' ' + last + '"') + '&$select=id,displayName,userPrincipalName&$top=25', { headers: searchHeaders });
-        const hits = (r.value || []).filter(u => containsBoth(u, first, last));
-        if (hits.length) return uniqBy(hits, 'id');
-      } catch (_) {}
-    }
-
-    // Attempt 4 — last name only, then match Entra's first-token against ANY namelist token
-    // (handles nicknames derived from middle names: "Renyl Phojie Rengel" → "Phoj Rengel",
-    //  "Anne Klein Serrano" → "Klein Serrano", plus "Ma Lourdes Moria" → "Maxie Moria" etc.)
-    let attempt4Raw = [];
-    try {
-      const r = await graphFetch('/users?$search=' + encodeURIComponent('"displayName:' + last + '"') + '&$select=id,displayName,userPrincipalName&$top=50', { headers: searchHeaders });
-      attempt4Raw = (r.value || []).filter(u => (u.displayName || '').toLowerCase().indexOf(last.toLowerCase()) >= 0);
-      const hits = attempt4Raw.filter(u => {
-        const firstToken = ((u.displayName || '').toLowerCase().split(' ')[0]) || '';
-        return allTokens.some(t => t.length >= 2 && (firstToken.startsWith(t) || t.startsWith(firstToken)));
-      });
-      if (hits.length) return uniqBy(hits, 'id');
-    } catch (_) {}
-
-    // Attempt 5 — if last-name search returned exactly one person, accept even without a first-name link.
-    // This is the "unique last name" escape hatch for unrelated-nickname cases the prefix check can't cover.
-    if (attempt4Raw.length === 1) return attempt4Raw;
-
-    return [];
-  }
-
-  window.openImportNamelist = function() {
-    if (!(window._allUsers || []).length) {
-      alert('Load users first (click Load / Refresh).');
-      return;
-    }
-    document.getElementById('auImportModal').style.display = 'flex';
-    document.getElementById('auImportPaste').focus();
-  };
-  window.closeImportNamelist = function() {
-    document.getElementById('auImportModal').style.display = 'none';
-    document.getElementById('auImportPaste').value = '';
-    document.getElementById('auImportPreview').innerHTML = '';
-    document.getElementById('auStageImportBtn').disabled = true;
-    window._auImportParsed = null;
-  };
-
-  window.parseImportNamelist = function() {
-    const raw = document.getElementById('auImportPaste').value || '';
-    const prev = document.getElementById('auImportPreview');
-    if (!raw.trim()) {
-      prev.innerHTML = '<span style="color:#b91c1c;">Nothing pasted.</span>';
-      return;
-    }
-    // Excel paste = tab-separated cells + newline-separated rows.
-    const lines = raw.replace(/\r/g, '').split('\n').filter(l => l.trim().length > 0);
-    const parsed = [];
-    lines.forEach(line => {
-      const cells = line.split('\t');
-      // Column A=0, C=2, E=4, G=6
-      parsed.push({
-        empId:    (cells[0] || '').trim(),
-        email:    (cells[2] || '').trim().toLowerCase(),
-        dept:     (cells[4] || '').trim(),
-        manager:  (cells[6] || '').trim()
-      });
-    });
-
-    // Auto-skip a header row if it looks like one (e.g. "Employee ID" / "Work Email" text)
-    if (parsed.length && /^(employee|emp|id|hc|full name|work email|email|department|dept|manager|head|hod)/i.test(parsed[0].empId + ' ' + parsed[0].email + ' ' + parsed[0].dept)) {
-      parsed.shift();
-    }
-
-    // Match each row against loaded users
-    const users = window._allUsers || [];
-    const byEmpId = {};
-    const byUpn = {};
-    users.forEach(u => {
-      if (u.employeeId) byEmpId[String(u.employeeId).trim().toLowerCase()] = u;
-      if (u.userPrincipalName) byUpn[String(u.userPrincipalName).trim().toLowerCase()] = u;
-    });
-
-    const matched = [];
-    const unmatched = [];
-    parsed.forEach(row => {
-      let u = null, matchedBy = '';
-      if (row.empId) {
-        u = byEmpId[row.empId.toLowerCase()] || null;
-        if (u) matchedBy = 'Employee ID';
-      }
-      if (!u && row.email) {
-        u = byUpn[row.email] || null;
-        if (u) matchedBy = 'Email';
-      }
-      if (u) matched.push({ user: u, row: row, matchedBy: matchedBy });
-      else unmatched.push(row);
-    });
-
-    window._auImportParsed = { matched, unmatched, parsed };
-
-    // Render preview table
-    let html = '<div style="margin-bottom:8px;"><strong>Parsed ' + parsed.length + ' row(s):</strong> ' + matched.length + ' matched, ' + unmatched.length + ' unmatched.</div>';
-    if (matched.length > 0) {
-      html += '<div style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;">';
-      html += '<table style="width:100%;border-collapse:collapse;font-size:11px;">';
-      html += '<thead style="background:#f8fafc;position:sticky;top:0;"><tr>' +
-        '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);">Match</th>' +
-        '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);">User</th>' +
-        '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);">Current Dept</th>' +
-        '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);">→ New Dept</th>' +
-        '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);">Current Manager</th>' +
-        '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);">→ New Manager</th>' +
-        '</tr></thead><tbody>';
-      matched.forEach(m => {
-        const curDept = auGetEdited(m.user, 'department') || '';
-        const curMgr  = auGetEdited(m.user, 'managerName') || '';
-        const deptChg = m.row.dept && m.row.dept !== curDept;
-        const mgrChg  = m.row.manager && m.row.manager !== curMgr;
-        html += '<tr>' +
-          '<td style="padding:5px 8px;border-bottom:1px solid #f1f5f9;color:#6b7280;font-size:10px;">' + escapeHtml(m.matchedBy) + '</td>' +
-          '<td style="padding:5px 8px;border-bottom:1px solid #f1f5f9;">' + escapeHtml(m.user.displayName || '') + '<br><span style="color:#94a3b8;font-size:10px;">' + escapeHtml(m.user.userPrincipalName || '') + '</span></td>' +
-          '<td style="padding:5px 8px;border-bottom:1px solid #f1f5f9;color:#94a3b8;">' + escapeHtml(curDept || '—') + '</td>' +
-          '<td style="padding:5px 8px;border-bottom:1px solid #f1f5f9;' + (deptChg ? 'font-weight:600;color:#065f46;background:#ecfdf5;' : 'color:#cbd5e1;') + '">' + escapeHtml(m.row.dept || '(no change)') + '</td>' +
-          '<td style="padding:5px 8px;border-bottom:1px solid #f1f5f9;color:#94a3b8;">' + escapeHtml(curMgr || '—') + '</td>' +
-          '<td style="padding:5px 8px;border-bottom:1px solid #f1f5f9;' + (mgrChg ? 'font-weight:600;color:#065f46;background:#ecfdf5;' : 'color:#cbd5e1;') + '">' + escapeHtml(m.row.manager || '(no change)') + '</td>' +
-          '</tr>';
-      });
-      html += '</tbody></table></div>';
-    }
-    if (unmatched.length > 0) {
-      html += '<div style="margin-top:10px;color:#b91c1c;"><strong>Unmatched (no Entra user found):</strong></div>';
-      html += '<div style="max-height:140px;overflow-y:auto;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:8px;font-size:11px;margin-top:4px;">';
-      unmatched.forEach(r => {
-        html += '• EmpID <code>' + escapeHtml(r.empId || '—') + '</code> · Email <code>' + escapeHtml(r.email || '—') + '</code> · Dept: ' + escapeHtml(r.dept) + '<br>';
-      });
-      html += '</div>';
-    }
-    prev.innerHTML = html;
-    document.getElementById('auStageImportBtn').disabled = (matched.length === 0);
-  };
-
-  // -------- R24 importer (Hire Date + Manager) --------
-  window._auR24Parsed = null;
-
-  window.openImportR24 = function() {
-    if (!(window._allUsers || []).length) {
-      alert('Load users first (click Load / Refresh).');
-      return;
-    }
-    document.getElementById('auR24Modal').style.display = 'flex';
-    const ta = document.getElementById('auR24Paste');
-    ta.addEventListener('input', auR24ShowFirstRow);
-    ta.focus();
-  };
-  window.closeImportR24 = function() {
-    document.getElementById('auR24Modal').style.display = 'none';
-    document.getElementById('auR24Paste').value = '';
-    document.getElementById('auR24Preview').innerHTML = '';
-    document.getElementById('auR24FirstRow').innerHTML = '';
-    document.getElementById('auStageR24Btn').disabled = true;
-    window._auR24Parsed = null;
-  };
-
-  function auR24ShowFirstRow() {
-    const raw = document.getElementById('auR24Paste').value || '';
-    const el = document.getElementById('auR24FirstRow');
-    if (!raw.trim()) { el.innerHTML = ''; return; }
-    const firstLine = raw.split(/\r?\n/).find(l => l.trim().length > 0) || '';
-    const cells = firstLine.split('\t');
-    const chips = cells.map((c, i) => '<span style="display:inline-block;padding:2px 6px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:4px;margin:2px;font-family:monospace;font-size:10px;"><strong>#' + (i + 1) + '</strong>: ' + escapeHtml(c.slice(0, 40)) + (c.length > 40 ? '…' : '') + '</span>');
-    el.innerHTML = '<strong>First row preview (' + cells.length + ' columns):</strong> ' + chips.join(' ');
-  }
-
-  // Excel dates and R24 date strings can come in many shapes; normalise to YYYY-MM-DD.
-  function auParseDate(s) {
-    if (!s) return '';
-    const str = String(s).trim();
-    if (!str) return '';
-    // ISO already?
-    if (/^\d{4}-\d{2}-\d{2}/.test(str)) return str.slice(0, 10);
-    // Excel serial number?
-    if (/^\d+(\.\d+)?$/.test(str)) {
-      const n = parseFloat(str);
-      if (n > 20000 && n < 60000) {
-        // Excel epoch 1899-12-30
-        const d = new Date(Date.UTC(1899, 11, 30) + n * 86400000);
-        return d.toISOString().slice(0, 10);
-      }
-    }
-    // Various common formats (dd/mm/yyyy, mm/dd/yyyy, "23 September 2026", etc.)
-    const d = new Date(str);
-    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
-    // dd/mm/yyyy explicit fallback
-    const m = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
-    if (m) {
-      let [, a, b, y] = m;
-      if (y.length === 2) y = '20' + y;
-      // Assume dd/mm/yyyy (Australian/PH convention common at GoTeam)
-      const iso = y + '-' + String(b).padStart(2, '0') + '-' + String(a).padStart(2, '0');
-      const d2 = new Date(iso);
-      if (!isNaN(d2.getTime())) return iso;
-    }
-    return '';
-  }
-
-  window.parseImportR24 = function() {
-    const raw = document.getElementById('auR24Paste').value || '';
-    const prev = document.getElementById('auR24Preview');
-    if (!raw.trim()) { prev.innerHTML = '<span style="color:#b91c1c;">Nothing pasted.</span>'; return; }
-
-    const matchType = document.getElementById('auR24MatchType').value; // empId | email
-    const matchCol  = Math.max(1, parseInt(document.getElementById('auR24MatchCol').value, 10) || 1) - 1;
-    const hireCol   = Math.max(1, parseInt(document.getElementById('auR24HireCol').value, 10) || 2) - 1;
-    const mgrCol    = Math.max(1, parseInt(document.getElementById('auR24MgrCol').value, 10) || 3) - 1;
-
-    const lines = raw.replace(/\r/g, '').split('\n').filter(l => l.trim().length > 0);
-    const parsed = [];
-    lines.forEach(line => {
-      const cells = line.split('\t');
-      parsed.push({
-        key:     (cells[matchCol] || '').trim(),
-        hire:    (cells[hireCol]  || '').trim(),
-        manager: (cells[mgrCol]   || '').trim(),
-        _row:    cells
-      });
-    });
-
-    // Auto-skip header if it looks like one (non-parseable date + no digits in key)
-    if (parsed.length && !auParseDate(parsed[0].hire) && !/\d/.test(parsed[0].key)) parsed.shift();
-
-    const users = window._allUsers || [];
-    const byEmpId = {}, byUpn = {};
-    users.forEach(u => {
-      if (u.employeeId)         byEmpId[String(u.employeeId).trim().toLowerCase()] = u;
-      if (u.userPrincipalName)  byUpn[String(u.userPrincipalName).trim().toLowerCase()] = u;
-    });
-
-    const matched = [], unmatched = [];
-    parsed.forEach(row => {
-      const key = row.key.toLowerCase();
-      let u = null;
-      if (matchType === 'empId') u = byEmpId[key] || null;
-      else                       u = byUpn[key]   || null;
-      if (u) {
-        matched.push({
-          user: u,
-          hireIso: auParseDate(row.hire),
-          hireRaw: row.hire,
-          manager: row.manager
-        });
-      } else {
-        unmatched.push(row);
-      }
-    });
-
-    window._auR24Parsed = { matched, unmatched };
-
-    let html = '<div style="margin-bottom:8px;"><strong>Parsed ' + (parsed.length) + ' row(s):</strong> ' + matched.length + ' matched, ' + unmatched.length + ' unmatched.</div>';
-    if (matched.length > 0) {
-      html += '<div style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;">';
-      html += '<table style="width:100%;border-collapse:collapse;font-size:11px;">';
-      html += '<thead style="background:#f8fafc;position:sticky;top:0;"><tr>' +
-        '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);">User</th>' +
-        '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);">Current Hire</th>' +
-        '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);">→ New Hire</th>' +
-        '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);">Current Mgr</th>' +
-        '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);">→ New Mgr</th>' +
-        '</tr></thead><tbody>';
-      matched.forEach(m => {
-        const curHire = auGetEdited(m.user, 'employeeHireDate') || '';
-        const curMgr  = auGetEdited(m.user, 'managerName') || '';
-        const hireChg = m.hireIso && m.hireIso !== curHire;
-        const mgrChg  = m.manager && m.manager !== curMgr;
-        const hireCell = m.hireIso ? m.hireIso : (m.hireRaw ? '<span style="color:#b91c1c;">unparseable: "' + escapeHtml(m.hireRaw) + '"</span>' : '(none)');
-        html += '<tr>' +
-          '<td style="padding:5px 8px;border-bottom:1px solid #f1f5f9;">' + escapeHtml(m.user.displayName || '') + '<br><span style="color:#94a3b8;font-size:10px;">' + escapeHtml(m.user.userPrincipalName || '') + '</span></td>' +
-          '<td style="padding:5px 8px;border-bottom:1px solid #f1f5f9;color:#94a3b8;">' + escapeHtml(curHire || '—') + '</td>' +
-          '<td style="padding:5px 8px;border-bottom:1px solid #f1f5f9;' + (hireChg ? 'font-weight:600;color:#065f46;background:#ecfdf5;' : 'color:#cbd5e1;') + '">' + hireCell + '</td>' +
-          '<td style="padding:5px 8px;border-bottom:1px solid #f1f5f9;color:#94a3b8;">' + escapeHtml(curMgr || '—') + '</td>' +
-          '<td style="padding:5px 8px;border-bottom:1px solid #f1f5f9;' + (mgrChg ? 'font-weight:600;color:#065f46;background:#ecfdf5;' : 'color:#cbd5e1;') + '">' + escapeHtml(m.manager || '(no change)') + '</td>' +
-          '</tr>';
-      });
-      html += '</tbody></table></div>';
-    }
-    if (unmatched.length > 0) {
-      html += '<div style="margin-top:10px;color:#b91c1c;"><strong>Unmatched (no Entra user with that ' + (matchType === 'empId' ? 'Employee ID' : 'Work Email') + '):</strong></div>';
-      html += '<div style="max-height:140px;overflow-y:auto;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:8px;font-size:11px;margin-top:4px;">';
-      unmatched.forEach(r => {
-        html += '• Key <code>' + escapeHtml(r.key || '—') + '</code> · Hire: ' + escapeHtml(r.hire || '—') + ' · Mgr: ' + escapeHtml(r.manager || '—') + '<br>';
-      });
-      html += '</div>';
-    }
-    prev.innerHTML = html;
-    document.getElementById('auStageR24Btn').disabled = (matched.length === 0);
-  };
-
-  // -------- Office Location importer --------
-  window._auOfficeParsed = null;
-
-  window.openImportOffice = function() {
-    if (!(window._allUsers || []).length) {
-      alert('Load users first (click Load / Refresh).');
-      return;
-    }
-    document.getElementById('auOfficeModal').style.display = 'flex';
-    const ta = document.getElementById('auOfficePaste');
-    ta.addEventListener('input', auOfficeShowFirstRow);
-    ta.focus();
-  };
-  window.closeImportOffice = function() {
-    document.getElementById('auOfficeModal').style.display = 'none';
-    document.getElementById('auOfficePaste').value = '';
-    document.getElementById('auOfficePreview').innerHTML = '';
-    document.getElementById('auOfficeFirstRow').innerHTML = '';
-    document.getElementById('auStageOfficeBtn').disabled = true;
-    window._auOfficeParsed = null;
-  };
-
-  function auOfficeShowFirstRow() {
-    const raw = document.getElementById('auOfficePaste').value || '';
-    const el = document.getElementById('auOfficeFirstRow');
-    if (!raw.trim()) { el.innerHTML = ''; return; }
-    const firstLine = raw.split(/\r?\n/).find(l => l.trim().length > 0) || '';
-    const cells = firstLine.split('\t');
-    const chips = cells.map((c, i) => '<span style="display:inline-block;padding:2px 6px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:4px;margin:2px;font-family:monospace;font-size:10px;"><strong>#' + (i + 1) + '</strong>: ' + escapeHtml(c.slice(0, 40)) + (c.length > 40 ? '…' : '') + '</span>');
-    el.innerHTML = '<strong>First row preview (' + cells.length + ' columns):</strong> ' + chips.join(' ');
-  }
-
-  window.parseImportOffice = function() {
-    const raw = document.getElementById('auOfficePaste').value || '';
-    const prev = document.getElementById('auOfficePreview');
-    if (!raw.trim()) { prev.innerHTML = '<span style="color:#b91c1c;">Nothing pasted.</span>'; return; }
-
-    const matchType = document.getElementById('auOfficeMatchType').value;
-    const matchCol  = Math.max(1, parseInt(document.getElementById('auOfficeMatchCol').value, 10) || 1) - 1;
-    const officeCol = Math.max(1, parseInt(document.getElementById('auOfficeCol').value, 10) || 2) - 1;
-
-    const lines = raw.replace(/\r/g, '').split('\n').filter(l => l.trim().length > 0);
-    const parsed = lines.map(line => {
-      const cells = line.split('\t');
-      return { key: (cells[matchCol] || '').trim(), office: (cells[officeCol] || '').trim() };
-    });
-    // Auto-skip header
-    if (parsed.length && !/\d/.test(parsed[0].key) && /^(employee|emp|id|hc|email|office|location)/i.test(parsed[0].key)) parsed.shift();
-
-    const users = window._allUsers || [];
-    const byEmpId = {}, byUpn = {};
-    users.forEach(u => {
-      if (u.employeeId)         byEmpId[String(u.employeeId).trim().toLowerCase()] = u;
-      if (u.userPrincipalName)  byUpn[String(u.userPrincipalName).trim().toLowerCase()] = u;
-    });
-
-    const matched = [], unmatched = [];
-    parsed.forEach(row => {
-      const key = row.key.toLowerCase();
-      const u = matchType === 'empId' ? (byEmpId[key] || null) : (byUpn[key] || null);
-      if (u) matched.push({ user: u, office: row.office });
-      else unmatched.push(row);
-    });
-
-    window._auOfficeParsed = { matched, unmatched };
-
-    let html = '<div style="margin-bottom:8px;"><strong>Parsed ' + parsed.length + ' row(s):</strong> ' + matched.length + ' matched, ' + unmatched.length + ' unmatched.</div>';
-    if (matched.length > 0) {
-      html += '<div style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;">';
-      html += '<table style="width:100%;border-collapse:collapse;font-size:11px;">';
-      html += '<thead style="background:#f8fafc;position:sticky;top:0;"><tr>' +
-        '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);">User</th>' +
-        '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);">Current Office</th>' +
-        '<th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border);">→ New Office</th>' +
-        '</tr></thead><tbody>';
-      matched.forEach(m => {
-        const cur = auGetEdited(m.user, 'officeLocation') || '';
-        const chg = m.office && m.office !== cur;
-        html += '<tr>' +
-          '<td style="padding:5px 8px;border-bottom:1px solid #f1f5f9;">' + escapeHtml(m.user.displayName || '') + '<br><span style="color:#94a3b8;font-size:10px;">' + escapeHtml(m.user.userPrincipalName || '') + '</span></td>' +
-          '<td style="padding:5px 8px;border-bottom:1px solid #f1f5f9;color:#94a3b8;">' + escapeHtml(cur || '—') + '</td>' +
-          '<td style="padding:5px 8px;border-bottom:1px solid #f1f5f9;' + (chg ? 'font-weight:600;color:#065f46;background:#ecfdf5;' : 'color:#cbd5e1;') + '">' + escapeHtml(m.office || '(no change)') + '</td>' +
-          '</tr>';
-      });
-      html += '</tbody></table></div>';
-    }
-    if (unmatched.length > 0) {
-      html += '<div style="margin-top:10px;color:#b91c1c;"><strong>Unmatched:</strong></div>';
-      html += '<div style="max-height:140px;overflow-y:auto;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:8px;font-size:11px;margin-top:4px;">';
-      unmatched.forEach(r => { html += '• Key <code>' + escapeHtml(r.key || '—') + '</code> · Office: ' + escapeHtml(r.office) + '<br>'; });
-      html += '</div>';
-    }
-    prev.innerHTML = html;
-    document.getElementById('auStageOfficeBtn').disabled = (matched.length === 0);
-  };
-
-  window.stageImportOffice = function() {
-    const p = window._auOfficeParsed;
-    if (!p || p.matched.length === 0) return;
-    let staged = 0;
-    p.matched.forEach(m => {
-      const cur = auGetEdited(m.user, 'officeLocation') || '';
-      if (m.office && m.office !== cur) { auSetEdit(m.user.id, 'officeLocation', m.office); staged++; }
-    });
-    renderAllUsersTable();
-    document.getElementById('auStatus').innerHTML =
-      '<span style="color:#065f46;">Staged ' + staged + ' Office Location update(s). Review with "Only modified" toggle, then Save.</span>';
-    closeImportOffice();
-  };
-
-  window.stageImportR24 = function() {
-    const p = window._auR24Parsed;
-    if (!p || p.matched.length === 0) return;
-    let staged = 0, hireChg = 0, mgrChg = 0;
-    p.matched.forEach(m => {
-      const curHire = auGetEdited(m.user, 'employeeHireDate') || '';
-      const curMgr  = auGetEdited(m.user, 'managerName') || '';
-      if (m.hireIso && m.hireIso !== curHire) { auSetEdit(m.user.id, 'employeeHireDate', m.hireIso); hireChg++; }
-      if (m.manager && m.manager !== curMgr)  { auSetEdit(m.user.id, 'managerName',      m.manager); mgrChg++; }
-      staged++;
-    });
-    renderAllUsersTable();
-    document.getElementById('auStatus').innerHTML =
-      '<span style="color:#065f46;">Staged from R24: ' + hireChg + ' Hire Date, ' + mgrChg + ' Manager update(s) across ' + staged + ' user(s). Review with "Only modified" toggle, then Save.</span>';
-    closeImportR24();
-  };
-
-  window.stageImportNamelist = function() {
-    const p = window._auImportParsed;
-    if (!p || p.matched.length === 0) return;
-    let staged = 0, deptChg = 0, mgrChg = 0;
-    p.matched.forEach(m => {
-      const curDept = auGetEdited(m.user, 'department') || '';
-      const curMgr  = auGetEdited(m.user, 'managerName') || '';
-      if (m.row.dept && m.row.dept !== curDept) { auSetEdit(m.user.id, 'department', m.row.dept); deptChg++; }
-      if (m.row.manager && m.row.manager !== curMgr) { auSetEdit(m.user.id, 'managerName', m.row.manager); mgrChg++; }
-      staged++;
-    });
-    renderAllUsersTable();
-    document.getElementById('auStatus').innerHTML =
-      '<span style="color:#065f46;">Staged from Namelist: ' + deptChg + ' Department, ' + mgrChg + ' Manager update(s) across ' + staged + ' user(s). Review with "Only modified" toggle, then Save.</span>';
-    closeImportNamelist();
-  };
-
-  window.auMirrorOfficeToCompanyDept = function() {
-    if (!(window._allUsers || []).length) {
-      alert('Load users first.');
-      return;
-    }
-    // Rule:
-    //   If Office Location contains "GoTeam" (case-insensitive) — e.g. "GoTeam - Product Development" —
-    //     → Company = "GoTeam", Department = "GoTeam"
-    //   Otherwise → Company = Office Location, Department = Office Location
-    //   Users with a blank Office Location are skipped.
-    const targets = (office) => {
-      if (/goteam/i.test(office || '')) return { company: 'GoTeam', dept: 'GoTeam' };
-      return { company: office, dept: office };
-    };
-
-    const users = window._allUsers.filter(u => u.accountEnabled !== false);
-    const candidates = users.filter(u => {
-      const office = auGetEdited(u, 'officeLocation');
-      if (!office) return false;
-      const t = targets(office);
-      return auGetEdited(u, 'companyName') !== t.company || auGetEdited(u, 'department') !== t.dept;
-    });
-
-    if (candidates.length === 0) {
-      alert('Nothing to mirror. Every active user with an Office Location already has the correct Company and Department (or has no Office Location).');
-      return;
-    }
-    const noOffice = users.filter(u => !auGetEdited(u, 'officeLocation')).length;
-    const alreadySynced = users.length - candidates.length - noOffice;
-
-    let willChangeCompany = 0, willChangeDept = 0, goteamCount = 0;
-    candidates.forEach(u => {
-      const office = auGetEdited(u, 'officeLocation');
-      const t = targets(office);
-      if (t.company === 'GoTeam') goteamCount++;
-      if (auGetEdited(u, 'companyName') !== t.company) willChangeCompany++;
-      if (auGetEdited(u, 'department')  !== t.dept)    willChangeDept++;
-    });
-
-    if (!confirm(
-      'Mirror Office Location → Company + Department for ' + candidates.length + ' active user(s)?\n\n' +
-      'Rule:\n' +
-      '  • Office contains "GoTeam" → Company = GoTeam, Department = GoTeam\n' +
-      '  • Otherwise               → Company = Office, Department = Office\n\n' +
-      'Preview:\n' +
-      '  → GoTeam mapping:               ' + goteamCount + ' user(s)\n' +
-      '  → Direct copy from Office:      ' + (candidates.length - goteamCount) + ' user(s)\n' +
-      '  → Company field will change on: ' + willChangeCompany + '\n' +
-      '  → Dept field will change on:    ' + willChangeDept + '\n\n' +
-      'Skipped: ' + alreadySynced + ' already correct, ' + noOffice + ' with no Office Location.\n\n' +
-      'Changes are staged as pending edits — review with the "Only modified" filter, then click Save.'
-    )) return;
-
-    let mirrored = 0;
-    candidates.forEach(u => {
-      const office = auGetEdited(u, 'officeLocation');
-      const t = targets(office);
-      if (auGetEdited(u, 'companyName') !== t.company) auSetEdit(u.id, 'companyName', t.company);
-      if (auGetEdited(u, 'department')  !== t.dept)    auSetEdit(u.id, 'department',  t.dept);
-      mirrored++;
-    });
-    renderAllUsersTable();
-    document.getElementById('auStatus').innerHTML =
-      '<span style="color:#065f46;">Staged updates on ' + mirrored + ' user(s) — ' + goteamCount + ' mapped to GoTeam, ' + (mirrored - goteamCount) + ' copied from Office. Review with "Only modified" toggle, then Save.</span>';
-  };
-
-  window.auGotoPage = function(n) {
-    window.auPage = n;
-    renderAllUsersTable();
-    // Scroll table into view smoothly
-    const t = document.getElementById('auTable');
-    if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
-
-  window.auOnEdit = function(el) {
-    auSetEdit(el.dataset.uid, el.dataset.field, el.value.trim());
-    el.style.border = '2px solid #f59e0b';
-    const tr = el.closest('tr');
-    if (tr) tr.style.background = '#fefce8';
-  };
-  window.auResetRow = function(uid) {
-    delete window._allUsersEdits[uid];
-    updateAuDirtyCount();
-    renderAllUsersTable();
-  };
-
-  async function saveAllUsersChanges() {
-    const status = document.getElementById('auStatus');
-    const btn = document.getElementById('auSaveBtn');
-    const edits = window._allUsersEdits;
-    const ids = Object.keys(edits);
-    if (ids.length === 0) return;
-    if (!confirm('Apply ' + ids.length + ' user update(s) to Entra?\n\nCA2 (extensionAttribute2) is the field used by Dynamic Distribution Lists — set it explicitly (Internal / Morning / Mid / Night / Flexible). Continue?')) return;
-
-    btn.disabled = true;
-    let ok = 0, fail = 0;
-    const failures = [];
-    // Per-save cache: manager full name → resolved user (or 'CANCELLED' sentinel).
-    // Prevents re-prompting the same duplicate name (e.g. multiple "Fiona Kesby") for every subordinate.
-    const managerCache = {};
-
-    for (let i = 0; i < ids.length; i++) {
-      const uid = ids[i];
-      const user = window._allUsers.find(u => u.id === uid);
-      const patch = edits[uid];
-      status.textContent = 'Saving ' + (i + 1) + '/' + ids.length + ' — ' + (user ? user.displayName : uid) + '…';
-
-      const body = {};
-      const extPatch = {};
-      let managerNewName = null;
-      let managerCleared = false;
-
-      Object.keys(patch).forEach(k => {
-        const v = patch[k] === '' ? null : patch[k];
-        switch (k) {
-          case 'companyName':      body.companyName = v; break;
-          case 'department':       body.department = v; break;
-          case 'employeeType':     body.employeeType = v; break;
-          case 'officeLocation':   body.officeLocation = v; break;
-          case 'employeeHireDate': body.employeeHireDate = v ? (v + 'T00:00:00Z') : null; break;
-          case 'employeeId':       body.employeeId = v; break;
-          case 'ca2':              extPatch.extensionAttribute2 = v; break;
-          case 'managerName':
-            if (v) managerNewName = v;
-            else managerCleared = true;
-            break;
-        }
-      });
-      if (Object.keys(extPatch).length > 0) body.onPremisesExtensionAttributes = extPatch;
-
-      let resolvedManager = null; // { id, displayName, userPrincipalName }
-      try {
-        if (Object.keys(body).length > 0) {
-          await graphFetch('/users/' + uid, { method: 'PATCH', body: body });
-        }
-        // Manager reference — resolve full name → user id (cached across the batch)
-        if (managerNewName) {
-          const cacheKey = managerNewName.trim().toLowerCase();
-          if (managerCache[cacheKey] === 'CANCELLED') {
-            throw new Error('Manager selection previously cancelled for "' + managerNewName + '".');
-          }
-          if (managerCache[cacheKey]) {
-            resolvedManager = managerCache[cacheKey];
-          } else {
-            const matches = await auResolveManagerCandidates(managerNewName);
-            if (matches.length === 0) throw new Error('Manager "' + managerNewName + '" not found (tried exact, then first+last, then last name).');
-            if (matches.length > 1) {
-              const pick = prompt(
-                'Multiple users match "' + managerNewName + '":\n\n' +
-                matches.map((m, i) => (i + 1) + '. ' + m.displayName + ' (' + m.userPrincipalName + ')').join('\n') +
-                '\n\nEnter number to pick (this choice will be reused for the rest of this save), or Cancel to skip:'
-              );
-              const n = parseInt(pick, 10);
-              if (!(n >= 1 && n <= matches.length)) {
-                managerCache[cacheKey] = 'CANCELLED';
-                throw new Error('Manager selection cancelled — multiple matches for "' + managerNewName + '".');
-              }
-              resolvedManager = matches[n - 1];
-            } else {
-              resolvedManager = matches[0];
-            }
-            managerCache[cacheKey] = resolvedManager;
-          }
-          await graphFetch('/users/' + uid + '/manager/$ref', {
-            method: 'PUT',
-            body: { '@odata.id': 'https://graph.microsoft.com/v1.0/users/' + resolvedManager.id }
-          });
-        } else if (managerCleared) {
-          await graphFetch('/users/' + uid + '/manager/$ref', { method: 'DELETE' });
-        }
-        ok++;
-        // Reflect the saved values back onto the local user record
-        Object.keys(patch).forEach(k => {
-          if (k === 'managerName') {
-            if (resolvedManager) user.manager = resolvedManager;
-            else user.manager = null;
-          } else if (k === 'ca2') {
-            user.onPremisesExtensionAttributes = user.onPremisesExtensionAttributes || {};
-            user.onPremisesExtensionAttributes.extensionAttribute2 = patch[k] || null;
-          } else if (k === 'employeeType') {
-            user.employeeType = patch[k] || null;
-          } else if (k === 'employeeHireDate') {
-            user.employeeHireDate = patch[k] ? patch[k] + 'T00:00:00Z' : null;
-          } else {
-            user[k] = patch[k] || null;
-          }
-        });
-        delete edits[uid];
-      } catch (e) {
-        fail++;
-        failures.push((user ? user.displayName : uid) + ': ' + (e.message || String(e)).slice(0, 100));
-      }
-    }
-
-    updateAuDirtyCount();
-    renderAllUsersTable();
-    const summary = ok + ' saved, ' + fail + ' failed.';
-    status.innerHTML = summary + (failures.length ? '<div style="margin-top:6px;color:#b91c1c;font-size:11px;">' + failures.map(escapeHtml).join('<br>') + '</div>' : '');
-    btn.disabled = (Object.keys(edits).length === 0);
   }
 
   async function syncLicenseAudit() {
@@ -8928,7 +7799,7 @@
       // 2. Fetch all users (paginated). We include disabled + unlicensed users
       //    so the holders table covers everyone the tenant knows about.
       status.textContent = 'Fetching all users…';
-      const userSelect = '$select=id,displayName,userPrincipalName,jobTitle,department,companyName,officeLocation,accountEnabled,createdDateTime,assignedLicenses,employeeId,onPremisesExtensionAttributes';
+      const userSelect = '$select=id,displayName,userPrincipalName,jobTitle,department,officeLocation,accountEnabled,createdDateTime,assignedLicenses,employeeId,onPremisesExtensionAttributes';
       const users = await graphPageAll('/users?' + userSelect + '&$top=999');
       // Everyone gets a row: currently-licensed users, users whose licenses were
       // removed inside the audit window, and any account that is disabled (even
@@ -8971,18 +7842,13 @@
       if (auditFetchError) {
         const msg = String(auditFetchError.message || '');
         const isConsent = /AuditLog\.Read\.All|Authorization_RequestDenied|insufficient privileges|Forbidden|401|403/i.test(msg);
-        const isThrottled = /429|Too Many Requests|exhausted .* retries/i.test(msg);
         console.warn('Audit log fetch failed:', auditFetchError);
         alert(isConsent
           ? 'Audit log fetch failed — the "License Assigned" and "License Removed" dates will be blank.\n\n' +
             'This usually means AuditLog.Read.All admin consent is missing. An M365 admin needs to grant it.\n\n' +
             'Error detail: ' + msg.slice(0, 300)
-          : isThrottled
-            ? 'Audit log fetch was throttled by Microsoft Graph (429 Too Many Requests) even after automatic retries. The "License Assigned" and "License Removed" dates will be blank in this run.\n\n' +
-              'This usually clears in 5–10 minutes. Try again then. If it keeps happening, try a smaller audit window.\n\n' +
-              'Error detail: ' + msg.slice(0, 300)
-            : 'Audit log fetch failed after trying multiple window sizes. The dates will be blank.\n\n' +
-              'Error detail: ' + msg.slice(0, 400));
+          : 'Audit log fetch failed after trying multiple window sizes. The dates will be blank.\n\n' +
+            'Error detail: ' + msg.slice(0, 400));
       } else {
         status.textContent = 'Parsing ' + auditEvents.length + ' audit event(s) from last ' + effectiveWindowDays + ' days…';
       }
@@ -9241,7 +8107,6 @@
           upn: u.userPrincipalName || '',
           jobTitle: u.jobTitle || '',
           department: u.department || '',
-          companyName: u.companyName || '',
           officeLocation: u.officeLocation || '',
           employeeId: u.employeeId || '',
           remarks: (u.onPremisesExtensionAttributes && u.onPremisesExtensionAttributes.extensionAttribute1) || '',
@@ -9275,7 +8140,6 @@
           upn: u.userPrincipalName || '',
           jobTitle: u.jobTitle || '',
           department: u.department || '',
-          companyName: u.companyName || '',
           officeLocation: u.officeLocation || '',
           employeeId: u.employeeId || '',
           remarks: (u.onPremisesExtensionAttributes && u.onPremisesExtensionAttributes.extensionAttribute1) || '',
@@ -9769,8 +8633,8 @@
         sh('Employee ID', 'employeeId') +
         sh('User', 'displayName') +
         sh('License', 'licenseName') +
-        sh('Client', 'companyName') +
         sh('Department', 'department') +
+        sh('Client', 'officeLocation') +
         sh('Account', 'accountEnabled') +
         sh('User Created', 'userCreatedAt') +
         sh('Date License Assigned', 'assignedAt') +
@@ -9823,8 +8687,8 @@
             '<div style="font-size:11px;color:var(--muted);">' + h.upn + '</div>' +
           '</div></div></td>' +
         '<td>' + (l.skuId === '__none__' ? '<span style="font-size:11px;color:var(--muted);font-style:italic;">no license</span>' : '<strong style="font-size:12px;">' + (skuNameById[l.skuId] || skuNameById[String(l.skuId || '').toLowerCase()] || friendlyLicenseName(l.skuId) || l.skuId) + '</strong>' + (removed ? '<div style="font-size:10px;color:#dc2626;">REMOVED</div>' : '')) + '</td>' +
-        '<td><span style="font-size:12px;color:var(--muted);">' + (h.companyName || '—') + '</span></td>' +
         '<td><span style="font-size:12px;color:var(--muted);">' + (h.department || '—') + '</span></td>' +
+        '<td><span style="font-size:12px;color:var(--muted);">' + (h.officeLocation || '—') + '</span></td>' +
         '<td>' + acctPill + '</td>' +
         '<td>' + cell(h.userCreatedAt) + '</td>' +
         '<td>' + cell(l.assignedAt) + '</td>' +
@@ -10455,7 +9319,7 @@
     // ---- Sheet 3: ALL ACTIVE ----
     const skuNameById = {};
     audit.skus.forEach(s => { skuNameById[String(s.skuId || '').toLowerCase()] = s.friendlyName || s.skuPartNumber; });
-    const activeRows = [['Employee ID', 'Name', 'Email', 'Client', 'Department', 'Licenses', 'Remarks']];
+    const activeRows = [['Employee ID', 'Name', 'Email', 'Client', 'Licenses', 'Remarks']];
     // Suppress noisy free/trial licenses from the Licenses column and skip
     // users who end up with zero real licenses (viral-only holders).
     const _partById = {};
@@ -10466,10 +9330,10 @@
         .filter(l => !HIDDEN_SKUS_MOVEMENT.has(_partById[String(l.skuId).toLowerCase()] || ''))
         .map(l => skuNameById[String(l.skuId).toLowerCase()] || l.skuId);
       if (realLicNames.length === 0) return; // no real license → skip
-      activeRows.push([h.employeeId || '', h.displayName || '', h.upn || '', h.companyName || '', h.department || '', realLicNames.join(', '), h.remarks || '']);
+      activeRows.push([h.employeeId || '', h.displayName || '', h.upn || '', h.officeLocation || '', realLicNames.join(', '), h.remarks || '']);
     });
     const activeSheet = XLSX.utils.aoa_to_sheet(activeRows);
-    activeSheet['!cols'] = [{ wch: 12 }, { wch: 26 }, { wch: 32 }, { wch: 24 }, { wch: 24 }, { wch: 40 }, { wch: 22 }];
+    activeSheet['!cols'] = [{ wch: 12 }, { wch: 26 }, { wch: 32 }, { wch: 24 }, { wch: 40 }, { wch: 22 }];
     paintSeparatedRows(activeSheet, 'Remarks');
     XLSX.utils.book_append_sheet(wb, activeSheet, 'ALL ACTIVE');
 
@@ -10479,7 +9343,7 @@
       .filter(s => !HIDDEN_SKUS_MOVEMENT.has(String(s.skuPartNumber || '').toUpperCase()))
       .forEach(s => {
         const skuIdLc = String(s.skuId || '').toLowerCase();
-        const rows = [['Employee ID', 'Name', 'Email', 'Client', 'Department', 'License Assign', 'License Assigned Date', 'License Removed Date', 'Remarks']];
+        const rows = [['Employee ID', 'Name', 'Email', 'Client', 'License Assign', 'License Assigned Date', 'License Removed Date', 'Remarks']];
         holdersSorted.forEach(h => {
           const lic = (h.licenses || []).find(l => String(l.skuId || '').toLowerCase() === skuIdLc);
           if (!lic) return;
@@ -10504,8 +9368,7 @@
             h.employeeId || '',
             h.displayName || '',
             h.upn || '',
-            h.companyName || '',
-            h.department || '',
+            h.officeLocation || '',
             s.friendlyName || s.skuPartNumber,
             fmtDT(lic.assignedAt),
             fmtDT(lic.removedAt || (h.accountEnabled ? '' : h.deactivatedAt)),
@@ -10514,7 +9377,7 @@
         });
         if (rows.length === 1) return; // skip empty sheets
         const ws = XLSX.utils.aoa_to_sheet(rows);
-        ws['!cols'] = [{ wch: 12 }, { wch: 26 }, { wch: 32 }, { wch: 24 }, { wch: 24 }, { wch: 30 }, { wch: 22 }, { wch: 22 }, { wch: 22 }];
+        ws['!cols'] = [{ wch: 12 }, { wch: 26 }, { wch: 32 }, { wch: 24 }, { wch: 30 }, { wch: 22 }, { wch: 22 }, { wch: 22 }];
         paintSeparatedRows(ws, 'Remarks');
         let name = sheetName(s.friendlyName || s.skuPartNumber);
         let suffix = 1;
