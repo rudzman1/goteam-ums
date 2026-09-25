@@ -10756,7 +10756,7 @@
   if (VIEW_ONLY) {
     document.body.classList.add('view-only');
     // Hide the two nav items — Licensing is the only view they get.
-    document.querySelectorAll('.nav-item[data-view="onboarding"], .nav-item[data-view="offboarding"]').forEach(b => b.style.display = 'none');
+    document.querySelectorAll('.nav-item[data-view="onboarding"], .nav-item[data-view="offboarding"], .nav-item[data-view="allusers"]').forEach(b => b.style.display = 'none');
     // Force Licensing tab to be active on load.
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
     const licView = document.getElementById('view-licensing');
