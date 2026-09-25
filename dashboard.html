@@ -1750,7 +1750,14 @@
       const upn = stripDiacritics(first + '.' + last.replace(/[\s-]+/g, '')).toLowerCase() + '@' + (settings.domain || 'go.team');
       const display = first + ' ' + last + (ms365Suffix(h.starterName) ? ' ' + ms365Suffix(h.starterName) : '');
       const isInternal = (h.companyName || '').trim().toLowerCase() === 'goteam';
-      const department = isInternal ? 'Internal' : detectShiftCategory(h.phShiftSchedule);
+      // CA2 mirrors the old "department" scheme used by Dynamic Distros:
+      //   Internal → "Internal"; else the shift category (Morning / Mid / Night)
+      const ca2Value = isInternal ? 'Internal' : detectShiftCategory(h.phShiftSchedule);
+      const employeeTypeValue = isInternal ? 'Internal' : 'Client-Facing';
+      const departmentValue   = (h.department || '').trim();
+      const officeValue       = (h.officeLocation || '').trim();
+      const hireDateIso       = ((h.hireDate || h.startDate || '') + '').slice(0, 10);
+      const hireDateForGraph  = hireDateIso ? (hireDateIso + 'T00:00:00Z') : null;
       const password = passwords[i];
       // Internal (GoTeam) staff get BOTH Business Basic + F1; Client-assigned staff get F1 only.
       const skuIds = isInternal
@@ -1775,40 +1782,42 @@
           const wasPreviouslyOffboarded = /^(recalled|separated)$/i.test(priorRemark);
           const newRemark = wasPreviouslyOffboarded ? 'Active (Reprofiled)' : 'Active';
           log('    [INFO] Existing user found — reactivating instead of creating' + (priorRemark ? ' (prior status: ' + priorRemark + ')' : ''), '#60a5fa');
-          // 1a. Unblock sign-in + update role fields + set Remarks
-          await graphFetch('/users/' + existing.id, {
-            method: 'PATCH',
-            body: {
-              accountEnabled: true,
-              jobTitle: h.position || '',
-              department: department,
-              officeLocation: h.companyName || '',
-              employeeId: h.hcId || existing.employeeId || '',
-              onPremisesExtensionAttributes: { extensionAttribute1: newRemark }
-            }
-          });
-          log('    [OK] Reactivated — sign-in unblocked, jobTitle="' + (h.position || '') + '", department="' + department + '", office="' + (h.companyName || '') + '", remarks="' + newRemark + '"', '#22c55e');
+          // 1a. Unblock sign-in + update role fields + set Remarks + CA2 (Dynamic Distro filter)
+          const patchBody = {
+            accountEnabled: true,
+            jobTitle: h.position || '',
+            companyName: h.companyName || '',
+            department: departmentValue,
+            employeeType: employeeTypeValue,
+            officeLocation: officeValue,
+            employeeId: h.hcId || existing.employeeId || '',
+            onPremisesExtensionAttributes: { extensionAttribute1: newRemark, extensionAttribute2: ca2Value }
+          };
+          if (hireDateForGraph) patchBody.employeeHireDate = hireDateForGraph;
+          await graphFetch('/users/' + existing.id, { method: 'PATCH', body: patchBody });
+          log('    [OK] Reactivated — company="' + (h.companyName || '') + '", dept="' + departmentValue + '", type="' + employeeTypeValue + '", office="' + officeValue + '", CA2="' + ca2Value + '", remarks="' + newRemark + '"', '#22c55e');
         } catch (existErr) {
           // 404 (or any non-existence signal) → fall through to create path.
-          newUser = await graphFetch('/users', {
-            method: 'POST',
-            body: {
-              accountEnabled: true,
-              displayName: display,
-              givenName: first,
-              surname: last + (ms365Suffix(h.starterName) ? ' ' + ms365Suffix(h.starterName) : ''),
-              mailNickname: upn.split('@')[0],
-              userPrincipalName: upn,
-              jobTitle: h.position || '',
-              department: department,
-              officeLocation: h.companyName || '',
-              usageLocation: 'PH',
-              employeeId: h.hcId || '',
-              passwordProfile: { forceChangePasswordNextSignIn: true, password: password },
-              onPremisesExtensionAttributes: { extensionAttribute1: 'Active' }
-            }
-          });
-          log('    [OK] Created — id=' + newUser.id, '#22c55e');
+          const createBody = {
+            accountEnabled: true,
+            displayName: display,
+            givenName: first,
+            surname: last + (ms365Suffix(h.starterName) ? ' ' + ms365Suffix(h.starterName) : ''),
+            mailNickname: upn.split('@')[0],
+            userPrincipalName: upn,
+            jobTitle: h.position || '',
+            companyName: h.companyName || '',
+            department: departmentValue,
+            employeeType: employeeTypeValue,
+            officeLocation: officeValue,
+            usageLocation: 'PH',
+            employeeId: h.hcId || '',
+            passwordProfile: { forceChangePasswordNextSignIn: true, password: password },
+            onPremisesExtensionAttributes: { extensionAttribute1: 'Active', extensionAttribute2: ca2Value }
+          };
+          if (hireDateForGraph) createBody.employeeHireDate = hireDateForGraph;
+          newUser = await graphFetch('/users', { method: 'POST', body: createBody });
+          log('    [OK] Created — id=' + newUser.id + ', company="' + (h.companyName || '') + '", dept="' + departmentValue + '", type="' + employeeTypeValue + '", office="' + officeValue + '", CA2="' + ca2Value + '"', '#22c55e');
         }
         createdIds.push(newUser.id);
         wasReactivatedList.push(wasReactivated);
@@ -1858,6 +1867,27 @@
             log('    [OK] Added to MFA group', '#22c55e');
           } catch (e) {
             log('    [WARN] MFA group skipped — ' + e.message.slice(0, 120), '#fbbf24');
+          }
+        }
+
+        // 4. Assign Manager (uses the fuzzy resolver from All Users; handles nicknames, Jr., middle-name aliases)
+        const mgrName = (h.manager || '').trim();
+        if (mgrName) {
+          try {
+            const candidates = await auResolveManagerCandidates(mgrName);
+            if (candidates.length === 0) {
+              log('    [WARN] Manager "' + mgrName + '" not found in Entra — skipped', '#fbbf24');
+            } else if (candidates.length > 1) {
+              log('    [WARN] Manager "' + mgrName + '" matches ' + candidates.length + ' users (' + candidates.map(m => m.displayName).slice(0, 3).join(', ') + '…). Skipped — set manually in All Users.', '#fbbf24');
+            } else {
+              await graphFetch('/users/' + newUser.id + '/manager/$ref', {
+                method: 'PUT',
+                body: { '@odata.id': 'https://graph.microsoft.com/v1.0/users/' + candidates[0].id }
+              });
+              log('    [OK] Manager set to ' + candidates[0].displayName + ' (' + candidates[0].userPrincipalName + ')', '#22c55e');
+            }
+          } catch (e) {
+            log('    [WARN] Manager assign skipped — ' + e.message.slice(0, 120), '#fbbf24');
           }
         }
 
@@ -3125,11 +3155,11 @@
     const starterMap = new Map();
     for (const sheet of recent) {
       try {
-        // Read B1:T200 — gives us ID, Name, Date, Position, Client, ... PH Shift.
-        // 19 columns × 200 rows = 3800 cells (under Graph's ~5000 hard cap).
+        // Read B1:V200 — gives us ID, Name, Date, Position, Client, ... PH Shift, Manager, Office Location.
+        // 21 columns × 200 rows = 4200 cells (under Graph's ~5000 hard cap).
         // In the returned 2D array: row[0]=B, row[1]=C, row[2]=D, row[3]=E,
-        // row[4]=F, row[18]=T.
-        const range = await graphFetch('/drives/' + driveId + '/items/' + itemId + '/workbook/worksheets/' + encodeURIComponent(sheet.name) + "/range(address='B1:T200')");
+        // row[4]=F, row[13]=O (Manager), row[18]=T (Shift), row[20]=V (Office Location).
+        const range = await graphFetch('/drives/' + driveId + '/items/' + itemId + '/workbook/worksheets/' + encodeURIComponent(sheet.name) + "/range(address='B1:V200')");
         const rows = range.values || [];
         let added = 0;
         for (const row of rows) {
@@ -3144,7 +3174,9 @@
           const position = (typeof row[3] === 'string' ? row[3].trim() : '') || '';
           const client = (typeof row[4] === 'string' ? row[4].trim() : '') || '';
           const shift = (typeof row[18] === 'string' ? row[18].trim() : (typeof row[18] === 'number' ? String(row[18]) : '')) || '';
-          starterMap.set(name.toLowerCase(), { id: idStr, name, date, position, client, shift, sheetName: sheet.name });
+          const manager = (typeof row[13] === 'string' ? row[13].trim() : '') || '';
+          const office = (typeof row[20] === 'string' ? row[20].trim() : '') || '';
+          starterMap.set(name.toLowerCase(), { id: idStr, name, date, position, client, shift, manager, office, sheetName: sheet.name });
           added++;
         }
         gfLog('    "' + sheet.name + '": ' + rows.length + ' rows, ' + added + ' starters', '#94a3b8');
@@ -3781,6 +3813,8 @@
               if (info.id) h.hcId = info.id;
               if (info.position && (h.position === 'TBD' || !h.position)) h.position = info.position;
               if (info.shift && (h.phShiftSchedule === 'TBD' || !h.phShiftSchedule)) h.phShiftSchedule = info.shift;
+              if (info.manager && !h.manager) h.manager = info.manager;
+              if (info.office && !h.officeLocation) h.officeLocation = info.office;
               if (info.date && (!h.startDate || h.startDate === '')) h.startDate = info.date;
               newEnriched++;
             }
@@ -3802,6 +3836,14 @@
             }
             if (info.shift && isBlankValue(h.phShiftSchedule)) {
               addUpdate(h, h.starterName, 'phShiftSchedule', h.phShiftSchedule, info.shift, 'From Tracker (column T)');
+              existingBackfills++;
+            }
+            if (info.manager && isBlankValue(h.manager)) {
+              addUpdate(h, h.starterName, 'manager', h.manager, info.manager, 'From Tracker (column O)');
+              existingBackfills++;
+            }
+            if (info.office && isBlankValue(h.officeLocation)) {
+              addUpdate(h, h.starterName, 'officeLocation', h.officeLocation, info.office, 'From Tracker (column V)');
               existingBackfills++;
             }
             // Date: only update if local doesn't already record a reschedule
@@ -4139,6 +4181,13 @@
     return 'Week of ' + fmt(monday) + ' – ' + fmt(sunday) + ', ' + monday.getFullYear();
   }
 
+  window.updateHireField = function(id, field, value) {
+    const h = state.hires.find(x => x.id === id);
+    if (!h) return;
+    h[field] = value;
+    save();
+  };
+
   function hireRowHtml(h) {
     const rescheduleBadge = h.rescheduledFrom ? '<span class="pill pill-purple pill-tiny" style="margin-left:6px" title="' + (h.rescheduleNote || '') + '">RESCHEDULED</span>' : '';
     const rescheduleNote  = h.rescheduledFrom ? '<div class="reschedule-note">Was ' + formatDate(h.rescheduledFrom) + ' → moved to ' + formatDate(h.startDate) + '</div>' : '';
@@ -4164,8 +4213,12 @@
           </td>\
           <td>' + (h.position || '<span style="color:#cbd5e1">—</span>') + '</td>\
           <td>' + h.companyName + '</td>\
+          <td><input type="text" value="' + escapeHtml(h.department || '') + '" onchange="updateHireField(' + h.id + ',\'department\',this.value)" placeholder="—" style="width:110px;font-size:12px;padding:4px 6px;border:1px solid #e5e7eb;border-radius:4px;background:#fff;" /></td>\
           <td><span style="font-size:12px;color:var(--muted)">' + (h.phShiftSchedule || '<span style="color:#cbd5e1">—</span>') + '</span></td>\
+          <td><input type="text" value="' + escapeHtml(h.manager || '') + '" onchange="updateHireField(' + h.id + ',\'manager\',this.value)" placeholder="Manager full name" style="width:150px;font-size:12px;padding:4px 6px;border:1px solid #e5e7eb;border-radius:4px;background:#fff;" /></td>\
+          <td><select onchange="updateHireField(' + h.id + ',\'officeLocation\',this.value)" style="width:110px;font-size:12px;padding:4px 6px;border:1px solid #e5e7eb;border-radius:4px;background:#fff;"><option value=""' + (!h.officeLocation ? ' selected' : '') + '>—</option><option' + (h.officeLocation === 'i1 Office' ? ' selected' : '') + '>i1 Office</option><option' + (h.officeLocation === 'HM Office' ? ' selected' : '') + '>HM Office</option><option' + (h.officeLocation === 'WFH' ? ' selected' : '') + '>WFH</option>' + (h.officeLocation && !['i1 Office','HM Office','WFH'].includes(h.officeLocation) ? '<option selected>' + escapeHtml(h.officeLocation) + '</option>' : '') + '</select></td>\
           <td>' + formatDate(h.startDate) + rescheduleBadge + withdrawnBadge + rescheduleNote + withdrawnNote + '</td>\
+          <td><input type="date" value="' + escapeHtml(h.hireDate || h.startDate || '') + '" onchange="updateHireField(' + h.id + ',\'hireDate\',this.value)" style="font-size:12px;padding:4px 6px;border:1px solid #e5e7eb;border-radius:4px;background:#fff;" /></td>\
           <td>' + statusPill(h.status) + '</td>\
           <td>' + (h.ms365CreatedAt ? '<span style="font-size:11px;color:#065f46;white-space:nowrap;" title="' + new Date(h.ms365CreatedAt).toString() + '">' + formatDateTime(h.ms365CreatedAt) + '</span>' : '<span style="color:var(--muted);font-size:12px;">—</span>') + '</td>\
           <td>' + (Array.isArray(h.ms365LicensesAdded) && h.ms365LicensesAdded.length ? (function(){ var pretty = h.ms365LicensesAdded.map(friendlyLicenseName); return '<div style="font-size:11px;color:#374151;max-width:240px;white-space:normal;line-height:1.4;" title="' + pretty.join(', ') + '">' + pretty.join(', ') + '</div>'; })() : '<span style="color:var(--muted);font-size:12px;">—</span>') + '</td>\
@@ -4324,8 +4377,12 @@
             sortHeader('Employee Name', 'starterName') +
             sortHeader('Position', 'position') +
             sortHeader('Company', 'companyName') +
+            sortHeader('Department', 'department') +
             sortHeader('PH Shift', 'phShiftSchedule') +
+            sortHeader('Manager', 'manager') +
+            sortHeader('Office Location', 'officeLocation') +
             sortHeader('Start Date', 'startDate') +
+            sortHeader('Hire Date', 'hireDate') +
             sortHeader('Status', 'status') +
             sortHeader('Access Created Date', 'ms365CreatedAt') +
             '<th>Licenses Added</th>' +
@@ -7995,7 +8052,7 @@
   }
   const AU_OFFICE_OPTIONS = ['i1 Office', 'HM Office', 'WFH'];
   const AU_ETYPE_OPTIONS  = ['Internal', 'Client-Facing'];
-  const AU_CA2_OPTIONS    = ['Internal', 'Morning', 'Mid', 'Night', 'Flexible'];
+  const AU_CA2_OPTIONS    = ['Internal', 'Morning', 'Night'];
 
   async function loadAllUsersView() {
     const status = document.getElementById('auStatus');
