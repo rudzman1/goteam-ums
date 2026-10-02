@@ -2049,6 +2049,7 @@
       { name: 'LicensesRemoved',   text: { allowMultipleLines: true } },
       { name: 'SharedMailboxDone', boolean: {} },
       { name: 'SharedMailboxDoneAt', text: {} },
+      { name: 'RemovedFromTrackerAt', text: {} },
       { name: 'LocalId',          number: {} }
     ],
     licenses: [
@@ -2447,6 +2448,7 @@
       LicensesRemoved: Array.isArray(d.licensesRemovedList) ? d.licensesRemovedList.join(', ') : '',
       SharedMailboxDone: !!d.sharedMailboxDone,
       SharedMailboxDoneAt: d.sharedMailboxDoneAt || '',
+      RemovedFromTrackerAt: d.removedFromTrackerAt || '',
       ChecklistJson: JSON.stringify(d.checklist || []),
       LocalId: d.id || 0
     };
@@ -2482,6 +2484,7 @@
       licensesRemovedList: f.LicensesRemoved ? String(f.LicensesRemoved).split(',').map(s => s.trim()).filter(Boolean) : [],
       sharedMailboxDone: !!f.SharedMailboxDone,
       sharedMailboxDoneAt: f.SharedMailboxDoneAt || '',
+      removedFromTrackerAt: f.RemovedFromTrackerAt || '',
       checklist: checklist.length ? checklist : defaultExitChecklist()
     };
   }
@@ -3563,22 +3566,42 @@
         }
       });
 
-      atLog('New: ' + newItems.length + ' departure(s), Updates: ' + updates.length + '.', '#22c55e');
-      renderAttritionPreview(newItems, updates);
+      // Detect departures that USED to be in the Attrition Tracker but have been
+      // removed by HR (e.g. the row got deleted after offboarding was done).
+      // Scope: only flag dashboard departures whose effectiveDate falls within the
+      // same month-range filter we just scanned — otherwise we'd falsely flag
+      // every departure from outside the window.
+      const trackerNameSet = new Set(filtered.map(p => p.name.toLowerCase()));
+      const removedFromTracker = state.departures.filter(d => {
+        if (d.removedFromTrackerAt) return false; // already noted
+        const key = (d.name || '').toLowerCase();
+        if (!key) return false;
+        if (trackerNameSet.has(key)) return false;
+        const eff = d.effectiveDate || d.lastDay || '';
+        if (!eff) return false;
+        const parts = eff.split('-');
+        if (parts.length < 3) return false;
+        const y = parseInt(parts[0], 10), m = parseInt(parts[1], 10);
+        return y === year && m >= monthFrom && m <= monthTo;
+      });
+
+      atLog('New: ' + newItems.length + ' departure(s), Updates: ' + updates.length + ', Removed-from-tracker: ' + removedFromTracker.length + '.', '#22c55e');
+      renderAttritionPreview(newItems, updates, removedFromTracker);
     } catch (e) {
       atLog('[FAIL] ' + e.message, '#ef4444');
       console.error(e);
     }
   }
 
-  function renderAttritionPreview(newItems, updates) {
+  function renderAttritionPreview(newItems, updates, removedFromTracker) {
+    removedFromTracker = removedFromTracker || [];
     const el = document.getElementById('attritionRefreshPreview');
-    if (newItems.length === 0 && updates.length === 0) {
+    if (newItems.length === 0 && updates.length === 0 && removedFromTracker.length === 0) {
       el.style.display = 'block';
-      el.innerHTML = '<div style="padding:12px;background:#ecfdf5;border:1px solid #6ee7b7;border-radius:8px;font-size:12px;color:#065f46;">No new departures or updates found within the selected range.</div>';
+      el.innerHTML = '<div style="padding:12px;background:#ecfdf5;border:1px solid #6ee7b7;border-radius:8px;font-size:12px;color:#065f46;">No new departures, updates, or removed-from-tracker records found within the selected range.</div>';
       return;
     }
-    let html = '<div style="padding:12px;background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;margin-bottom:8px;font-size:12px;color:#1e40af;line-height:1.5;"><strong>' + newItems.length + ' new departure(s), ' + updates.length + ' update(s).</strong> Review and uncheck any you do not want to apply.</div>';
+    let html = '<div style="padding:12px;background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;margin-bottom:8px;font-size:12px;color:#1e40af;line-height:1.5;"><strong>' + newItems.length + ' new departure(s), ' + updates.length + ' update(s), ' + removedFromTracker.length + ' removed-from-tracker.</strong> Review and uncheck any you do not want to apply.</div>';
 
     if (newItems.length > 0) {
       html += '<h5 style="font-size:13px;margin:12px 0 6px;color:var(--text);">New Departures (' + newItems.length + ')</h5>';
@@ -3625,6 +3648,29 @@
       });
       html += '</tbody></table></div>';
     }
+    if (removedFromTracker.length > 0) {
+      html += '<h5 style="font-size:13px;margin:12px 0 6px;color:#92400e;">Removed from Tracker (' + removedFromTracker.length + ')</h5>';
+      html += '<div style="padding:8px 12px;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;margin-bottom:8px;font-size:11px;color:#78350f;line-height:1.5;">These departures exist on the dashboard but are no longer present in the Attrition Tracker for this month range. Marking them adds a dated "Removed from Tracker" note so the dashboard record is preserved for audit.</div>';
+      html += '<div style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">';
+      html += '<table style="width:100%;border-collapse:collapse;font-size:12px;"><thead style="background:#f8fafc;"><tr>' +
+              '<th style="padding:6px;text-align:left;width:30px;"><input type="checkbox" id="atRmAll" checked onchange="document.querySelectorAll(\'.atRmCb\').forEach(c => c.checked = this.checked);" /></th>' +
+              '<th style="padding:6px;text-align:left;">Name</th>' +
+              '<th style="padding:6px;text-align:left;">Company</th>' +
+              '<th style="padding:6px;text-align:left;">Effective Day</th>' +
+              '<th style="padding:6px;text-align:left;">Current Status</th>' +
+              '</tr></thead><tbody>';
+      removedFromTracker.forEach((d, i) => {
+        html += '<tr style="border-top:1px solid #e2e8f0;">' +
+                '<td style="padding:6px;"><input type="checkbox" class="atRmCb" data-idx="' + i + '" checked /></td>' +
+                '<td style="padding:6px;">' + escapeHtml(d.name) + '</td>' +
+                '<td style="padding:6px;">' + escapeHtml(d.company || '') + '</td>' +
+                '<td style="padding:6px;">' + escapeHtml(d.effectiveDate || d.lastDay || '') + '</td>' +
+                '<td style="padding:6px;">' + escapeHtml(d.status || '') + '</td>' +
+                '</tr>';
+      });
+      html += '</tbody></table></div>';
+    }
+
     html += '<div style="margin-top:10px;display:flex;gap:8px;">' +
             '<button class="btn btn-primary" onclick="commitAttritionPreview()">Apply Selected</button>' +
             '<button class="btn btn-secondary" onclick="document.getElementById(\'attritionRefreshPreview\').style.display=\'none\';">Discard</button>' +
@@ -3632,13 +3678,14 @@
 
     el.style.display = 'block';
     el.innerHTML = html;
-    window.__attritionPending = { newItems, updates };
+    window.__attritionPending = { newItems, updates, removedFromTracker };
   }
 
   function commitAttritionPreview() {
-    const pending = window.__attritionPending || { newItems: [], updates: [] };
+    const pending = window.__attritionPending || { newItems: [], updates: [], removedFromTracker: [] };
     const selectedNew = [];
     const selectedUpdates = [];
+    const selectedRemoved = [];
     document.querySelectorAll('.atNewCb:checked').forEach(cb => {
       const idx = parseInt(cb.dataset.idx, 10);
       if (pending.newItems[idx]) selectedNew.push(pending.newItems[idx]);
@@ -3646,6 +3693,10 @@
     document.querySelectorAll('.atUpCb:checked').forEach(cb => {
       const idx = parseInt(cb.dataset.idx, 10);
       if (pending.updates[idx]) selectedUpdates.push(pending.updates[idx]);
+    });
+    document.querySelectorAll('.atRmCb:checked').forEach(cb => {
+      const idx = parseInt(cb.dataset.idx, 10);
+      if (pending.removedFromTracker && pending.removedFromTracker[idx]) selectedRemoved.push(pending.removedFromTracker[idx]);
     });
 
     // Add new departures
@@ -3684,12 +3735,18 @@
       applied++;
     });
 
+    // Mark the selected "removed from tracker" departures with a dated note
+    const nowIso = new Date().toISOString();
+    selectedRemoved.forEach(d => {
+      d.removedFromTrackerAt = nowIso;
+    });
+
     save();
     renderDepartures();
 
     document.getElementById('attritionRefreshPreview').style.display = 'none';
-    atLog('Added ' + selectedNew.length + ' new + updated ' + applied + '. Open MS365 Settings → Push Local Changes to sync to SharePoint.', '#22c55e');
-    showToast('Applied ' + selectedNew.length + ' new + ' + applied + ' update(s)');
+    atLog('Added ' + selectedNew.length + ' new + updated ' + applied + ' + flagged ' + selectedRemoved.length + ' as removed-from-tracker. Open MS365 Settings → Push Local Changes to sync to SharePoint.', '#22c55e');
+    showToast('Applied ' + selectedNew.length + ' new + ' + applied + ' update(s)' + (selectedRemoved.length > 0 ? ' + ' + selectedRemoved.length + ' tracker-removed' : ''));
   }
   // ============================================================
   // End Attrition Tracker
@@ -3712,7 +3769,7 @@
       const url = "/me/messages?$filter=receivedDateTime ge " + since +
                   "&$search=\"CLEAR-A-PATH\"&$top=50&$select=subject,receivedDateTime,bodyPreview";
       // $filter + $search combo isn't allowed by Graph — use search alone, then filter client-side
-      const r = await graphFetch("/me/messages?$search=\"CLEAR-A-PATH\"&$top=50&$select=subject,receivedDateTime,bodyPreview");
+      const r = await graphFetch("/me/messages?$search=\"CLEAR-A-PATH\"&$top=50&$select=subject,receivedDateTime,bodyPreview,body");
       const sinceMs = Date.now() - days * 24 * 60 * 60 * 1000;
       const msgs = (r.value || []).filter(m => new Date(m.receivedDateTime).getTime() >= sinceMs);
       gfLog('Found ' + msgs.length + ' CLEAR-A-PATH email(s) within window.', '#22c55e');
@@ -3801,6 +3858,38 @@
           seenDeparture.add(key);
         }
       }
+
+      // === Withdrawal detection pass ===
+      // Scans CLEAR-A-PATH email bodies (not just subjects) for phrases like
+      // "decided to withdraw" / "will no longer be starting" / "withdrawn from the position".
+      // Matches by starter name in subject against existing hires to flag Withdrawn status.
+      const WITHDRAW_RE = /(?:decided to withdraw|withdrew from|withdrawn from|will no longer be starting|will no longer start|has withdrawn|is no longer joining|is not joining|is not pushing through|is not proceeding|will not be joining|will not join|has decided not to)/i;
+      let withdrawDetected = 0;
+      for (const m of msgs) {
+        const bodyText = (m.body && m.body.content ? String(m.body.content).replace(/<[^>]+>/g, ' ') : '') + ' ' + (m.bodyPreview || '');
+        if (!WITHDRAW_RE.test(bodyText)) continue;
+        const parsed = parseClearAPathSubject(m.subject);
+        if (!parsed || parsed.kind !== 'hire') continue;
+        const nameKey = parsed.starterName.trim().toLowerCase();
+        const existingHire = state.hires.find(h => hireKey(h) === nameKey);
+        if (!existingHire) continue; // can't withdraw someone we don't know about yet
+        if (existingHire.status === 'Withdrawn') continue; // already recorded
+        const emailDateIso = m.receivedDateTime ? m.receivedDateTime.slice(0, 10) : '';
+        // Extract a short reason snippet from around the keyword hit for context
+        const hit = bodyText.match(new RegExp('.{0,60}' + WITHDRAW_RE.source + '.{0,80}', 'i'));
+        const reasonSnippet = hit ? hit[0].replace(/\s+/g, ' ').trim().slice(0, 180) : 'Withdrawal detected in CLEAR-A-PATH email body';
+        const changeKey = 'withdraw:' + nameKey;
+        if (seenUpdateKey.has(changeKey)) continue;
+        seenUpdateKey.add(changeKey);
+        const changes = [
+          { field: 'status', oldValue: existingHire.status || '(blank)', newValue: 'Withdrawn', note: 'From CLEAR-A-PATH reply (' + emailDateIso + ')' },
+          { field: 'withdrawnDate', oldValue: existingHire.withdrawnDate || '(blank)', newValue: emailDateIso },
+          { field: 'withdrawnReason', oldValue: existingHire.withdrawnReason || '(blank)', newValue: reasonSnippet }
+        ];
+        proposedUpdates.push({ entityType: 'hire', target: existingHire, name: existingHire.starterName, changes });
+        withdrawDetected++;
+      }
+      if (withdrawDetected > 0) gfLog('Detected ' + withdrawDetected + ' withdrawal(s) from email bodies.', '#f59e0b');
 
       gfLog('Parsed ' + proposedHires.length + ' new hire(s), ' + proposedDepartures.length + ' new departure(s), ' + proposedUpdates.length + ' update(s) to existing records.', '#22c55e');
 
@@ -4198,6 +4287,148 @@
     return 'Week of ' + fmt(monday) + ' – ' + fmt(sunday) + ', ' + monday.getFullYear();
   }
 
+  // Deprovision a withdrawn starter's MS365 account. Mirrors the Revoke Access & License
+  // flow used for offboarding, but tailored for someone who never actually started:
+  //   1. Block sign-in
+  //   2. Revoke sessions
+  //   3. Remove from MFA group (and any other groups)
+  //   4. Remove all licenses
+  //   5. Clear CA2 (drop from Dynamic Distros)
+  //   6. Remove all non-password auth methods
+  //   7. Remove directory role assignments (except Global Admin, which we never touch)
+  //   8. Set Remarks (extensionAttribute1) to "Withdrawn"
+  window.deprovisionWithdrawnHire = async function(id) {
+    const h = state.hires.find(x => x.id === id);
+    if (!h) return;
+    if (!msalAccount) { alert('Sign in via the sidebar first.'); return; }
+    const first = ms365FirstName(h.starterName);
+    const last = ms365LastName(h.starterName);
+    const upn = stripDiacritics(first + '.' + last.replace(/[\s-]+/g, '')).toLowerCase() + '@go.team';
+    if (!confirm('Deprovision ' + h.starterName + ' (' + upn + ')?\n\n' +
+                 '1. Block sign-in\n' +
+                 '2. Revoke all sessions\n' +
+                 '3. Remove from all groups\n' +
+                 '4. Remove all licenses\n' +
+                 '5. Clear CA2 (remove from Dynamic Distros)\n' +
+                 '6. Remove all auth methods (MFA)\n' +
+                 '7. Remove directory role assignments (except Global Admin)\n' +
+                 '8. Set Remarks to "Withdrawn"\n\n' +
+                 'Cannot be undone. Continue?')) return;
+
+    const log = [];
+    log.push('Deprovisioning ' + h.starterName + ' (' + upn + ')…');
+    let user;
+    try {
+      user = await graphFetch('/users/' + encodeURIComponent(upn) + '?$select=id,assignedLicenses');
+    } catch (e) {
+      alert('User lookup failed: ' + e.message + '\n\nMake sure the Microsoft 365 account was actually created for this starter.');
+      return;
+    }
+
+    // 1. Block sign-in
+    try {
+      await graphFetch('/users/' + user.id, { method: 'PATCH', body: { accountEnabled: false } });
+      log.push('  [OK] 1/8 Sign-in blocked');
+    } catch (e) { log.push('  [FAIL] 1/8 Block sign-in — ' + e.message.slice(0, 80)); }
+
+    // 2. Revoke sessions
+    try {
+      await graphFetch('/users/' + user.id + '/revokeSignInSessions', { method: 'POST' });
+      log.push('  [OK] 2/8 Sessions revoked');
+    } catch (e) { log.push('  [FAIL] 2/8 Revoke sessions — ' + e.message.slice(0, 80)); }
+
+    // 3. Remove from all groups — use the typed cast endpoint so Graph pre-filters
+    // to only Group objects (skips Directory Roles, Administrative Units, etc.) and
+    // we avoid the "Parsing OData Select" error from $selecting @odata.type.
+    try {
+      const groupsResp = await graphFetch('/users/' + user.id + '/memberOf/microsoft.graph.group?$select=id,displayName');
+      const groups = groupsResp.value || [];
+      let gok = 0;
+      for (const g of groups) {
+        try { await graphFetch('/groups/' + g.id + '/members/' + user.id + '/$ref', { method: 'DELETE' }); gok++; } catch (_) {}
+      }
+      log.push('  [OK] 3/8 Removed from ' + gok + '/' + groups.length + ' group(s)');
+    } catch (e) { log.push('  [FAIL] 3/8 Remove from groups — ' + e.message.slice(0, 80)); }
+
+    // 4. Remove all licenses
+    let licRemoved = 0;
+    try {
+      const skuIds = (user.assignedLicenses || []).map(l => l.skuId).filter(Boolean);
+      if (skuIds.length > 0) {
+        await graphFetch('/users/' + user.id + '/assignLicense', {
+          method: 'POST',
+          body: { addLicenses: [], removeLicenses: skuIds }
+        });
+        licRemoved = skuIds.length;
+      }
+      log.push('  [OK] 4/8 Removed ' + licRemoved + ' license(s)');
+    } catch (e) { log.push('  [FAIL] 4/8 Remove licenses — ' + e.message.slice(0, 80)); }
+
+    // 5. Clear CA2
+    try {
+      await graphFetch('/users/' + user.id, {
+        method: 'PATCH',
+        body: { onPremisesExtensionAttributes: { extensionAttribute2: null } }
+      });
+      log.push('  [OK] 5/8 CA2 cleared — removed from Dynamic Distros');
+    } catch (e) { log.push('  [FAIL] 5/8 Clear CA2 — ' + e.message.slice(0, 80)); }
+
+    // 6. Remove all non-password auth methods
+    try {
+      const methods = await graphFetch('/users/' + user.id + '/authentication/methods');
+      const nonPwd = (methods.value || []).filter(m => !/password/i.test(m['@odata.type'] || ''));
+      let mok = 0;
+      for (const am of nonPwd) {
+        const type = (am['@odata.type'] || '').replace('#microsoft.graph.', '').replace('AuthenticationMethod', '');
+        const endpointMap = {
+          phone: 'phoneMethods',
+          microsoftAuthenticator: 'microsoftAuthenticatorMethods',
+          softwareOath: 'softwareOathMethods',
+          fido2: 'fido2Methods',
+          windowsHelloForBusiness: 'windowsHelloForBusinessMethods',
+          email: 'emailMethods',
+          temporaryAccessPass: 'temporaryAccessPassMethods'
+        };
+        const ep = endpointMap[type];
+        if (!ep) continue;
+        try { await graphFetch('/users/' + user.id + '/authentication/' + ep + '/' + am.id, { method: 'DELETE' }); mok++; } catch (_) {}
+      }
+      log.push('  [OK] 6/8 Removed ' + mok + '/' + nonPwd.length + ' auth method(s)');
+    } catch (e) { log.push('  [FAIL] 6/8 Remove auth methods — ' + e.message.slice(0, 80)); }
+
+    // 7. Remove directory role assignments except Global Admin
+    try {
+      const assignmentsResp = await graphFetch('/roleManagement/directory/roleAssignments?$filter=principalId eq \'' + user.id + '\'');
+      const assignments = assignmentsResp.value || [];
+      let rok = 0, rskip = 0;
+      for (const a of assignments) {
+        try {
+          const role = await graphFetch('/roleManagement/directory/roleDefinitions/' + a.roleDefinitionId + '?$select=displayName');
+          if (/global\s+admin/i.test(role.displayName || '')) { rskip++; continue; }
+          await graphFetch('/roleManagement/directory/roleAssignments/' + a.id, { method: 'DELETE' });
+          rok++;
+        } catch (_) {}
+      }
+      log.push('  [OK] 7/8 Removed ' + rok + '/' + (assignments.length - rskip) + ' role assignment(s)' + (rskip > 0 ? ' (skipped ' + rskip + ' Global Admin)' : ''));
+    } catch (e) { log.push('  [FAIL] 7/8 Remove roles — ' + e.message.slice(0, 80)); }
+
+    // 8. Set Remarks
+    try {
+      await graphFetch('/users/' + user.id, {
+        method: 'PATCH',
+        body: { onPremisesExtensionAttributes: { extensionAttribute1: 'Withdrawn' } }
+      });
+      log.push('  [OK] 8/8 Remarks set to "Withdrawn"');
+    } catch (e) { log.push('  [FAIL] 8/8 Set remarks — ' + e.message.slice(0, 80)); }
+
+    // Mark the hire as deprovisioned so the button turns into a Deprovisioned ✓ tag
+    h.deprovisionedAt = new Date().toISOString();
+    save();
+    renderHires();
+
+    alert(log.join('\n'));
+  };
+
   window.updateHireField = function(id, field, value) {
     const h = state.hires.find(x => x.id === id);
     if (!h) return;
@@ -4260,6 +4491,7 @@
                 <option ' + (h.status==='In Progress'?'selected':'') + '>In Progress</option>\
                 <option ' + (h.status==='Completed'?'selected':'') + '>Completed</option>\
               </select>\
+              ' + (h.status === 'Withdrawn' && h.ms365CreatedAt && !h.deprovisionedAt ? '<button class="btn" style="font-size:10px;padding:4px 8px;background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;" onclick="deprovisionWithdrawnHire(' + h.id + ')" title="Block sign-in, revoke sessions, remove licenses + groups + MFA, clear CA2, set Remarks=Withdrawn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg> Deprovision</button>' : (h.deprovisionedAt ? '<span style="font-size:10px;color:#065f46;font-weight:600;padding:4px 6px;" title="Deprovisioned ' + new Date(h.deprovisionedAt).toLocaleString() + '">Deprovisioned ✓</span>' : '')) + '\
               <button class="btn btn-icon" onclick="removeHire(' + h.id + ')" title="Remove">\
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>\
               </button>\
@@ -4603,8 +4835,20 @@
     return first + '.' + last + '@go.team';
   }
   function ms365FirstName(starterName) {
-    const parts = stripDiacritics(starterName).replace(/[^A-Za-z\s]/g, '').trim().split(/\s+/);
-    return parts[0] || '';
+    // Skip abbreviation tokens (ending in ".") like "Ma.", "J.", "Ed." — these are
+    // short-form Filipino nicknames (e.g., Ma. for Maria) and middle initials that
+    // shouldn't become the UPN. If the first token ends with a period AND there's
+    // a longer non-abbrev token after it, use that instead.
+    const raw = String(starterName || '').trim().split(/\s+/).filter(Boolean);
+    for (let i = 0; i < raw.length; i++) {
+      const rawTok = raw[i];
+      const clean = stripDiacritics(rawTok).replace(/[^A-Za-z]/g, '');
+      if (!clean) continue;
+      // Skip "." abbreviations when there's a following full word to use
+      if (rawTok.endsWith('.') && raw.slice(i + 1).some(t => !t.endsWith('.') && stripDiacritics(t).replace(/[^A-Za-z]/g, '').length > 2)) continue;
+      return clean;
+    }
+    return '';
   }
   // Known generational/honorific suffixes that appear AFTER the last name
   // (so they shouldn't be treated as the last name themselves).
@@ -6257,7 +6501,7 @@
           <td>\
             <div class="user-cell">\
               <div class="avatar" style="background:' + avatarColor(d.name) + '">' + initials(d.name) + '</div>\
-              <div><div class="name">' + d.name + '</div>' + (isImmediate ? '<div style="font-size:10px;color:#dc2626;font-weight:600;">⚠ IMMEDIATE</div>' : '') + '</div>\
+              <div><div class="name">' + d.name + '</div>' + (isImmediate ? '<div style="font-size:10px;color:#dc2626;font-weight:600;">⚠ IMMEDIATE</div>' : '') + (d.removedFromTrackerAt ? '<div style="font-size:10px;color:#92400e;font-weight:600;background:#fef3c7;padding:1px 6px;border-radius:4px;margin-top:3px;display:inline-block;" title="Flagged ' + new Date(d.removedFromTrackerAt).toLocaleString() + ' — this person is no longer present in the Attrition Tracker, but kept here for audit history.">⚠ Removed from Tracker</div>' : '') + '</div>\
             </div>\
           </td>\
           <td>' + emailInput(d.employeeEmail || emp, emp || 'firstname.lastname@go.team', 'employeeEmail') + '</td>\
