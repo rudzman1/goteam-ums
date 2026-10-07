@@ -3859,6 +3859,72 @@
         }
       }
 
+      // === Reschedule detection pass ===
+      // Scans CLEAR-A-PATH email bodies for correction phrases like
+      // "Corrects start date is October 12" / "Please note the new start date" /
+      // "Rescheduled to..." / "Moved to..." and overrides whatever the subject said.
+      const RESCHED_PHRASE_RE = /(?:correct(?:s|ed)?\s+start\s+date|new\s+start\s+date|updated?\s+start\s+date|revised\s+start\s+date|rescheduled?\s+to|resched(?:uled)?\s+(?:date|to)|moved?\s+to|please\s+(?:be\s+advised\s+)?(?:note\s+)?(?:that\s+)?(?:the\s+)?(?:new\s+)?start\s+date|start\s+date\s+(?:has\s+been\s+)?(?:is\s+)?(?:now\s+)?(?:changed|moved|updated|corrected)\s+to|start(?:ing)?\s+(?:date|day)\s+(?:will\s+)?(?:be|is)\s+(?:now\s+)?)/i;
+      // Match a date right after the phrase. Supports:
+      //   "October 12, 2026"  "Oct 12 2026"  "10/12/2026"  "12 October 2026"  "2026-10-12"
+      const DATE_IN_BODY_RE = new RegExp(
+        RESCHED_PHRASE_RE.source +
+        '[^.\\n]{0,80}?' +
+        '(' +
+          // Month name + day + optional comma + 4-digit year
+          '(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?,?\\s*\\d{4}' +
+          '|' +
+          // Day + month name + year
+          '\\d{1,2}(?:st|nd|rd|th)?\\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\\.?,?\\s*\\d{4}' +
+          '|' +
+          // ISO yyyy-mm-dd
+          '\\d{4}-\\d{2}-\\d{2}' +
+          '|' +
+          // mm/dd/yyyy or dd/mm/yyyy
+          '\\d{1,2}[/\\-]\\d{1,2}[/\\-]\\d{2,4}' +
+        ')',
+        'i'
+      );
+      let rescheduleDetected = 0;
+      for (const m of msgs) {
+        const bodyText = (m.body && m.body.content ? String(m.body.content).replace(/<[^>]+>/g, ' ') : '') + ' ' + (m.bodyPreview || '');
+        const hit = bodyText.match(DATE_IN_BODY_RE);
+        if (!hit || !hit[1]) continue;
+        const parsed = parseClearAPathSubject(m.subject);
+        if (!parsed || parsed.kind !== 'hire') continue;
+        const correctedIso = parseEmailDate(hit[1].trim());
+        if (!correctedIso) continue;
+        const nameKey = parsed.starterName.trim().toLowerCase();
+        const existingHire = state.hires.find(h => hireKey(h) === nameKey);
+        // Also check proposedHires in case the corrective email + the original "New Hire"
+        // email are both in this same refresh batch (very common — reply arrives shortly
+        // after the first email, and the dashboard hasn't been refreshed between them).
+        const proposedHire = proposedHires.find(h => (h.starterName || '').trim().toLowerCase() === nameKey);
+        if (proposedHire && proposedHire.startDate !== correctedIso) {
+          // Rewrite the proposed hire's startDate in place so it gets saved with the
+          // corrected date instead of the subject's stale one. Also record the original.
+          proposedHire.rescheduledFrom = proposedHire.startDate || '';
+          proposedHire.startDate = correctedIso;
+          rescheduleDetected++;
+          continue;
+        }
+        if (!existingHire) continue;
+        if (existingHire.status === 'Withdrawn') continue; // don't resched a withdrawn hire
+        if (existingHire.startDate === correctedIso) continue; // already correct
+        const changeKey = 'resched:' + nameKey + ':' + correctedIso;
+        if (seenUpdateKey.has(changeKey)) continue;
+        seenUpdateKey.add(changeKey);
+        const changes = [
+          { field: 'startDate', oldValue: existingHire.startDate || '(blank)', newValue: correctedIso, note: 'Reschedule from CLEAR-A-PATH reply body (' + (m.receivedDateTime || '').slice(0, 10) + ')' }
+        ];
+        // Preserve the original date in rescheduledFrom if not already set
+        if (!existingHire.rescheduledFrom && existingHire.startDate) {
+          changes.push({ field: 'rescheduledFrom', oldValue: '(blank)', newValue: existingHire.startDate });
+        }
+        proposedUpdates.push({ entityType: 'hire', target: existingHire, name: existingHire.starterName, changes });
+        rescheduleDetected++;
+      }
+      if (rescheduleDetected > 0) gfLog('Detected ' + rescheduleDetected + ' reschedule(s) from email bodies.', '#f59e0b');
+
       // === Withdrawal detection pass ===
       // Scans CLEAR-A-PATH email bodies (not just subjects) for phrases like
       // "decided to withdraw" / "will no longer be starting" / "withdrawn from the position".
@@ -4884,8 +4950,12 @@
         return tokens.slice(i + 1).map(t => t.replace(/\./g, '')).join(' ');
       }
     }
-    // Strategy 2: no middle initial — walk back to absorb compound-name prefixes
-    const prefixes = new Set(['de','la','del','della','van','von','der','di','da','le','dela','mac','mc','o','san','santa','santos']);
+    // Strategy 2: no middle initial — walk back to absorb compound-name prefixes.
+    // Note: 'van', 'von', 'der' intentionally excluded — in Filipino naming they're
+    // overwhelmingly used as middle names (e.g., "Alexis Van Cortes" → surname "Cortes"),
+    // not Dutch/German-style surname particles. Spanish-origin particles common in
+    // Filipino surnames (de la cruz, dela paz, del rosario) stay in the list.
+    const prefixes = new Set(['de','la','del','della','di','da','le','dela','mac','mc','o','san','santa','santos']);
     let start = tokens.length - 1;
     for (let i = tokens.length - 2; i >= 1; i--) {
       const w = tokens[i].toLowerCase().replace(/\./g, '');
