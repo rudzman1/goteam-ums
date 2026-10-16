@@ -551,6 +551,10 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h1M9 12h1M9 15h1M14 9h1M14 12h1M14 15h1"/></svg>
           Import Office Location
         </button>
+        <button class="btn btn-secondary" id="auMirrorCA2toCA3Btn" onclick="auMirrorCA2ToCA3()" title="Copy every user's current CA2 value into CA3 as pending edits. Then manually clear CA2 on Morning/Night (keep only Internal).">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3l4 4-4 4"/><path d="M21 7H8a5 5 0 0 0-5 5v0"/><path d="M7 21l-4-4 4-4"/><path d="M3 17h13a5 5 0 0 0 5-5v0"/></svg>
+          Mirror CA2 → CA3
+        </button>
         <button class="btn btn-primary" id="auSaveBtn" onclick="saveAllUsersChanges()" disabled>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
           Save <span id="auDirtyCount">0</span> change(s)
@@ -722,6 +726,10 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
           Refresh from Email
         </button>
+        <button class="btn btn-secondary" onclick="openModal('hireR24ImportModal')" title="Paste rows from R24 team-members to backfill Position / Shift / Manager / Hire Date / Office Location for existing hires">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          Import from R24
+        </button>
         <button class="btn btn-secondary" onclick="exportCSV('onboarding')">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           Export
@@ -778,6 +786,14 @@
         <button class="btn btn-secondary" onclick="openModal('attritionRefreshModal')" title="Pull data from P&amp;C Attrition and Recalled Masterfile SharePoint file">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
           Refresh from Tracker
+        </button>
+        <button class="btn btn-secondary" onclick="openModal('obeScanModal')" title="Scan Outlook for Offboarding Endorsement (OBE) emails from HR's automation">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+          Scan OBE Emails
+        </button>
+        <button class="btn btn-secondary" onclick="downloadSetupOffboardingAuth()" title="Download the one-time (and quarterly refresh) auth setup script to run on the biometrics PC">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15v-6"/><path d="M9 12l3-3 3 3"/><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/></svg>
+          Setup Auth Script
         </button>
         <button class="btn btn-secondary" onclick="exportCSV('offboarding')">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -1133,6 +1149,120 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('attritionRefreshModal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- OBE (Offboarding Endorsement) email scan modal -->
+<div class="modal-overlay" id="obeScanModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Scan Offboarding Endorsement (OBE) Emails</h3>
+      <button class="btn btn-icon" onclick="closeModal('obeScanModal')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <p style="color:var(--muted);font-size:13px;margin-bottom:14px;line-height:1.6;">Reads OBE emails sent by HR's R24 automation (sender <code>no-reply@r24.go.team</code>, subject <code>[Offboarding …] &lt;Name&gt; of &lt;Client&gt; (OBE XX-XXXX)</code>). Parses the body for TM ID, Separation Type, Date Tendered, Effective Date, Notice Period, Reason for Leaving, and more.</p>
+      <div style="display:flex;gap:10px;align-items:flex-end;margin-bottom:14px;flex-wrap:wrap;">
+        <div>
+          <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">Scan last</label>
+          <select id="obeDaysBack" style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;background:white;">
+            <option value="7">7 days</option>
+            <option value="30" selected>30 days</option>
+            <option value="60">60 days</option>
+            <option value="90">90 days</option>
+            <option value="180">180 days</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" onclick="scanOBEEmails()" style="background:#7c3aed;border-color:#7c3aed;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+          Scan OBE Emails
+        </button>
+      </div>
+      <div id="obeScanLog" style="display:none;margin-top:10px;padding:12px;background:#0f172a;color:#e2e8f0;border-radius:8px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;line-height:1.6;max-height:280px;overflow-y:auto;"></div>
+      <div id="obeScanPreview" style="display:none;margin-top:10px;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('obeScanModal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Offboarding: Schedule Offboarding modal -->
+<div class="modal-overlay" id="scheduleOffboardingModal">
+  <div class="modal" style="max-width:860px;">
+    <div class="modal-header">
+      <h3>Schedule Offboarding</h3>
+      <button class="btn btn-icon" onclick="closeModal('scheduleOffboardingModal')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="modal-body" id="scheduleModalBody">
+      <!-- populated by openScheduleOffboardingModal() -->
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('scheduleOffboardingModal')">Cancel</button>
+      <button class="btn btn-primary" id="scheduleGenerateBtn" style="background:#7c3aed;border-color:#7c3aed;" onclick="generateScheduledOffboardingBundle()">Generate PowerShell + Task XML</button>
+    </div>
+  </div>
+</div>
+
+<!-- Onboarding: Import from R24 modal -->
+<div class="modal-overlay" id="hireR24ImportModal">
+  <div class="modal" style="max-width:1000px;">
+    <div class="modal-header">
+      <h3>Import from R24 — Backfill Onboarding</h3>
+      <button class="btn btn-icon" onclick="closeModal('hireR24ImportModal')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <p style="color:var(--muted);font-size:13px;margin-bottom:14px;line-height:1.6;">Paste rows from <a href="https://r24.go.team/internal/team-members" target="_blank" rel="noopener">r24.go.team/internal/team-members</a> to backfill missing fields on hires already in the dashboard. Useful when the GoTeam Starters Tracker hasn't caught up yet.</p>
+      <div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px;font-size:12px;line-height:1.6;">
+        <strong>How to copy from R24:</strong>
+        <ol style="margin:6px 0 0 18px;padding:0;">
+          <li>Open R24 team-members, filter to the week you want.</li>
+          <li>Select the visible rows (or copy the whole table) → Ctrl+C.</li>
+          <li>Paste below → tell the parser which column holds what → click <strong>Parse &amp; Match</strong>.</li>
+        </ol>
+        <div style="margin-top:6px;color:var(--muted);">Matches by Employee ID first; falls back to full name.</div>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+        <label style="display:flex;flex-direction:column;font-size:12px;gap:4px;">Match by
+          <select id="hireR24MatchType" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;">
+            <option value="name" selected>Full Name</option>
+            <option value="empId">Employee ID</option>
+            <option value="email">Work Email</option>
+          </select>
+        </label>
+        <label style="display:flex;flex-direction:column;font-size:12px;gap:4px;">Match col #
+          <input type="number" id="hireR24MatchCol" value="2" min="1" style="width:70px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;" />
+        </label>
+        <label style="display:flex;flex-direction:column;font-size:12px;gap:4px;">Employee ID col #
+          <input type="number" id="hireR24EmpIdCol" value="1" min="0" style="width:110px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;" title="Used to backfill the Employee ID when it's missing on the dashboard row. 0 = skip." />
+        </label>
+        <label style="display:flex;flex-direction:column;font-size:12px;gap:4px;">Position col #
+          <input type="number" id="hireR24PosCol" value="7" min="0" style="width:80px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;" />
+        </label>
+        <label style="display:flex;flex-direction:column;font-size:12px;gap:4px;">Shift col #
+          <input type="number" id="hireR24ShiftCol" value="8" min="0" style="width:70px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;" />
+        </label>
+        <label style="display:flex;flex-direction:column;font-size:12px;gap:4px;">Manager (Coach) col #
+          <input type="number" id="hireR24MgrCol" value="17" min="0" style="width:110px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;" />
+        </label>
+        <label style="display:flex;flex-direction:column;font-size:12px;gap:4px;">Hire Date col #
+          <input type="number" id="hireR24HireCol" value="10" min="0" style="width:90px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;" />
+        </label>
+        <label style="display:flex;flex-direction:column;font-size:12px;gap:4px;">Office col #
+          <input type="number" id="hireR24OfficeCol" value="0" min="0" style="width:70px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;" title="0 = skip" />
+        </label>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:6px;">Set any column # to <code>0</code> to skip that field entirely.</div>
+      <textarea id="hireR24Paste" placeholder="Paste rows here…" style="width:100%;height:160px;padding:10px;border:1px solid var(--border);border-radius:8px;font-family:'Courier New',monospace;font-size:11px;box-sizing:border-box;"></textarea>
+      <div id="hireR24FirstRow" style="margin-top:6px;font-size:11px;color:var(--muted);"></div>
+      <div style="display:flex;gap:10px;margin-top:10px;">
+        <button class="btn btn-secondary" onclick="parseHireR24Import()">Parse &amp; Match</button>
+        <button class="btn btn-primary" id="hireR24ApplyBtn" onclick="applyHireR24Import()" disabled>Apply to Dashboard</button>
+      </div>
+      <div id="hireR24Preview" style="margin-top:14px;font-size:12px;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('hireR24ImportModal')">Close</button>
     </div>
   </div>
 </div>
@@ -1769,7 +1899,12 @@
       const isInternal = (h.companyName || '').trim().toLowerCase() === 'goteam';
       // CA2 mirrors the old "department" scheme used by Dynamic Distros:
       //   Internal → "Internal"; else the shift category (Morning / Mid / Night)
-      const ca2Value = isInternal ? 'Internal' : detectShiftCategory(h.phShiftSchedule);
+      // CA2 = Internal-only marker (Dynamic Distro filter for Everyone Internal).
+      // CA3 = shift category for client-facing TMs (Dynamic Distro filter for Everyone Morning / Night).
+      // Internal users: CA2 = "Internal", CA3 = blank.
+      // Client-facing users: CA2 = blank, CA3 = shift category (Morning / Night).
+      const ca2Value = isInternal ? 'Internal' : '';
+      const ca3Value = isInternal ? '' : detectShiftCategory(h.phShiftSchedule);
       const employeeTypeValue = isInternal ? 'Internal' : 'Client-Facing';
       const departmentValue   = (h.department || '').trim();
       const officeValue       = (h.officeLocation || '').trim();
@@ -1808,11 +1943,11 @@
             employeeType: employeeTypeValue,
             officeLocation: officeValue,
             employeeId: h.hcId || existing.employeeId || '',
-            onPremisesExtensionAttributes: { extensionAttribute1: newRemark, extensionAttribute2: ca2Value }
+            onPremisesExtensionAttributes: { extensionAttribute1: newRemark, extensionAttribute2: ca2Value || null, extensionAttribute3: ca3Value || null }
           };
           if (hireDateForGraph) patchBody.employeeHireDate = hireDateForGraph;
           await graphFetch('/users/' + existing.id, { method: 'PATCH', body: patchBody });
-          log('    [OK] Reactivated — company="' + (h.companyName || '') + '", dept="' + departmentValue + '", type="' + employeeTypeValue + '", office="' + officeValue + '", CA2="' + ca2Value + '", remarks="' + newRemark + '"', '#22c55e');
+          log('    [OK] Reactivated — company="' + (h.companyName || '') + '", dept="' + departmentValue + '", type="' + employeeTypeValue + '", office="' + officeValue + '", CA2="' + (ca2Value || '—') + '", CA3="' + (ca3Value || '—') + '", remarks="' + newRemark + '"', '#22c55e');
         } catch (existErr) {
           // 404 (or any non-existence signal) → fall through to create path.
           const createBody = {
@@ -1830,11 +1965,11 @@
             usageLocation: 'PH',
             employeeId: h.hcId || '',
             passwordProfile: { forceChangePasswordNextSignIn: true, password: password },
-            onPremisesExtensionAttributes: { extensionAttribute1: 'Active', extensionAttribute2: ca2Value }
+            onPremisesExtensionAttributes: { extensionAttribute1: 'Active', extensionAttribute2: ca2Value || null, extensionAttribute3: ca3Value || null }
           };
           if (hireDateForGraph) createBody.employeeHireDate = hireDateForGraph;
           newUser = await graphFetch('/users', { method: 'POST', body: createBody });
-          log('    [OK] Created — id=' + newUser.id + ', company="' + (h.companyName || '') + '", dept="' + departmentValue + '", type="' + employeeTypeValue + '", office="' + officeValue + '", CA2="' + ca2Value + '"', '#22c55e');
+          log('    [OK] Created — id=' + newUser.id + ', company="' + (h.companyName || '') + '", dept="' + departmentValue + '", type="' + employeeTypeValue + '", office="' + officeValue + '", CA2="' + (ca2Value || '—') + '", CA3="' + (ca3Value || '—') + '"', '#22c55e');
         }
         createdIds.push(newUser.id);
         wasReactivatedList.push(wasReactivated);
@@ -2050,6 +2185,16 @@
       { name: 'SharedMailboxDone', boolean: {} },
       { name: 'SharedMailboxDoneAt', text: {} },
       { name: 'RemovedFromTrackerAt', text: {} },
+      { name: 'ObeNumber',        text: {} },
+      { name: 'ObeStatus',        text: {} },
+      { name: 'ObeEmployeeId',    text: {} },
+      { name: 'ObePosition',      text: {} },
+      { name: 'ObeWorkSetup',     text: {} },
+      { name: 'ObeReplacementNeeded', text: {} },
+      { name: 'ObeReasonForLeaving',  text: { allowMultipleLines: true } },
+      { name: 'ObeContactNumber', text: {} },
+      { name: 'ObeCurrentAddress', text: { allowMultipleLines: true } },
+      { name: 'ObeEmergencyContact', text: {} },
       { name: 'LocalId',          number: {} }
     ],
     licenses: [
@@ -2449,6 +2594,16 @@
       SharedMailboxDone: !!d.sharedMailboxDone,
       SharedMailboxDoneAt: d.sharedMailboxDoneAt || '',
       RemovedFromTrackerAt: d.removedFromTrackerAt || '',
+      ObeNumber: d.obeNumber || '',
+      ObeStatus: d.obeStatus || '',
+      ObeEmployeeId: d.employeeId || '',
+      ObePosition: d.position || '',
+      ObeWorkSetup: d.workSetup || '',
+      ObeReplacementNeeded: d.replacementNeeded || '',
+      ObeReasonForLeaving: d.reasonForLeaving || '',
+      ObeContactNumber: d.contactNumber || '',
+      ObeCurrentAddress: d.currentAddress || '',
+      ObeEmergencyContact: d.emergencyContact || '',
       ChecklistJson: JSON.stringify(d.checklist || []),
       LocalId: d.id || 0
     };
@@ -2485,6 +2640,16 @@
       sharedMailboxDone: !!f.SharedMailboxDone,
       sharedMailboxDoneAt: f.SharedMailboxDoneAt || '',
       removedFromTrackerAt: f.RemovedFromTrackerAt || '',
+      obeNumber: f.ObeNumber || '',
+      obeStatus: f.ObeStatus || '',
+      employeeId: f.ObeEmployeeId || '',
+      position: f.ObePosition || '',
+      workSetup: f.ObeWorkSetup || '',
+      replacementNeeded: f.ObeReplacementNeeded || '',
+      reasonForLeaving: f.ObeReasonForLeaving || '',
+      contactNumber: f.ObeContactNumber || '',
+      currentAddress: f.ObeCurrentAddress || '',
+      emergencyContact: f.ObeEmergencyContact || '',
       checklist: checklist.length ? checklist : defaultExitChecklist()
     };
   }
@@ -3752,6 +3917,1166 @@
   // End Attrition Tracker
   // ============================================================
 
+  // ============================================================
+  // OBE (Offboarding Endorsement) email scanner
+  // Parses the structured HR automation emails from R24 and proposes
+  // new departures / updates to the dashboard. Follows the same
+  // "preview then admin picks" pattern as the Attrition Tracker refresh.
+  // ============================================================
+
+  function obeLog(msg, color) {
+    const el = document.getElementById('obeScanLog');
+    el.style.display = 'block';
+    const line = document.createElement('div');
+    line.textContent = msg;
+    if (color) line.style.color = color;
+    el.appendChild(line);
+    el.scrollTop = el.scrollHeight;
+  }
+
+  // Parse an OBE email (subject + body text) into a structured record.
+  // Returns null if the email doesn't match the OBE pattern.
+  function parseOBEEmail(subject, bodyText) {
+    if (!subject || !bodyText) return null;
+    // Subject: "[Offboarding Completed] <Name> of <Client> (OBE XX-XXXX)"
+    //      or: "[Offboarding Endorsement] ..." / "[Offboarding Initiated] ..."
+    const subjMatch = subject.match(/\[Offboarding\s+([^\]]+)\]\s+(.+?)\s+of\s+(.+?)\s*\((OBE\s*[\d\-]+)\)\s*$/i);
+    if (!subjMatch) return null;
+    const subjStatus = subjMatch[1].trim();
+    const name = subjMatch[2].trim();
+    const client = subjMatch[3].trim();
+    const obeNumber = subjMatch[4].trim().replace(/\s+/g, ' ');
+
+    // Normalise body text — strip HTML + collapse whitespace per line
+    const text = bodyText.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+    // Build a simple field map by scanning for "Field: Value" patterns.
+    // The body uses label/value table layout; after HTML strip they appear as
+    // "Label   Value" on the same or adjacent lines.
+    const kv = {};
+    const grab = (label) => {
+      // Try multi-line label-then-value, label and value may be separated by any whitespace incl. newlines
+      const re = new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*[:\\s]+([^\\n]{1,200}?)(?=\\s{2,}[A-Z]|\\s*\\n|$)', 'i');
+      const m = text.match(re);
+      return m ? m[1].trim() : '';
+    };
+
+    kv.obeNumber        = obeNumber;
+    kv.clientName       = grab('Client Name') || client;
+    kv.employeeId       = (grab('TM ID\\s*\\(Employee No\\)') || grab('TM ID') || grab('Employee No')).replace(/\s+/g, '');
+    kv.name             = grab('TM Name') || name;
+    kv.position         = grab('Position');
+    kv.separationType   = grab('Separation Type');
+    kv.noticeDays       = grab('With 30 Days Notice');
+    kv.noticePeriod     = grab('Notice Period');
+    kv.dateTendered     = grab('Date Tendered');
+    kv.endOfNotice      = grab('End of Notice Period');
+    kv.effectiveDate    = grab('Effective Date');
+    kv.replacementNeeded = grab('Replacement Needed');
+    kv.workSetup        = grab('Work Setup');
+    kv.currentAddress   = grab('Current Address');
+    kv.contactNumber    = grab('Contact Number');
+    kv.emergencyContact = grab('Emergency Contact');
+    // Reason-for-leaving free text — anchor on the heading
+    const reasonMatch = text.match(/Reason for Leaving[^]*?\n+([^]*?)(?=\n\s*(?:Reason for End of SOW|R24 Internal Dashboard|$))/i);
+    kv.reasonForLeaving = reasonMatch ? reasonMatch[1].trim().replace(/\s+/g, ' ').slice(0, 500) : '';
+
+    return { subjStatus, raw: kv };
+  }
+
+  // Normalise date string → ISO YYYY-MM-DD. Handles "Oct 17, 2026", "Sep 14 2026", ISO, etc.
+  // Read back via UTC getters so we don't lose a day to the user's local offset
+  // (classic PHT = UTC+8 bug: "Oct 10 2026" interpreted locally → UTC Oct 09 16:00
+  // → .toISOString().slice(0,10) returns "2026-10-09" instead of "2026-10-10").
+  function obeParseDate(s) {
+    if (!s) return '';
+    const str = String(s).trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(str)) return str.slice(0, 10);
+    // mm/dd/yyyy or dd/mm/yyyy — parse components manually
+    const slashish = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\s*$/);
+    if (slashish) {
+      let [, a, b, y] = slashish;
+      if (y.length === 2) y = '20' + y;
+      let mm, dd;
+      if (parseInt(a, 10) > 12) { dd = a; mm = b; }
+      else                       { mm = a; dd = b; }
+      return y + '-' + String(mm).padStart(2, '0') + '-' + String(dd).padStart(2, '0');
+    }
+    // Month-name formats are safe from mm/dd ambiguity — read back via UTC
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) {
+      return d.getUTCFullYear() + '-' +
+        String(d.getUTCMonth() + 1).padStart(2, '0') + '-' +
+        String(d.getUTCDate()).padStart(2, '0');
+    }
+    return '';
+  }
+
+  async function scanOBEEmails() {
+    if (!msalAccount) { showToast('Sign in via the sidebar first'); return; }
+    const days = parseInt(document.getElementById('obeDaysBack').value, 10) || 30;
+    document.getElementById('obeScanLog').innerHTML = '';
+    document.getElementById('obeScanPreview').style.display = 'none';
+    obeLog('Searching Outlook for OBE emails in the last ' + days + ' days...', '#60a5fa');
+
+    try {
+      // Search by subject pattern. Graph $search is approximate but recovers OBE
+      // emails reliably. We filter the result set client-side by received date.
+      const r = await graphFetch('/me/messages?$search=%22Offboarding%22&$top=200&$select=subject,receivedDateTime,bodyPreview,body,from');
+      const sinceMs = Date.now() - days * 24 * 60 * 60 * 1000;
+      const msgs = (r.value || []).filter(m => {
+        if (new Date(m.receivedDateTime).getTime() < sinceMs) return false;
+        if (!m.subject) return false;
+        return /^\s*\[Offboarding\s+[^\]]+\]/i.test(m.subject);
+      });
+      obeLog('Found ' + msgs.length + ' OBE email(s) within window.', '#22c55e');
+
+      // Parse. If multiple emails for the same TM, keep the latest.
+      const parsedByObe = new Map();
+      for (const m of msgs) {
+        const bodyContent = (m.body && m.body.content) || m.bodyPreview || '';
+        const parsed = parseOBEEmail(m.subject, bodyContent);
+        if (!parsed) continue;
+        const key = parsed.raw.obeNumber || parsed.raw.name.toLowerCase();
+        const existing = parsedByObe.get(key);
+        if (!existing || new Date(m.receivedDateTime) > new Date(existing._receivedAt)) {
+          parsedByObe.set(key, Object.assign({ _receivedAt: m.receivedDateTime, _subject: m.subject }, parsed));
+        }
+      }
+      obeLog('Parsed ' + parsedByObe.size + ' unique OBE record(s).', '#22c55e');
+
+      // Match to existing departures and categorise
+      const newItems = [];
+      const updates = [];
+      parsedByObe.forEach(p => {
+        const r = p.raw;
+        const nameLc = (r.name || '').trim().toLowerCase();
+        const idLc = String(r.employeeId || '').trim().toLowerCase();
+        // Match by OBE number first (strongest), then employee ID, then name.
+        let existing = state.departures.find(d => d.obeNumber && r.obeNumber && d.obeNumber === r.obeNumber);
+        if (!existing && idLc) existing = state.departures.find(d => String(d.employeeId || '').trim().toLowerCase() === idLc);
+        if (!existing && nameLc) existing = state.departures.find(d => (d.name || '').trim().toLowerCase() === nameLc);
+
+        const mapped = {
+          obeNumber: r.obeNumber,
+          obeStatus: p.subjStatus,
+          name: r.name,
+          company: r.clientName,
+          employeeId: r.employeeId,
+          position: r.position,
+          typeOfExit: r.separationType,
+          noticeDate: obeParseDate(r.dateTendered),
+          effectiveDate: obeParseDate(r.effectiveDate),
+          noticePeriodDays: parseInt(r.noticePeriod, 10) || 0,
+          workSetup: r.workSetup,
+          replacementNeeded: r.replacementNeeded,
+          reasonForLeaving: r.reasonForLeaving,
+          contactNumber: r.contactNumber,
+          currentAddress: r.currentAddress,
+          emergencyContact: r.emergencyContact
+        };
+        mapped.exitNoticeRemarks = (r.noticePeriod && r.noticePeriod !== '0')
+          ? (r.noticePeriod + ' days notice')
+          : (parseInt(r.noticePeriod, 10) === 0 || /no/i.test(r.noticeDays || '')) ? 'Immediate' : '';
+
+        if (!existing) {
+          newItems.push(mapped);
+        } else {
+          const changes = [];
+          const fieldsToCheck = ['obeNumber', 'company', 'employeeId', 'position', 'typeOfExit', 'noticeDate', 'effectiveDate', 'exitNoticeRemarks', 'reasonForLeaving', 'workSetup', 'replacementNeeded'];
+          fieldsToCheck.forEach(f => {
+            if (mapped[f] && String(existing[f] || '') !== String(mapped[f])) {
+              changes.push({ field: f, oldValue: existing[f] || '(blank)', newValue: mapped[f] });
+            }
+          });
+          if (changes.length > 0) updates.push({ target: existing, name: existing.name, changes, obeNumber: r.obeNumber });
+        }
+      });
+
+      obeLog('New: ' + newItems.length + ' departure(s), Updates: ' + updates.length + '.', '#22c55e');
+      renderOBEPreview(newItems, updates);
+    } catch (e) {
+      obeLog('[FAIL] ' + e.message, '#ef4444');
+      console.error(e);
+    }
+  }
+
+  function renderOBEPreview(newItems, updates) {
+    const el = document.getElementById('obeScanPreview');
+    if (newItems.length === 0 && updates.length === 0) {
+      el.style.display = 'block';
+      el.innerHTML = '<div style="padding:12px;background:#ecfdf5;border:1px solid #6ee7b7;border-radius:8px;font-size:12px;color:#065f46;">No new departures or updates found from OBE emails.</div>';
+      return;
+    }
+    let html = '<div style="padding:12px;background:#f3e8ff;border:1px solid #c4b5fd;border-radius:8px;margin-bottom:8px;font-size:12px;color:#5b21b6;line-height:1.5;"><strong>' + newItems.length + ' new departure(s), ' + updates.length + ' update(s)</strong> from HR\'s OBE automation. Review and uncheck any you do not want to apply.</div>';
+
+    if (newItems.length > 0) {
+      html += '<h5 style="font-size:13px;margin:12px 0 6px;color:var(--text);">New Departures (' + newItems.length + ')</h5>';
+      html += '<div style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">';
+      html += '<table style="width:100%;border-collapse:collapse;font-size:12px;"><thead style="background:#f8fafc;"><tr>' +
+              '<th style="padding:6px;text-align:left;width:30px;"><input type="checkbox" id="obeNewAll" checked onchange="document.querySelectorAll(\'.obeNewCb\').forEach(c => c.checked = this.checked);" /></th>' +
+              '<th style="padding:6px;text-align:left;">OBE #</th>' +
+              '<th style="padding:6px;text-align:left;">Name</th>' +
+              '<th style="padding:6px;text-align:left;">Company</th>' +
+              '<th style="padding:6px;text-align:left;">Effective Day</th>' +
+              '<th style="padding:6px;text-align:left;">Type of Exit</th>' +
+              '<th style="padding:6px;text-align:left;">Remarks</th>' +
+              '</tr></thead><tbody>';
+      newItems.forEach((p, i) => {
+        html += '<tr style="border-top:1px solid #e2e8f0;">' +
+                '<td style="padding:6px;"><input type="checkbox" class="obeNewCb" data-idx="' + i + '" checked /></td>' +
+                '<td style="padding:6px;font-size:11px;">' + escapeHtml(p.obeNumber || '—') + '</td>' +
+                '<td style="padding:6px;">' + escapeHtml(p.name) + '</td>' +
+                '<td style="padding:6px;">' + escapeHtml(p.company || '') + '</td>' +
+                '<td style="padding:6px;">' + escapeHtml(p.effectiveDate) + '</td>' +
+                '<td style="padding:6px;">' + escapeHtml(p.typeOfExit) + '</td>' +
+                '<td style="padding:6px;font-size:11px;">' + escapeHtml(p.exitNoticeRemarks || '') + '</td>' +
+                '</tr>';
+      });
+      html += '</tbody></table></div>';
+    }
+
+    if (updates.length > 0) {
+      html += '<h5 style="font-size:13px;margin:12px 0 6px;color:var(--text);">Updates to Existing Records (' + updates.length + ')</h5>';
+      html += '<div style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">';
+      html += '<table style="width:100%;border-collapse:collapse;font-size:12px;"><thead style="background:#f8fafc;"><tr>' +
+              '<th style="padding:6px;text-align:left;width:30px;"><input type="checkbox" id="obeUpAll" checked onchange="document.querySelectorAll(\'.obeUpCb\').forEach(c => c.checked = this.checked);" /></th>' +
+              '<th style="padding:6px;text-align:left;">Name</th>' +
+              '<th style="padding:6px;text-align:left;">OBE #</th>' +
+              '<th style="padding:6px;text-align:left;">Changes</th>' +
+              '</tr></thead><tbody>';
+      updates.forEach((u, i) => {
+        const changesHtml = u.changes.map(c =>
+          '<div style="font-size:11px;"><strong>' + escapeHtml(c.field) + ':</strong> <span style="color:#94a3b8;text-decoration:line-through;">' + escapeHtml(String(c.oldValue || '(blank)').slice(0, 60)) + '</span> → <span style="color:#16a34a;">' + escapeHtml(String(c.newValue).slice(0, 60)) + '</span></div>'
+        ).join('');
+        html += '<tr style="border-top:1px solid #e2e8f0;">' +
+                '<td style="padding:6px;"><input type="checkbox" class="obeUpCb" data-idx="' + i + '" checked /></td>' +
+                '<td style="padding:6px;">' + escapeHtml(u.name) + '</td>' +
+                '<td style="padding:6px;font-size:11px;">' + escapeHtml(u.obeNumber || '—') + '</td>' +
+                '<td style="padding:6px;">' + changesHtml + '</td>' +
+                '</tr>';
+      });
+      html += '</tbody></table></div>';
+    }
+
+    html += '<div style="margin-top:10px;display:flex;gap:8px;">' +
+            '<button class="btn btn-primary" onclick="commitOBEPreview()" style="background:#7c3aed;border-color:#7c3aed;">Apply Selected</button>' +
+            '<button class="btn btn-secondary" onclick="document.getElementById(\'obeScanPreview\').style.display=\'none\';">Discard</button>' +
+            '</div>';
+
+    el.style.display = 'block';
+    el.innerHTML = html;
+    window.__obePending = { newItems, updates };
+  }
+
+  function commitOBEPreview() {
+    const pending = window.__obePending || { newItems: [], updates: [] };
+    const selectedNew = [];
+    const selectedUpdates = [];
+    document.querySelectorAll('.obeNewCb:checked').forEach(cb => {
+      const idx = parseInt(cb.dataset.idx, 10);
+      if (pending.newItems[idx]) selectedNew.push(pending.newItems[idx]);
+    });
+    document.querySelectorAll('.obeUpCb:checked').forEach(cb => {
+      const idx = parseInt(cb.dataset.idx, 10);
+      if (pending.updates[idx]) selectedUpdates.push(pending.updates[idx]);
+    });
+
+    // Add new departures
+    const maxId = state.departures.reduce((m, d) => Math.max(m, d.id || 0), 0);
+    selectedNew.forEach((p, i) => {
+      state.departures.push({
+        id: maxId + 1 + i,
+        name: p.name,
+        company: p.company,
+        obeNumber: p.obeNumber,
+        obeStatus: p.obeStatus,
+        employeeId: p.employeeId,
+        position: p.position,
+        employeeEmail: p.name ? ms365Username(p.name) : '',
+        effectiveDate: p.effectiveDate,
+        lastDay: p.effectiveDate,
+        typeOfExit: p.typeOfExit,
+        reason: p.typeOfExit,
+        noticeDate: p.noticeDate,
+        exitNoticeRemarks: p.exitNoticeRemarks || '',
+        workSetup: p.workSetup,
+        replacementNeeded: p.replacementNeeded,
+        reasonForLeaving: p.reasonForLeaving,
+        contactNumber: p.contactNumber,
+        currentAddress: p.currentAddress,
+        emergencyContact: p.emergencyContact,
+        status: 'Notice Period',
+        lastDayEstimated: false,
+        checklist: defaultExitChecklist()
+      });
+    });
+
+    // Apply updates
+    let applied = 0;
+    selectedUpdates.forEach(u => {
+      if (!u.target) return;
+      u.changes.forEach(c => {
+        u.target[c.field] = c.newValue;
+        if (c.field === 'effectiveDate') u.target.lastDay = c.newValue;
+        if (c.field === 'typeOfExit') u.target.reason = c.newValue;
+      });
+      if (u.obeNumber && !u.target.obeNumber) u.target.obeNumber = u.obeNumber;
+      applied++;
+    });
+
+    save();
+    renderDepartures();
+
+    document.getElementById('obeScanPreview').style.display = 'none';
+    obeLog('Added ' + selectedNew.length + ' new + updated ' + applied + '. Open MS365 Settings → Push Local Changes to sync to SharePoint.', '#22c55e');
+    showToast('Applied ' + selectedNew.length + ' new + ' + applied + ' update(s) from OBE');
+  }
+  // ============================================================
+  // End OBE scanner
+  // ============================================================
+
+  // ============================================================
+  // Onboarding — Import from R24 (paste-based backfill)
+  // Backfills Position / Shift / Manager / Hire Date / Office Location
+  // on existing hire rows when the GoTeam Starters Tracker is behind.
+  // ============================================================
+  window._hireR24Parsed = null;
+
+  function hireR24ShowFirstRow() {
+    const raw = document.getElementById('hireR24Paste').value || '';
+    const el = document.getElementById('hireR24FirstRow');
+    if (!raw.trim()) { el.innerHTML = ''; return; }
+    const lines = raw.split(/\r?\n/);
+    const hasTabs = lines.some(l => l.indexOf('\t') >= 0);
+    let cells;
+    let modeLabel;
+    if (hasTabs) {
+      const firstLine = lines.find(l => l.trim().length > 0) || '';
+      cells = firstLine.split('\t');
+      modeLabel = 'Horizontal mode (tab-separated)';
+    } else {
+      // Vertical mode — strip both "avatar" placeholders AND blank spacer lines so column
+      // numbers match R24's UI column order 1:1.
+      const trimmed = lines
+        .map(l => l.trim())
+        .filter(l => l.length > 0 && l.toLowerCase() !== 'avatar');
+      const anchorIdx = [];
+      trimmed.forEach((l, i) => { if (/^\d{3,5}$/.test(l)) anchorIdx.push(i); });
+      if (anchorIdx.length === 0) {
+        el.innerHTML = '<span style="color:#b91c1c;font-size:11px;">Vertical mode detected but no Employee ID anchors (e.g. "2138") found yet.</span>';
+        return;
+      }
+      const start = anchorIdx[0];
+      const end = anchorIdx.length > 1 ? anchorIdx[1] : trimmed.length;
+      cells = trimmed.slice(start, end);
+      modeLabel = 'Vertical mode (' + anchorIdx.length + ' record' + (anchorIdx.length === 1 ? '' : 's') + ' detected, avatars + blanks stripped)';
+      // Auto-fill the column number inputs with R24's standard layout the FIRST time we
+      // detect vertical mode in this modal session (so we don't overwrite the user's
+      // manual tweaks on subsequent re-pastes).
+      if (!window._hireR24AutofillDone) {
+        const set = (id, val) => { const e = document.getElementById(id); if (e) e.value = String(val); };
+        set('hireR24MatchCol', 2);   // Full Name (default match)
+        set('hireR24EmpIdCol', 1);   // Employee ID (used for backfill when the dashboard row doesn't have it yet)
+        set('hireR24PosCol', 7);     // Position
+        set('hireR24ShiftCol', 8);   // Shift
+        set('hireR24HireCol', 10);   // Hire Date
+        set('hireR24MgrCol', 17);    // Leadership Coach
+        set('hireR24OfficeCol', 0);  // Office (not in default R24 view)
+        const mt = document.getElementById('hireR24MatchType');
+        if (mt) mt.value = 'name';
+        window._hireR24AutofillDone = true;
+      }
+    }
+    const chips = cells.map((c, i) => '<span style="display:inline-block;padding:2px 6px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:4px;margin:2px;font-family:monospace;font-size:10px;"><strong>#' + (i + 1) + '</strong>: ' + escapeHtml(c.slice(0, 40)) + (c.length > 40 ? '…' : '') + '</span>');
+    el.innerHTML = '<strong>' + modeLabel + ' — first record (' + cells.length + ' fields):</strong> ' + chips.join(' ');
+  }
+  // Wire the preview on input
+  setTimeout(() => {
+    const ta = document.getElementById('hireR24Paste');
+    if (ta && !ta._wired) {
+      ta.addEventListener('input', hireR24ShowFirstRow);
+      ta._wired = true;
+    }
+  }, 1000);
+
+  function hireR24ParseDate(s) {
+    if (!s) return '';
+    const str = String(s).trim();
+    if (!str) return '';
+    // 1. ISO yyyy-mm-dd — already in the right format, use as-is
+    if (/^\d{4}-\d{2}-\d{2}/.test(str)) return str.slice(0, 10);
+    // 2. Excel serial number — build a UTC date from epoch to avoid DST drift
+    if (/^\d+(\.\d+)?$/.test(str)) {
+      const n = parseFloat(str);
+      if (n > 20000 && n < 60000) {
+        const d = new Date(Date.UTC(1899, 11, 30) + n * 86400000);
+        return d.toISOString().slice(0, 10);
+      }
+    }
+    // 3. mm/dd/yyyy or dd/mm/yyyy or dd-mm-yyyy — parse components manually to
+    //    avoid the Date() local→UTC timezone shift that drops the day by 1
+    //    when the user's timezone is west of GMT (e.g. UTC+8 Philippines).
+    const slashish = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\s*$/);
+    if (slashish) {
+      let [, a, b, y] = slashish;
+      if (y.length === 2) y = '20' + y;
+      // R24 uses mm/dd/yyyy. If the first number > 12 it must be dd (dd/mm/yyyy pattern).
+      let mm, dd;
+      if (parseInt(a, 10) > 12) { dd = a; mm = b; }
+      else                       { mm = a; dd = b; }
+      return y + '-' + String(mm).padStart(2, '0') + '-' + String(dd).padStart(2, '0');
+    }
+    // 4. "18 August 2026" or "August 18, 2026" or "Oct 17 2026" — month-name formats.
+    //    We can safely use Date() here because the input has an explicit month name;
+    //    there's no mm/dd vs dd/mm ambiguity, and we still read back via UTC fields.
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) {
+      return d.getUTCFullYear() + '-' +
+        String(d.getUTCMonth() + 1).padStart(2, '0') + '-' +
+        String(d.getUTCDate()).padStart(2, '0');
+    }
+    return '';
+  }
+
+  function hireR24NormalizeOffice(raw) {
+    if (!raw) return '';
+    const s = String(raw).replace(/[–—]/g, '-').replace(/\s+/g, ' ').trim().toUpperCase();
+    if (!s) return '';
+    if (s === 'WFH' || s.startsWith('WFH')) return 'WFH';
+    if (/HM TOWER/.test(s)) return 'HM Office';
+    if (/I1 BUILDING/.test(s)) return 'i1 Office';
+    if (s === 'HYBRID' || s === 'ONSITE' || /HYBRID.*I1/.test(s) || /ONSITE.*I1/.test(s)) return 'i1 Office';
+    if (/HM/.test(s)) return 'HM Office';
+    if (/I1/.test(s) || /ONSITE/.test(s) || /HYBRID/.test(s)) return 'i1 Office';
+    return raw; // pass through unknown values
+  }
+
+  window.parseHireR24Import = function() {
+    const raw = document.getElementById('hireR24Paste').value || '';
+    const prev = document.getElementById('hireR24Preview');
+    if (!raw.trim()) { prev.innerHTML = '<span style="color:#b91c1c;">Nothing pasted.</span>'; return; }
+
+    const matchType = document.getElementById('hireR24MatchType').value;
+    const colOf = (id) => Math.max(0, parseInt(document.getElementById(id).value, 10) || 0);
+    const matchCol  = colOf('hireR24MatchCol')  - 1;
+    const empIdCol  = colOf('hireR24EmpIdCol')  - 1;
+    const posCol    = colOf('hireR24PosCol')    - 1;
+    const shiftCol  = colOf('hireR24ShiftCol')  - 1;
+    const mgrCol    = colOf('hireR24MgrCol')    - 1;
+    const hireCol   = colOf('hireR24HireCol')   - 1;
+    const officeCol = colOf('hireR24OfficeCol') - 1;
+
+    const allLines = raw.replace(/\r/g, '').split('\n');
+    // R24's "Copy" writes each cell on its own line. Detect that by checking whether
+    // any line has a tab. If no tabs at all, we're in vertical mode — group lines by
+    // employee-ID markers (lines matching ^\d{3,5}$) and treat each group as one row.
+    const hasTabs = allLines.some(l => l.indexOf('\t') >= 0);
+    let rows2d; // array of arrays — each inner array is one record's cells
+    if (hasTabs) {
+      rows2d = allLines.filter(l => l.trim().length > 0).map(l => l.split('\t'));
+    } else {
+      // Vertical mode. R24 inserts (a) an "avatar" placeholder line before every
+      // person reference and (b) blank spacer lines around some values. Strip both
+      // so column numbers match R24's natural UI column order 1:1.
+      const trimmed = allLines
+        .map(l => l.trim())
+        .filter(l => l.length > 0 && l.toLowerCase() !== 'avatar');
+      const anchorIdx = [];
+      trimmed.forEach((l, i) => { if (/^\d{3,5}$/.test(l)) anchorIdx.push(i); });
+      if (anchorIdx.length === 0) {
+        document.getElementById('hireR24Preview').innerHTML = '<span style="color:#b91c1c;">Vertical-mode detected but no Employee ID anchors found. R24 pastes typically start each record with the ID (e.g., "2138"). Make sure the ID column is included in your selection.</span>';
+        return;
+      }
+      rows2d = anchorIdx.map((startIdx, i) => {
+        const endIdx = i + 1 < anchorIdx.length ? anchorIdx[i + 1] : trimmed.length;
+        return trimmed.slice(startIdx, endIdx);
+      });
+    }
+
+    const parsed = rows2d.map(cells => ({
+      key:    (cells[matchCol] || '').trim(),
+      empId:  empIdCol  >= 0 ? (cells[empIdCol]  || '').trim() : '',
+      pos:    posCol    >= 0 ? (cells[posCol]    || '').trim() : '',
+      shift:  shiftCol  >= 0 ? (cells[shiftCol]  || '').trim() : '',
+      mgr:    mgrCol    >= 0 ? (cells[mgrCol]    || '').trim() : '',
+      hire:   hireCol   >= 0 ? (cells[hireCol]   || '').trim() : '',
+      office: officeCol >= 0 ? (cells[officeCol] || '').trim() : ''
+    })).filter(r => r.key);
+
+    // Header skip — if first row key is non-numeric when matching by empId
+    if (parsed.length && matchType === 'empId' && !/\d/.test(parsed[0].key)) parsed.shift();
+
+    // Normalise a name for fuzzy matching: lowercase, strip middle initials/periods,
+    // collapse whitespace, and also build a "first + last" short form fallback.
+    const normName = (s) => String(s || '')
+      .toLowerCase()
+      .replace(/\./g, '')             // "D." → "D"
+      .replace(/\s+/g, ' ')
+      .trim();
+    const shortName = (s) => {
+      const parts = normName(s).split(' ').filter(p => p.length > 1); // drop single-letter middle initials
+      if (parts.length < 2) return normName(s);
+      return parts[0] + ' ' + parts[parts.length - 1];
+    };
+
+    // Build lookup against state.hires
+    const byHcId = {};
+    const byName = {};         // exact normalised match
+    const byShortName = {};    // first + last match (handles "Amina Abella" vs "Amina D. Abella")
+    const byEmail = {};
+    (state.hires || []).forEach(h => {
+      if (h.hcId) byHcId[String(h.hcId).trim().toLowerCase()] = h;
+      if (h.starterName) {
+        byName[normName(h.starterName)] = h;
+        byShortName[shortName(h.starterName)] = h;
+      }
+      const upn = h.starterName ? (ms365Username(h.starterName) + '@go.team').toLowerCase() : '';
+      if (upn) byEmail[upn] = h;
+    });
+
+    const matched = [], unmatched = [];
+    parsed.forEach(row => {
+      const k = row.key.toLowerCase();
+      let hire = null;
+      if (matchType === 'empId') hire = byHcId[k] || null;
+      else if (matchType === 'name') {
+        // Try exact normalised first, then first+last fallback
+        hire = byName[normName(row.key)] || byShortName[shortName(row.key)] || null;
+      }
+      else if (matchType === 'email') hire = byEmail[k] || null;
+      if (hire) matched.push({ hire, row });
+      else unmatched.push(row);
+    });
+
+    window._hireR24Parsed = { matched, unmatched };
+
+    let html = '<div style="margin-bottom:8px;"><strong>Parsed ' + parsed.length + ' row(s):</strong> ' + matched.length + ' matched to existing hires, ' + unmatched.length + ' unmatched.</div>';
+    if (matched.length > 0) {
+      html += '<div style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;">';
+      html += '<table style="width:100%;border-collapse:collapse;font-size:11px;">';
+      html += '<thead style="background:#f8fafc;position:sticky;top:0;"><tr>' +
+        '<th style="padding:6px 8px;text-align:left;">Hire</th>' +
+        '<th style="padding:6px 8px;text-align:left;">Employee ID</th>' +
+        '<th style="padding:6px 8px;text-align:left;">Position</th>' +
+        '<th style="padding:6px 8px;text-align:left;">Shift</th>' +
+        '<th style="padding:6px 8px;text-align:left;">Manager</th>' +
+        '<th style="padding:6px 8px;text-align:left;">Hire Date</th>' +
+        '<th style="padding:6px 8px;text-align:left;">Office</th>' +
+        '</tr></thead><tbody>';
+      matched.forEach(m => {
+        const h = m.hire, r = m.row;
+        const diff = (label, cur, next, normalise) => {
+          if (!next) return '<td style="padding:5px 8px;color:#cbd5e1;">—</td>';
+          const curNorm = (cur || '').toString().trim();
+          const nextNorm = normalise ? normalise(next) : next;
+          const changed = curNorm !== nextNorm && (!curNorm || /^tbd$/i.test(curNorm) || curNorm === '—');
+          return '<td style="padding:5px 8px;' + (changed ? 'font-weight:600;color:#065f46;background:#ecfdf5;' : 'color:#94a3b8;') + '">' +
+            (curNorm ? '<span style="color:#94a3b8;">' + escapeHtml(curNorm) + ' →</span><br>' : '') +
+            escapeHtml(nextNorm) + '</td>';
+        };
+        html += '<tr>' +
+          '<td style="padding:5px 8px;"><strong>' + escapeHtml(h.starterName) + '</strong><br><span style="color:#94a3b8;font-size:10px;">' + escapeHtml(h.hcId || '—') + ' · ' + escapeHtml(h.companyName || '') + '</span></td>' +
+          diff('Employee ID', h.hcId, r.empId) +
+          diff('Position', h.position, r.pos) +
+          diff('Shift', h.phShiftSchedule, r.shift) +
+          diff('Manager', h.manager, r.mgr) +
+          diff('Hire Date', h.hireDate || h.startDate, hireR24ParseDate(r.hire)) +
+          diff('Office', h.officeLocation, r.office, hireR24NormalizeOffice) +
+          '</tr>';
+      });
+      html += '</tbody></table></div>';
+    }
+    if (unmatched.length > 0) {
+      html += '<div style="margin-top:10px;color:#b91c1c;"><strong>Unmatched (not in dashboard yet):</strong></div>';
+      html += '<div style="max-height:140px;overflow-y:auto;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:8px;font-size:11px;margin-top:4px;">';
+      unmatched.forEach(r => { html += '• <code>' + escapeHtml(r.key || '—') + '</code> — Position: ' + escapeHtml(r.pos || '') + ' · Mgr: ' + escapeHtml(r.mgr || '') + '<br>'; });
+      html += '</div>';
+    }
+    prev.innerHTML = html;
+    document.getElementById('hireR24ApplyBtn').disabled = (matched.length === 0);
+  };
+
+  window.applyHireR24Import = function() {
+    const p = window._hireR24Parsed;
+    if (!p || !p.matched || p.matched.length === 0) return;
+    let idChg = 0, posChg = 0, shiftChg = 0, mgrChg = 0, hireChg = 0, officeChg = 0;
+    p.matched.forEach(m => {
+      const h = m.hire, r = m.row;
+      // Backfill-only logic: only fill when field is blank, "TBD", or dash
+      const isBlank = (v) => !v || /^tbd$/i.test(String(v).trim()) || String(v).trim() === '—';
+      if (r.empId && isBlank(h.hcId)) { h.hcId = r.empId; idChg++; }
+      if (r.pos && isBlank(h.position)) { h.position = r.pos; posChg++; }
+      if (r.shift && isBlank(h.phShiftSchedule)) { h.phShiftSchedule = r.shift; shiftChg++; }
+      if (r.mgr && isBlank(h.manager)) { h.manager = r.mgr; mgrChg++; }
+      if (r.hire) {
+        const iso = hireR24ParseDate(r.hire);
+        if (iso && isBlank(h.hireDate)) { h.hireDate = iso; hireChg++; }
+      }
+      if (r.office) {
+        const normO = hireR24NormalizeOffice(r.office);
+        if (normO && isBlank(h.officeLocation)) { h.officeLocation = normO; officeChg++; }
+      }
+    });
+    save();
+    renderHires();
+    closeModal('hireR24ImportModal');
+    showToast('Backfilled: ' + idChg + ' Emp ID, ' + posChg + ' Position, ' + shiftChg + ' Shift, ' + mgrChg + ' Manager, ' + hireChg + ' Hire Date, ' + officeChg + ' Office.');
+    // Reset modal state
+    document.getElementById('hireR24Paste').value = '';
+    document.getElementById('hireR24Preview').innerHTML = '';
+    document.getElementById('hireR24FirstRow').innerHTML = '';
+    document.getElementById('hireR24ApplyBtn').disabled = true;
+    window._hireR24Parsed = null;
+    window._hireR24AutofillDone = false;
+  };
+  // ============================================================
+  // End Onboarding R24 import
+  // ============================================================
+
+  // ============================================================
+  // Scheduled Offboarding — generates PowerShell + Task Scheduler XML
+  // for a departure, delivered as downloadable files for admin to
+  // import into Task Scheduler on the always-on biometrics PC.
+  // Delegated auth (Option B): script uses the admin's cached MS Graph
+  // + Exchange Online credentials (one-time Connect-MgGraph + Connect-ExchangeOnline).
+  // Audit log target: SharePoint ITOperations/Shared Documents/Offboarding Logs
+  // ============================================================
+  const SCHEDULE_AUDIT_SITE = 'goteam1.sharepoint.com,ITOperations';
+  const SCHEDULE_AUDIT_PATH = '/sites/ITOperations/Shared Documents/Offboarding Logs';
+
+  // Open the schedule modal for a specific departure id (or bulk if array).
+  window.openScheduleOffboardingModal = async function(depId) {
+    const d = state.departures.find(x => x.id === depId);
+    if (!d) { alert('Departure not found.'); return; }
+    const upn = (d.employeeEmail || '').trim();
+    if (!upn) { alert('Fill in Employee Email first.'); return; }
+    if (!msalAccount) { alert('Sign in via the sidebar first so we can read the TM\'s CA3 from Entra.'); return; }
+
+    const body = document.getElementById('scheduleModalBody');
+    body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);">Fetching CA3 (shift) from Entra for ' + escapeHtml(d.name) + '…</div>';
+    openModal('scheduleOffboardingModal');
+
+    // Fetch user's CA3 to detect shift
+    let ca3 = '';
+    let user = null;
+    try {
+      user = await graphFetch('/users/' + encodeURIComponent(upn) + '?$select=id,displayName,companyName,onPremisesExtensionAttributes');
+      ca3 = (user.onPremisesExtensionAttributes && user.onPremisesExtensionAttributes.extensionAttribute3) || '';
+    } catch (e) {
+      body.innerHTML = '<div style="padding:20px;color:#b91c1c;">Could not fetch user from Entra: ' + escapeHtml(e.message || String(e)) + '</div>';
+      return;
+    }
+    const isInternal = isInternalTeamMember(d) || /goteam/i.test((user.companyName || ''));
+    const effIso = (d.effectiveDate || d.lastDay || '').slice(0, 10);
+    if (!effIso) {
+      body.innerHTML = '<div style="padding:20px;color:#b91c1c;">No effective date on this departure. Set it first, then schedule.</div>';
+      return;
+    }
+
+    // Determine time of day from CA3 — Morning → 06:00, Night → 22:00, else prompt
+    let defaultHHMM = '';
+    if (/morning/i.test(ca3)) defaultHHMM = '06:00';
+    else if (/night/i.test(ca3)) defaultHHMM = '22:00';
+    const defaultDateTime = effIso + 'T' + (defaultHHMM || '06:00');
+
+    body.innerHTML =
+      '<div style="display:grid;grid-template-columns:140px 1fr;gap:10px 16px;font-size:13px;line-height:1.6;">' +
+      '  <div style="color:var(--muted);">TM Name:</div><div><strong>' + escapeHtml(d.name) + '</strong></div>' +
+      '  <div style="color:var(--muted);">UPN:</div><div><code>' + escapeHtml(upn) + '</code></div>' +
+      '  <div style="color:var(--muted);">Company:</div><div>' + escapeHtml(d.company || '') + (isInternal ? ' <span style="font-size:10px;background:#dbeafe;color:#1d4ed8;padding:2px 6px;border-radius:4px;margin-left:6px;">INTERNAL</span>' : '') + '</div>' +
+      '  <div style="color:var(--muted);">Effective Date:</div><div>' + escapeHtml(effIso) + '</div>' +
+      '  <div style="color:var(--muted);">CA3 (Shift):</div><div>' + (ca3 ? '<strong>' + escapeHtml(ca3) + '</strong> → ' + (defaultHHMM ? defaultHHMM + ' PH time' : '(no auto-time; set below)') : '<span style="color:#b91c1c;">Not set in Entra — set CA3 in All Users first, or enter custom time below.</span>') + '</div>' +
+      '</div>' +
+      '<hr style="margin:14px 0;border:none;border-top:1px solid var(--border);">' +
+      '<div style="display:grid;grid-template-columns:140px 1fr;gap:10px 16px;font-size:13px;align-items:center;">' +
+      '  <label style="color:var(--muted);">Trigger datetime:</label>' +
+      '  <input type="datetime-local" id="scheduleTriggerDt" value="' + defaultDateTime + '" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;" />' +
+      '  <label style="color:var(--muted);">Include Shared Mailbox conversion:</label>' +
+      '  <div><input type="checkbox" id="scheduleIncludeShared" ' + (isInternal ? 'checked' : '') + ' /> <span style="font-size:12px;color:var(--muted);">' + (isInternal ? 'Auto-ticked (Internal TM). Script will convert BEFORE license removal.' : 'Client-facing TM — leave unticked.') + '</span></div>' +
+      '</div>' +
+      '<div style="margin-top:14px;background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:12px;font-size:11px;line-height:1.6;">' +
+      '  <strong>Execution sequence' + (isInternal ? ' (Internal — conversion first)' : '') + ':</strong>' +
+      '  <ol style="margin:4px 0 0 18px;padding:0;color:var(--muted);">' +
+      '    <li>Block sign-in</li>' +
+      '    <li>Revoke all sessions</li>' +
+      (isInternal ? '    <li><strong style="color:#1d4ed8;">Convert mailbox to Shared</strong></li>' +
+                     '    <li><strong style="color:#1d4ed8;">Set Full Access + Send As for Leadership Coach</strong></li>' +
+                     '    <li><strong style="color:#1d4ed8;">Set auto-reply pointing to coach</strong></li>' : '') +
+      '    <li>Remove from all groups</li>' +
+      '    <li>Remove all licenses</li>' +
+      '    <li>Clear CA2 + CA3 (removed from Dynamic Distros)</li>' +
+      '    <li>Remove auth methods (MFA)</li>' +
+      '    <li>Remove directory role assignments (except Global Admin)</li>' +
+      '    <li>Set Remarks to "Separated" / "Recalled"</li>' +
+      '    <li>Write results back to SharePoint GoTeam-Departures</li>' +
+      '    <li>Append log line to <code>' + escapeHtml(SCHEDULE_AUDIT_PATH) + '</code></li>' +
+      '  </ol>' +
+      '</div>';
+    // Stash context on the modal for the Generate step
+    window._pendingScheduleContext = { depId: d.id, upn, userGraphId: user.id, isInternal, name: d.name, company: d.company || '', coach: d.leadershipCoach || '', coachEmail: d.leadershipCoachEmail || '' };
+  };
+
+  // Generate the PowerShell script + Task XML and offer both as downloads.
+  window.generateScheduledOffboardingBundle = function() {
+    const ctx = window._pendingScheduleContext;
+    if (!ctx) return;
+    const d = state.departures.find(x => x.id === ctx.depId);
+    if (!d) return;
+    const triggerDt = document.getElementById('scheduleTriggerDt').value; // "2026-10-20T06:00"
+    if (!triggerDt) { alert('Set a trigger datetime.'); return; }
+    const includeShared = document.getElementById('scheduleIncludeShared').checked;
+
+    // Determine remark based on type of exit (same logic as manual Revoke)
+    const _tox = String(d.typeOfExit || d.reason || '').toLowerCase();
+    const remark = _tox.indexOf('recall') > -1 ? 'Recalled' : 'Separated';
+
+    const safeNameForFile = (d.name || '').replace(/[^\w]+/g, '-').replace(/^-|-$/g, '').toLowerCase() || 'tm';
+    const stamp = triggerDt.replace(/[-:]/g, '').replace('T', '-');
+
+    const ps1 = buildOffboardingPowerShell({
+      tmName: d.name,
+      upn: ctx.upn,
+      graphUserId: ctx.userGraphId,
+      isInternal: ctx.isInternal,
+      includeShared,
+      coachUpn: (d.leadershipCoachEmail || '').trim(),
+      coachName: (d.leadershipCoach || '').trim(),
+      remark,
+      effectiveDate: (d.effectiveDate || d.lastDay || '').slice(0, 10),
+      sharePointListId: 'GoTeam-Departures',
+      auditSiteHost: 'goteam1.sharepoint.com',
+      auditSitePath: '/sites/ITOperations',
+      auditLibraryPath: 'Shared Documents/Offboarding Logs',
+      localDepartureId: d.id
+    });
+
+    const taskXml = buildTaskSchedulerXml({
+      tmName: d.name,
+      triggerDt,
+      scriptPath: 'C:\\OffboardingTasks\\Revoke-' + safeNameForFile + '-' + stamp + '.ps1'
+    });
+
+    downloadTextFile('Revoke-' + safeNameForFile + '-' + stamp + '.ps1', ps1);
+    downloadTextFile('Revoke-' + safeNameForFile + '-' + stamp + '.xml', taskXml);
+
+    // Mark the departure as scheduled in local state
+    d.scheduledOffboardingAt = triggerDt;
+    d.scheduledIncludeShared = includeShared;
+    save();
+    renderDepartures();
+    closeModal('scheduleOffboardingModal');
+    showToast('Downloaded 2 files. Copy both to C:\\OffboardingTasks on the biometrics PC, then import the .xml into Task Scheduler.');
+  };
+
+  function downloadTextFile(filename, text) {
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function buildOffboardingPowerShell(o) {
+    const esc = (s) => String(s || '').replace(/"/g, '`"');
+    const lines = [];
+    lines.push('# ================================================================');
+    lines.push('# Offboarding — ' + o.tmName + ' (' + o.upn + ')');
+    lines.push('# Generated: ' + new Date().toISOString());
+    lines.push('# Internal TM: ' + o.isInternal + '   Shared Mailbox conversion: ' + o.includeShared);
+    lines.push('# ================================================================');
+    lines.push('');
+    lines.push('$ErrorActionPreference = "Continue"');
+    lines.push('$TM_UPN     = "' + esc(o.upn) + '"');
+    lines.push('$TM_NAME    = "' + esc(o.tmName) + '"');
+    lines.push('$TM_GRAPHID = "' + esc(o.graphUserId) + '"');
+    lines.push('$COACH_UPN  = "' + esc(o.coachUpn) + '"');
+    lines.push('$COACH_NAME = "' + esc(o.coachName) + '"');
+    lines.push('$REMARK     = "' + esc(o.remark) + '"');
+    lines.push('$AUDIT_HOST = "' + esc(o.auditSiteHost) + '"');
+    lines.push('$AUDIT_PATH = "' + esc(o.auditSitePath) + '"');
+    lines.push('$AUDIT_LIB  = "' + esc(o.auditLibraryPath) + '"');
+    lines.push('$DEP_LIST   = "' + esc(o.sharePointListId) + '"');
+    lines.push('$LOCAL_DEP_ID = ' + (o.localDepartureId | 0));
+    lines.push('');
+    lines.push('$log = @()');
+    lines.push('$log += "===== Offboarding $TM_NAME ($TM_UPN) started $(Get-Date -Format o) ====="');
+    lines.push('');
+    lines.push('# Delegated auth — relies on cached Connect-MgGraph / Connect-ExchangeOnline tokens');
+    lines.push('# saved by admin interactively during initial setup. If tokens expired, task will fail;');
+    lines.push('# admin re-runs Setup-OffboardingAuth.ps1 to refresh them.');
+    lines.push('try {');
+    lines.push('    Import-Module Microsoft.Graph.Users -ErrorAction Stop');
+    lines.push('    Import-Module Microsoft.Graph.Groups -ErrorAction Stop');
+    lines.push('    Import-Module Microsoft.Graph.Identity.DirectoryManagement -ErrorAction Stop');
+    lines.push('    Import-Module Microsoft.Graph.Identity.SignIns -ErrorAction Stop');
+    if (o.includeShared) lines.push('    Import-Module ExchangeOnlineManagement -ErrorAction Stop');
+    lines.push('    Connect-MgGraph -NoWelcome -ErrorAction Stop');
+    if (o.includeShared) lines.push('    Connect-ExchangeOnline -ShowBanner:$false -ErrorAction Stop');
+    lines.push('    $log += "[OK] Connected to Graph" + $(if ($' + o.includeShared + ') { " + ExO" })');
+    lines.push('} catch {');
+    lines.push('    $log += "[FAIL] Auth: $_"');
+    lines.push('    Write-AuditLog $log; exit 1');
+    lines.push('}');
+    lines.push('');
+    lines.push('# ===== Step 1: Block sign-in =====');
+    lines.push('try { Update-MgUser -UserId $TM_GRAPHID -AccountEnabled:$false -ErrorAction Stop; $log += "[OK] 1/N Sign-in blocked" }');
+    lines.push('catch { $log += "[FAIL] 1/N Block sign-in: $_" }');
+    lines.push('');
+    lines.push('# ===== Step 2: Revoke sessions =====');
+    lines.push('try { Revoke-MgUserSignInSession -UserId $TM_GRAPHID -ErrorAction Stop; $log += "[OK] 2/N Sessions revoked" }');
+    lines.push('catch { $log += "[FAIL] 2/N Revoke sessions: $_" }');
+    lines.push('');
+    if (o.includeShared) {
+      lines.push('# ===== Step 3: Convert mailbox to Shared (BEFORE license removal) =====');
+      lines.push('Start-Sleep -Seconds 10  # let session-revoke settle before ExO call');
+      lines.push('try {');
+      lines.push('    Set-Mailbox -Identity $TM_UPN -Type Shared -ErrorAction Stop');
+      lines.push('    $log += "[OK] 3/N Mailbox converted to Shared"');
+      lines.push('} catch {');
+      lines.push('    $log += "[FAIL] 3/N Convert to Shared: $_"');
+      lines.push('    $log += "[ABORT] License removal skipped to protect mailbox. Admin intervention required."');
+      lines.push('    Write-AuditLog $log; exit 2');
+      lines.push('}');
+      lines.push('');
+      lines.push('# ===== Step 4: Grant Full Access + Send As to Leadership Coach =====');
+      lines.push('if ($COACH_UPN) {');
+      lines.push('    try {');
+      lines.push('        Add-MailboxPermission -Identity $TM_UPN -User $COACH_UPN -AccessRights FullAccess -InheritanceType All -AutoMapping:$true -ErrorAction Stop | Out-Null');
+      lines.push('        Add-RecipientPermission -Identity $TM_UPN -Trustee $COACH_UPN -AccessRights SendAs -Confirm:$false -ErrorAction Stop | Out-Null');
+      lines.push('        $log += "[OK] 4/N FullAccess + SendAs granted to $COACH_UPN"');
+      lines.push('    } catch { $log += "[FAIL] 4/N Coach permissions: $_" }');
+      lines.push('}');
+      lines.push('');
+      lines.push('# ===== Step 5: Set auto-reply pointing to coach =====');
+      lines.push('if ($COACH_UPN) {');
+      lines.push('    $autoReply = "Hi, I am no longer with GoTeam. For urgent matters please contact $COACH_NAME at $COACH_UPN. Thank you."');
+      lines.push('    try {');
+      lines.push('        Set-MailboxAutoReplyConfiguration -Identity $TM_UPN -AutoReplyState Enabled -InternalMessage $autoReply -ExternalMessage $autoReply -ExternalAudience All -ErrorAction Stop');
+      lines.push('        $log += "[OK] 5/N Auto-reply enabled"');
+      lines.push('    } catch { $log += "[FAIL] 5/N Auto-reply: $_" }');
+      lines.push('}');
+      lines.push('');
+    }
+    lines.push('# ===== Remove from all groups =====');
+    lines.push('try {');
+    lines.push('    $grps = Get-MgUserMemberOfAsGroup -UserId $TM_GRAPHID -ErrorAction Stop');
+    lines.push('    $gok = 0');
+    lines.push('    foreach ($g in $grps) { try { Remove-MgGroupMemberByRef -GroupId $g.Id -DirectoryObjectId $TM_GRAPHID -ErrorAction Stop; $gok++ } catch {} }');
+    lines.push('    $log += "[OK] Removed from $gok/$($grps.Count) group(s)"');
+    lines.push('} catch { $log += "[FAIL] Group removal: $_" }');
+    lines.push('');
+    lines.push('# ===== Remove all licenses =====');
+    lines.push('try {');
+    lines.push('    $u = Get-MgUser -UserId $TM_GRAPHID -Property AssignedLicenses -ErrorAction Stop');
+    lines.push('    $skuIds = @($u.AssignedLicenses | ForEach-Object { $_.SkuId })');
+    lines.push('    if ($skuIds.Count -gt 0) {');
+    lines.push('        Set-MgUserLicense -UserId $TM_GRAPHID -AddLicenses @() -RemoveLicenses $skuIds -ErrorAction Stop | Out-Null');
+    lines.push('        $log += "[OK] Removed $($skuIds.Count) license(s)"');
+    lines.push('    } else { $log += "[OK] No licenses to remove" }');
+    lines.push('} catch { $log += "[FAIL] License removal: $_" }');
+    lines.push('');
+    lines.push('# ===== Clear CA2 + CA3 =====');
+    lines.push('try {');
+    lines.push('    $extAttrs = @{ extensionAttribute2 = $null; extensionAttribute3 = $null; extensionAttribute1 = $REMARK }');
+    lines.push('    Update-MgUser -UserId $TM_GRAPHID -OnPremisesExtensionAttributes $extAttrs -ErrorAction Stop');
+    lines.push('    $log += "[OK] CA2 + CA3 cleared, Remarks = $REMARK"');
+    lines.push('} catch { $log += "[FAIL] Clear CA2/CA3 / Remarks: $_" }');
+    lines.push('');
+    lines.push('# ===== Remove auth methods (MFA) =====');
+    lines.push('try {');
+    lines.push('    $methods = Get-MgUserAuthenticationMethod -UserId $TM_GRAPHID -ErrorAction Stop');
+    lines.push('    $mok = 0');
+    lines.push('    foreach ($m in $methods) {');
+    lines.push('        $t = $m.AdditionalProperties["@odata.type"]');
+    lines.push('        try {');
+    lines.push('            if ($t -like "*phoneAuthenticationMethod*")                   { Remove-MgUserAuthenticationPhoneMethod -UserId $TM_GRAPHID -PhoneAuthenticationMethodId $m.Id -ErrorAction Stop; $mok++ }');
+    lines.push('            elseif ($t -like "*microsoftAuthenticatorAuthenticationMethod*") { Remove-MgUserAuthenticationMicrosoftAuthenticatorMethod -UserId $TM_GRAPHID -MicrosoftAuthenticatorAuthenticationMethodId $m.Id -ErrorAction Stop; $mok++ }');
+    lines.push('            elseif ($t -like "*softwareOathAuthenticationMethod*")         { Remove-MgUserAuthenticationSoftwareOathMethod -UserId $TM_GRAPHID -SoftwareOathAuthenticationMethodId $m.Id -ErrorAction Stop; $mok++ }');
+    lines.push('            elseif ($t -like "*fido2AuthenticationMethod*")                { Remove-MgUserAuthenticationFido2Method -UserId $TM_GRAPHID -Fido2AuthenticationMethodId $m.Id -ErrorAction Stop; $mok++ }');
+    lines.push('            elseif ($t -like "*windowsHelloForBusinessAuthenticationMethod*") { Remove-MgUserAuthenticationWindowsHelloForBusinessMethod -UserId $TM_GRAPHID -WindowsHelloForBusinessAuthenticationMethodId $m.Id -ErrorAction Stop; $mok++ }');
+    lines.push('        } catch {}');
+    lines.push('    }');
+    lines.push('    $log += "[OK] Removed $mok non-password auth method(s)"');
+    lines.push('} catch { $log += "[FAIL] Auth method removal: $_" }');
+    lines.push('');
+    lines.push('# ===== Remove directory role assignments (except Global Admin) =====');
+    lines.push('try {');
+    lines.push('    $assigns = Get-MgRoleManagementDirectoryRoleAssignment -Filter "principalId eq \'$TM_GRAPHID\'" -ErrorAction Stop');
+    lines.push('    $rok = 0; $rskip = 0');
+    lines.push('    foreach ($a in $assigns) {');
+    lines.push('        try {');
+    lines.push('            $role = Get-MgRoleManagementDirectoryRoleDefinition -UnifiedRoleDefinitionId $a.RoleDefinitionId -ErrorAction Stop');
+    lines.push('            if ($role.DisplayName -match "Global Admin") { $rskip++; continue }');
+    lines.push('            Remove-MgRoleManagementDirectoryRoleAssignment -UnifiedRoleAssignmentId $a.Id -ErrorAction Stop');
+    lines.push('            $rok++');
+    lines.push('        } catch {}');
+    lines.push('    }');
+    lines.push('    $log += "[OK] Removed $rok role assignment(s), skipped $rskip Global Admin"');
+    lines.push('} catch { $log += "[FAIL] Role removal: $_" }');
+    lines.push('');
+    lines.push('$log += "===== Finished $(Get-Date -Format o) ====="');
+    lines.push('');
+    lines.push('# ===== Write-AuditLog function =====');
+    lines.push('function Write-AuditLog ($lines) {');
+    lines.push('    $filename = ("{0}-{1:yyyyMMdd-HHmmss}.log" -f ($TM_NAME -replace "[^\\w]+","-"), (Get-Date))');
+    lines.push('    $content  = $lines -join "`r`n"');
+    lines.push('    # Upload to SharePoint document library via Graph');
+    lines.push('    try {');
+    lines.push('        $site   = Get-MgSite -Search "ITOperations" -ErrorAction Stop | Where-Object { $_.WebUrl -like "*/sites/ITOperations" } | Select-Object -First 1');
+    lines.push('        $drive  = Get-MgSiteDrive -SiteId $site.Id -ErrorAction Stop | Where-Object { $_.Name -eq "Documents" } | Select-Object -First 1');
+    lines.push('        $folderPath = "Offboarding Logs"');
+    lines.push('        $upload = Invoke-MgGraphRequest -Method PUT -Uri "/v1.0/drives/$($drive.Id)/root:/$folderPath/$($filename):/content" -Body $content -ContentType "text/plain"');
+    lines.push('        Write-Host "Audit log uploaded: $filename"');
+    lines.push('    } catch {');
+    lines.push('        Write-Host "Audit upload failed, writing local fallback: $_"');
+    lines.push('        $local = "C:\\OffboardingTasks\\logs\\$filename"');
+    lines.push('        New-Item -ItemType Directory -Path (Split-Path $local) -Force | Out-Null');
+    lines.push('        Set-Content -Path $local -Value $content');
+    lines.push('    }');
+    lines.push('    # Also write back to the dashboard\'s SharePoint list so Access Deactivated Date / Licenses Removed populate automatically');
+    lines.push('    try {');
+    lines.push('        $site = Get-MgSite -Search "ITOperations" -ErrorAction Stop | Where-Object { $_.WebUrl -like "*/sites/ITOperations" } | Select-Object -First 1');
+    lines.push('        $list = Get-MgSiteList -SiteId $site.Id -Filter "displayName eq \'$DEP_LIST\'" -ErrorAction SilentlyContinue | Select-Object -First 1');
+    lines.push('        if ($list) {');
+    lines.push('            $items = Get-MgSiteListItem -SiteId $site.Id -ListId $list.Id -ExpandProperty "fields(select=LocalId)" -Filter "fields/LocalId eq $LOCAL_DEP_ID" -ErrorAction SilentlyContinue');
+    lines.push('            if ($items -and $items[0]) {');
+    lines.push('                $successCount = ($lines | Where-Object { $_ -match "^\\[OK\\]" }).Count');
+    lines.push('                Update-MgSiteListItemField -SiteId $site.Id -ListId $list.Id -ListItemId $items[0].Id -BodyParameter @{');
+    lines.push('                    AccessRevokedDone   = $true');
+    lines.push('                    AccessRevokedAt     = (Get-Date -Format o)');
+    lines.push('                    DepStatus           = "Completed"');
+    lines.push('                    SharedMailboxDone   = ' + (o.includeShared ? '$true' : '$false'));
+    lines.push('                    SharedMailboxDoneAt = ' + (o.includeShared ? '(Get-Date -Format o)' : '""'));
+    lines.push('                    NoteLabel           = "Auto-run via Task Scheduler · $successCount OK steps"');
+    lines.push('                } | Out-Null');
+    lines.push('                Write-Host "Dashboard writeback OK"');
+    lines.push('            }');
+    lines.push('        }');
+    lines.push('    } catch { Write-Host "Dashboard writeback failed: $_" }');
+    lines.push('}');
+    lines.push('');
+    lines.push('Write-AuditLog $log');
+    lines.push('$log | ForEach-Object { Write-Host $_ }');
+    return lines.join('\r\n');
+  }
+
+  function buildTaskSchedulerXml(o) {
+    // Convert "2026-10-20T06:00" → "2026-10-20T06:00:00"
+    const trigger = o.triggerDt.length === 16 ? o.triggerDt + ':00' : o.triggerDt;
+    const author = (msalAccount && msalAccount.username) || 'GoTeam-IT';
+    const nowIso = new Date().toISOString().slice(0, 19);
+    return [
+      '<?xml version="1.0" encoding="UTF-16"?>',
+      '<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">',
+      '  <RegistrationInfo>',
+      '    <Date>' + nowIso + '</Date>',
+      '    <Author>' + author + '</Author>',
+      '    <Description>Scheduled offboarding for ' + o.tmName + '. Generated by GoTeam User Management dashboard.</Description>',
+      '  </RegistrationInfo>',
+      '  <Triggers>',
+      '    <TimeTrigger>',
+      '      <StartBoundary>' + trigger + '</StartBoundary>',
+      '      <Enabled>true</Enabled>',
+      '    </TimeTrigger>',
+      '  </Triggers>',
+      '  <Principals>',
+      '    <Principal id="Author">',
+      '      <LogonType>Password</LogonType>',
+      '      <RunLevel>HighestAvailable</RunLevel>',
+      '    </Principal>',
+      '  </Principals>',
+      '  <Settings>',
+      '    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>',
+      '    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>',
+      '    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>',
+      '    <AllowHardTerminate>true</AllowHardTerminate>',
+      '    <StartWhenAvailable>true</StartWhenAvailable>',
+      '    <RunOnlyIfNetworkAvailable>true</RunOnlyIfNetworkAvailable>',
+      '    <IdleSettings>',
+      '      <StopOnIdleEnd>false</StopOnIdleEnd>',
+      '      <RestartOnIdle>false</RestartOnIdle>',
+      '    </IdleSettings>',
+      '    <AllowStartOnDemand>true</AllowStartOnDemand>',
+      '    <Enabled>true</Enabled>',
+      '    <Hidden>false</Hidden>',
+      '    <RunOnlyIfIdle>false</RunOnlyIfIdle>',
+      '    <WakeToRun>true</WakeToRun>',
+      '    <ExecutionTimeLimit>PT1H</ExecutionTimeLimit>',
+      '    <Priority>7</Priority>',
+      '    <RestartOnFailure>',
+      '      <Interval>PT5M</Interval>',
+      '      <Count>3</Count>',
+      '    </RestartOnFailure>',
+      '  </Settings>',
+      '  <Actions Context="Author">',
+      '    <Exec>',
+      '      <Command>powershell.exe</Command>',
+      '      <Arguments>-ExecutionPolicy Bypass -NonInteractive -File "' + o.scriptPath + '"</Arguments>',
+      '    </Exec>',
+      '  </Actions>',
+      '</Task>'
+    ].join('\r\n');
+  }
+  // Download the one-time / quarterly auth setup script for the biometrics PC.
+  // Admin runs this interactively as the local admin account that owns the
+  // scheduled tasks. It installs modules, caches Graph + ExO tokens, verifies.
+  window.downloadSetupOffboardingAuth = function() {
+    const lines = [];
+    lines.push('<#');
+    lines.push('    Setup-OffboardingAuth.ps1');
+    lines.push('    One-time setup + quarterly refresh for GoTeam offboarding automation.');
+    lines.push('    Run interactively as the LOCAL ADMIN account that owns the Task Scheduler tasks.');
+    lines.push('    Generated: ' + new Date().toISOString() + ' by ' + (msalAccount && msalAccount.username || 'IT'));
+    lines.push('#>');
+    lines.push('');
+    lines.push('$ErrorActionPreference = "Stop"');
+    lines.push('$StateFile = "C:\\OffboardingTasks\\auth-state.json"');
+    lines.push('');
+    lines.push('# ----- UI helpers -----');
+    lines.push('function Ok($msg)   { Write-Host "[OK]    $msg" -ForegroundColor Green }');
+    lines.push('function Warn($msg) { Write-Host "[WARN]  $msg" -ForegroundColor Yellow }');
+    lines.push('function Fail($msg) { Write-Host "[FAIL]  $msg" -ForegroundColor Red }');
+    lines.push('function Info($msg) { Write-Host "[INFO]  $msg" -ForegroundColor Cyan }');
+    lines.push('function Line()     { Write-Host ("=" * 70) -ForegroundColor DarkGray }');
+    lines.push('');
+    lines.push('Line');
+    lines.push('Write-Host " GoTeam Offboarding — Auth Setup" -ForegroundColor White');
+    lines.push('Write-Host (" Running as:  {0}" -f $env:USERNAME) -ForegroundColor DarkGray');
+    lines.push('Write-Host (" Host:        {0}" -f $env:COMPUTERNAME) -ForegroundColor DarkGray');
+    lines.push('Line');
+    lines.push('');
+    lines.push('# ----- Step 1: PowerShell version -----');
+    lines.push('Info "Checking PowerShell version..."');
+    lines.push('$psver = $PSVersionTable.PSVersion');
+    lines.push('if ($psver.Major -lt 5 -or ($psver.Major -eq 5 -and $psver.Minor -lt 1)) {');
+    lines.push('    Fail "PowerShell $($psver) is too old. Install Windows PowerShell 5.1 or PowerShell 7+."');
+    lines.push('    exit 1');
+    lines.push('}');
+    lines.push('Ok "PowerShell $psver"');
+    lines.push('');
+    lines.push('# ----- Step 2: Ensure C:\\OffboardingTasks exists -----');
+    lines.push('$taskRoot = "C:\\OffboardingTasks"');
+    lines.push('if (-not (Test-Path $taskRoot)) {');
+    lines.push('    New-Item -ItemType Directory -Path $taskRoot | Out-Null');
+    lines.push('    New-Item -ItemType Directory -Path "$taskRoot\\logs" | Out-Null');
+    lines.push('    Ok "Created $taskRoot and $taskRoot\\logs"');
+    lines.push('} else {');
+    lines.push('    Ok "Found $taskRoot"');
+    lines.push('}');
+    lines.push('');
+    lines.push('# ----- Step 3: Install/update required modules -----');
+    lines.push('Info "Checking required PowerShell modules..."');
+    lines.push('$needed = @(');
+    lines.push('    "Microsoft.Graph.Users",');
+    lines.push('    "Microsoft.Graph.Groups",');
+    lines.push('    "Microsoft.Graph.Identity.DirectoryManagement",');
+    lines.push('    "Microsoft.Graph.Identity.SignIns",');
+    lines.push('    "Microsoft.Graph.Sites",');
+    lines.push('    "ExchangeOnlineManagement"');
+    lines.push(')');
+    lines.push('foreach ($m in $needed) {');
+    lines.push('    $installed = Get-Module -ListAvailable -Name $m | Select-Object -First 1');
+    lines.push('    if (-not $installed) {');
+    lines.push('        Warn "$m not installed — installing (this may take a minute)..."');
+    lines.push('        try {');
+    lines.push('            Install-Module $m -Scope CurrentUser -Force -AllowClobber');
+    lines.push('            Ok "$m installed"');
+    lines.push('        } catch { Fail "$m install failed: $_"; exit 2 }');
+    lines.push('    } else {');
+    lines.push('        Ok "$m v$($installed.Version)"');
+    lines.push('    }');
+    lines.push('}');
+    lines.push('');
+    lines.push('# ----- Step 4: Microsoft Graph connection -----');
+    lines.push('Info "Connecting to Microsoft Graph..."');
+    lines.push('Import-Module Microsoft.Graph.Users -ErrorAction Stop');
+    lines.push('$needScopes = @(');
+    lines.push('    "User.ReadWrite.All",');
+    lines.push('    "Group.ReadWrite.All",');
+    lines.push('    "Directory.ReadWrite.All",');
+    lines.push('    "Sites.ReadWrite.All",');
+    lines.push('    "RoleManagement.ReadWrite.Directory",');
+    lines.push('    "UserAuthenticationMethod.ReadWrite.All"');
+    lines.push(')');
+    lines.push('try {');
+    lines.push('    # Clear any existing session so we always refresh the cache');
+    lines.push('    try { Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null } catch {}');
+    lines.push('    Connect-MgGraph -Scopes $needScopes -NoWelcome -ErrorAction Stop');
+    lines.push('    $ctx = Get-MgContext');
+    lines.push('    if ($ctx -and $ctx.Account) {');
+    lines.push('        Ok "Graph connected as $($ctx.Account)"');
+    lines.push('        $missing = $needScopes | Where-Object { $_ -notin $ctx.Scopes }');
+    lines.push('        if ($missing) { Warn "Missing scopes: $($missing -join \', \')" }');
+    lines.push('        else          { Ok "All required scopes granted" }');
+    lines.push('    } else { Fail "Graph connection returned no context"; exit 3 }');
+    lines.push('} catch { Fail "Graph connect failed: $_"; exit 3 }');
+    lines.push('');
+    lines.push('# ----- Step 5: Exchange Online connection -----');
+    lines.push('Info "Connecting to Exchange Online..."');
+    lines.push('Import-Module ExchangeOnlineManagement -ErrorAction Stop');
+    lines.push('try {');
+    lines.push('    try { Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue | Out-Null } catch {}');
+    lines.push('    Connect-ExchangeOnline -ShowBanner:$false -ErrorAction Stop');
+    lines.push('    $exo = Get-ConnectionInformation | Where-Object { $_.State -eq "Connected" } | Select-Object -First 1');
+    lines.push('    if ($exo) { Ok "Exchange Online connected as $($exo.UserPrincipalName)" }');
+    lines.push('    else      { Fail "ExO connection reports no active session"; exit 4 }');
+    lines.push('} catch { Fail "ExO connect failed: $_"; exit 4 }');
+    lines.push('');
+    lines.push('# ----- Step 6: Light smoke test (read-only) -----');
+    lines.push('Info "Running smoke tests (read-only)..."');
+    lines.push('try {');
+    lines.push('    $me = Get-MgUser -UserId (Get-MgContext).Account -Property Id,DisplayName,UserPrincipalName -ErrorAction Stop');
+    lines.push('    Ok "Graph read: $($me.DisplayName) ($($me.UserPrincipalName))"');
+    lines.push('} catch { Warn "Graph read test failed: $_" }');
+    lines.push('try {');
+    lines.push('    $mbx = Get-Mailbox -ResultSize 1 -ErrorAction Stop');
+    lines.push('    Ok "ExO read: fetched $(($mbx | Measure-Object).Count) mailbox(es)"');
+    lines.push('} catch { Warn "ExO read test failed: $_" }');
+    lines.push('');
+    lines.push('# ----- Step 7: Write state file so dashboard can show setup freshness -----');
+    lines.push('$state = @{');
+    lines.push('    SetupBy       = $env:USERNAME');
+    lines.push('    SetupHost     = $env:COMPUTERNAME');
+    lines.push('    SetupAt       = (Get-Date -Format o)');
+    lines.push('    GraphAccount  = (Get-MgContext).Account');
+    lines.push('    GraphScopes   = (Get-MgContext).Scopes -join ","');
+    lines.push('    ExoAccount    = $exo.UserPrincipalName');
+    lines.push('    NextRefreshBy = (Get-Date).AddDays(90).ToString("o")');
+    lines.push('}');
+    lines.push('$state | ConvertTo-Json | Set-Content -Path $StateFile -Encoding UTF8');
+    lines.push('Ok "State file written → $StateFile"');
+    lines.push('');
+    lines.push('# ----- Step 8: Upload state file to SharePoint so dashboard can read freshness -----');
+    lines.push('try {');
+    lines.push('    $site  = Get-MgSite -Search "ITOperations" -ErrorAction Stop | Where-Object { $_.WebUrl -like "*/sites/ITOperations" } | Select-Object -First 1');
+    lines.push('    $drive = Get-MgSiteDrive -SiteId $site.Id -ErrorAction Stop | Where-Object { $_.Name -eq "Documents" } | Select-Object -First 1');
+    lines.push('    $body  = Get-Content $StateFile -Raw');
+    lines.push('    $null  = Invoke-MgGraphRequest -Method PUT -Uri "/v1.0/drives/$($drive.Id)/root:/Offboarding Logs/_auth-state.json:/content" -Body $body -ContentType "application/json"');
+    lines.push('    Ok "State uploaded to SharePoint (Offboarding Logs/_auth-state.json)"');
+    lines.push('} catch { Warn "SharePoint state upload failed (local file still saved): $_" }');
+    lines.push('');
+    lines.push('Line');
+    lines.push('Write-Host " Setup complete." -ForegroundColor Green');
+    lines.push('Write-Host (" Next refresh suggested by: {0:yyyy-MM-dd}" -f (Get-Date).AddDays(90)) -ForegroundColor Yellow');
+    lines.push('Write-Host " You can close this window and the scheduled tasks will use these cached tokens." -ForegroundColor DarkGray');
+    lines.push('Line');
+    lines.push('');
+    lines.push('# Keep window open if double-clicked');
+    lines.push('if ($Host.Name -eq "ConsoleHost" -and -not $env:TERM) {');
+    lines.push('    Read-Host "Press Enter to exit"');
+    lines.push('}');
+    const content = lines.join('\r\n');
+    downloadTextFile('Setup-OffboardingAuth.ps1', content);
+    showToast('Downloaded Setup-OffboardingAuth.ps1. Copy to C:\\OffboardingTasks on the biometrics PC and run as local admin.');
+  };
+  // ============================================================
+  // End Scheduled Offboarding
+  // ============================================================
+
   async function autoRefreshFromGraph() {
     if (!msalAccount) {
       showToast('Sign in via the sidebar first');
@@ -4434,9 +5759,9 @@
     try {
       await graphFetch('/users/' + user.id, {
         method: 'PATCH',
-        body: { onPremisesExtensionAttributes: { extensionAttribute2: null } }
+        body: { onPremisesExtensionAttributes: { extensionAttribute2: null, extensionAttribute3: null } }
       });
-      log.push('  [OK] 5/8 CA2 cleared — removed from Dynamic Distros');
+      log.push('  [OK] 5/8 CA2 + CA3 cleared — removed from Dynamic Distros');
     } catch (e) { log.push('  [FAIL] 5/8 Clear CA2 — ' + e.message.slice(0, 80)); }
 
     // 6. Remove all non-password auth methods
@@ -6257,7 +7582,7 @@
                  '  2. All sessions revoked\n' +
                  '  3. Removed from all groups\n' +
                  '  4. All licenses removed\n' +
-                 '  5. CA2 cleared (removed from Dynamic Distros — Department left untouched)\n' +
+                 '  5. CA2 + CA3 cleared (removed from Dynamic Distros — Department left untouched)\n' +
                  '  6. All authentication methods (MFA) removed\n\n' +
                  'Cannot be undone. Continue?')) return;
 
@@ -6595,6 +7920,7 @@
               </select>\
               <button class="btn" onclick="convertToSharedMailbox(' + d.id + ')" style="font-size:11px;padding:5px 8px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:6px;font-weight:600;cursor:pointer;" ' + (d.sharedMailboxDone ? 'disabled title="Already converted"' : '') + '>' + (d.sharedMailboxDone ? '✓ Shared Mailbox' : 'Convert to Shared Mailbox') + '</button>\
               <button class="btn" onclick="revokeAccessAndLicense(' + d.id + ')" style="font-size:11px;padding:5px 8px;background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:6px;font-weight:600;cursor:pointer;" ' + (d.accessRevokedDone ? 'disabled title="Already revoked"' : '') + '>' + (d.accessRevokedDone ? '✓ Access Revoked' : 'Revoke Access & License') + '</button>\
+              <button class="btn" onclick="openScheduleOffboardingModal(' + d.id + ')" style="font-size:11px;padding:5px 8px;background:#f3e8ff;color:#6b21a8;border:1px solid #c4b5fd;border-radius:6px;font-weight:600;cursor:pointer;" ' + (d.scheduledOffboardingAt ? 'title="Rescheduled at ' + d.scheduledOffboardingAt + '"' : '') + '>' + (d.scheduledOffboardingAt ? '⏰ Scheduled' : '⏰ Schedule') + '</button>\
             </div>\
           </td>\
         </tr>';
@@ -7056,9 +8382,9 @@
     try {
       await graphFetch('/users/' + user.id, {
         method: 'PATCH',
-        body: { onPremisesExtensionAttributes: { extensionAttribute2: null } }
+        body: { onPremisesExtensionAttributes: { extensionAttribute2: null, extensionAttribute3: null } }
       });
-      log.push('  [OK] 5/6 CA2 cleared — removed from Dynamic Distros');
+      log.push('  [OK] 5/6 CA2 + CA3 cleared — removed from Dynamic Distros');
     } catch (e) { log.push('  [FAIL] 5/6 Clear CA2 — ' + e.message.slice(0, 80)); }
 
     // 6. Remove all non-password authentication methods
@@ -7212,7 +8538,7 @@
                  '2. Revoke all sessions\n' +
                  '3. Remove from all groups\n' +
                  '4. Remove all licenses\n' +
-                 '5. Clear CA2 (removed from Dynamic Distros — Department left untouched)\n' +
+                 '5. Clear CA2 + CA3 (removed from Dynamic Distros — Department left untouched)\n' +
                  '6. Remove all authentication methods (MFA)\n' +
                  '7. Remove all directory role assignments EXCEPT Global Administrator (Device Administrators, User Admin, License Admin, Privileged Role Admin, etc.)\n' +
                  '8. Set Remarks to "' + remark + '"\n' +
@@ -8341,7 +9667,8 @@
     { key: 'employeeId',      label: 'Employee ID',         sortable: true,  editable: true,  type: 'text' },
     { key: 'companyName',     label: 'Company',             sortable: true,  editable: true,  type: 'text' },
     { key: 'employeeType',    label: 'Employee Type',       sortable: true,  editable: true,  type: 'select', opts: 'AU_ETYPE_OPTIONS' },
-    { key: 'ca2',             label: 'CA2 (DDL filter)',    sortable: true,  editable: true,  type: 'select', opts: 'AU_CA2_OPTIONS', tip: 'Used by dynamic distribution lists — Internal for GoTeam staff, or shift (Morning/Mid/Night) for client-facing.' },
+    { key: 'ca2',             label: 'CA2 (Internal)',      sortable: true,  editable: true,  type: 'select', opts: 'AU_CA2_OPTIONS', tip: 'Internal GoTeam staff only. Leave blank for client-facing TMs — their shift lives in CA3.' },
+    { key: 'ca3',             label: 'CA3 (Shift)',         sortable: true,  editable: true,  type: 'select', opts: 'AU_CA3_OPTIONS', tip: 'Shift value for client-facing TMs — Morning or Night. Internal GoTeam staff should leave this blank.' },
     { key: 'department',      label: 'Department',          sortable: true,  editable: true,  type: 'text' },
     { key: 'officeLocation',  label: 'Office Location',     sortable: true,  editable: true,  type: 'select', opts: 'AU_OFFICE_OPTIONS' },
     { key: 'employeeHireDate', label: 'Hire Date',          sortable: true,  editable: true,  type: 'date' },
@@ -8383,7 +9710,8 @@
   }
   const AU_OFFICE_OPTIONS = ['i1 Office', 'HM Office', 'WFH'];
   const AU_ETYPE_OPTIONS  = ['Internal', 'Client-Facing'];
-  const AU_CA2_OPTIONS    = ['Internal', 'Morning', 'Night'];
+  const AU_CA2_OPTIONS    = ['Internal'];
+  const AU_CA3_OPTIONS    = ['Morning', 'Night'];
 
   async function loadAllUsersView() {
     const status = document.getElementById('auStatus');
@@ -8431,6 +9759,7 @@
         return user.employeeHireDate ? String(user.employeeHireDate).slice(0, 10) : '';
       case 'managerName':     return user.manager ? (user.manager.displayName || '') : '';
       case 'ca2':             return ext.extensionAttribute2 || '';
+      case 'ca3':             return ext.extensionAttribute3 || '';
       case 'employeeId':      return user.employeeId || '';
       default: return '';
     }
@@ -8491,7 +9820,7 @@
     }
 
     if (rows.length === 0) {
-      body.innerHTML = '<tr><td colspan="12" style="padding:24px;text-align:center;color:var(--muted);">No users match the current filter.</td></tr>';
+      body.innerHTML = '<tr><td colspan="13" style="padding:24px;text-align:center;color:var(--muted);">No users match the current filter.</td></tr>';
       document.getElementById('auPager').innerHTML = '';
       return;
     }
@@ -8541,7 +9870,8 @@
         '<td style="' + cell() + 'min-width:100px;">' + input('employeeId') + '</td>' +
         '<td style="' + cell() + 'min-width:140px;">' + input('companyName') + '</td>' +
         '<td style="' + cell() + 'min-width:130px;">' + select('employeeType', AU_ETYPE_OPTIONS) + '</td>' +
-        '<td style="' + cell() + 'min-width:130px;">' + select('ca2', AU_CA2_OPTIONS) + '</td>' +
+        '<td style="' + cell() + 'min-width:110px;">' + select('ca2', AU_CA2_OPTIONS) + '</td>' +
+        '<td style="' + cell() + 'min-width:110px;">' + select('ca3', AU_CA3_OPTIONS) + '</td>' +
         '<td style="' + cell() + 'min-width:160px;">' + input('department') + '</td>' +
         '<td style="' + cell() + 'min-width:120px;">' + select('officeLocation', AU_OFFICE_OPTIONS) + '</td>' +
         '<td style="' + cell() + 'min-width:130px;">' + input('employeeHireDate', 'date') + '</td>' +
@@ -8772,29 +10102,35 @@
     if (!s) return '';
     const str = String(s).trim();
     if (!str) return '';
-    // ISO already?
+    // 1. ISO yyyy-mm-dd — already correct
     if (/^\d{4}-\d{2}-\d{2}/.test(str)) return str.slice(0, 10);
-    // Excel serial number?
+    // 2. Excel serial — UTC epoch, no timezone drift
     if (/^\d+(\.\d+)?$/.test(str)) {
       const n = parseFloat(str);
       if (n > 20000 && n < 60000) {
-        // Excel epoch 1899-12-30
         const d = new Date(Date.UTC(1899, 11, 30) + n * 86400000);
         return d.toISOString().slice(0, 10);
       }
     }
-    // Various common formats (dd/mm/yyyy, mm/dd/yyyy, "23 September 2026", etc.)
-    const d = new Date(str);
-    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
-    // dd/mm/yyyy explicit fallback
-    const m = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
-    if (m) {
-      let [, a, b, y] = m;
+    // 3. mm/dd/yyyy or dd/mm/yyyy — parse components manually to avoid the local→UTC
+    //    timezone shift that drops the day by 1 in PH timezone (UTC+8).
+    const slashish = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\s*$/);
+    if (slashish) {
+      let [, a, b, y] = slashish;
       if (y.length === 2) y = '20' + y;
-      // Assume dd/mm/yyyy (Australian/PH convention common at GoTeam)
-      const iso = y + '-' + String(b).padStart(2, '0') + '-' + String(a).padStart(2, '0');
-      const d2 = new Date(iso);
-      if (!isNaN(d2.getTime())) return iso;
+      // R24/US convention is mm/dd/yyyy. Flip only if first > 12 (then it must be dd/mm/yyyy).
+      let mm, dd;
+      if (parseInt(a, 10) > 12) { dd = a; mm = b; }
+      else                       { mm = a; dd = b; }
+      return y + '-' + String(mm).padStart(2, '0') + '-' + String(dd).padStart(2, '0');
+    }
+    // 4. Month-name formats (safe from mm/dd ambiguity) — read back via UTC getters
+    //    so we don't lose a day to the user's local offset.
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) {
+      return d.getUTCFullYear() + '-' +
+        String(d.getUTCMonth() + 1).padStart(2, '0') + '-' +
+        String(d.getUTCDate()).padStart(2, '0');
     }
     return '';
   }
@@ -9034,6 +10370,56 @@
     closeImportNamelist();
   };
 
+  window.auMirrorCA2ToCA3 = function() {
+    if (!(window._allUsers || []).length) {
+      alert('Load users first.');
+      return;
+    }
+    // Rule: for every active user whose CA2 has a value AND whose CA3 doesn't
+    // already match, stage a pending CA3 edit that copies the CA2 value.
+    // Skipped: users with blank CA2, users already in sync.
+    const users = window._allUsers.filter(u => u.accountEnabled !== false);
+    const candidates = users.filter(u => {
+      const ca2 = auGetEdited(u, 'ca2');
+      if (!ca2) return false;
+      const ca3 = auGetEdited(u, 'ca3');
+      return ca3 !== ca2;
+    });
+
+    if (candidates.length === 0) {
+      alert('Nothing to mirror. Every active user with a CA2 value already has a matching CA3 (or has no CA2).');
+      return;
+    }
+    const blank = users.filter(u => !auGetEdited(u, 'ca2')).length;
+    const alreadySynced = users.length - candidates.length - blank;
+
+    // Break down what will land in CA3 after mirror
+    const byValue = {};
+    candidates.forEach(u => {
+      const v = auGetEdited(u, 'ca2') || '(blank)';
+      byValue[v] = (byValue[v] || 0) + 1;
+    });
+    const preview = Object.keys(byValue).sort().map(v => '  → ' + v + ': ' + byValue[v]).join('\n');
+
+    if (!confirm(
+      'Mirror CA2 → CA3 for ' + candidates.length + ' active user(s)?\n\n' +
+      'This copies the current CA2 value into CA3 as a pending edit — nothing is written to Entra until you click Save.\n\n' +
+      'Breakdown:\n' + preview + '\n\n' +
+      'Skipped: ' + alreadySynced + ' already in sync, ' + blank + ' with no CA2.\n\n' +
+      'After saving, you can manually clear CA2 for Morning/Night users (keeping only "Internal" in CA2) using the All Users filter + bulk edit workflow.'
+    )) return;
+
+    let mirrored = 0;
+    candidates.forEach(u => {
+      const ca2 = auGetEdited(u, 'ca2');
+      auSetEdit(u.id, 'ca3', ca2);
+      mirrored++;
+    });
+    renderAllUsersTable();
+    document.getElementById('auStatus').innerHTML =
+      '<span style="color:#065f46;">Staged ' + mirrored + ' CA3 update(s) from CA2. Review with "Only modified" toggle, then Save. Afterwards, manually clear CA2 on non-Internal users.</span>';
+  };
+
   window.auMirrorOfficeToCompanyDept = function() {
     if (!(window._allUsers || []).length) {
       alert('Load users first.');
@@ -9156,6 +10542,7 @@
           case 'employeeHireDate': body.employeeHireDate = v ? (v + 'T00:00:00Z') : null; break;
           case 'employeeId':       body.employeeId = v; break;
           case 'ca2':              extPatch.extensionAttribute2 = v; break;
+          case 'ca3':              extPatch.extensionAttribute3 = v; break;
           case 'managerName':
             if (v) managerNewName = v;
             else managerCleared = true;
@@ -9213,6 +10600,9 @@
           } else if (k === 'ca2') {
             user.onPremisesExtensionAttributes = user.onPremisesExtensionAttributes || {};
             user.onPremisesExtensionAttributes.extensionAttribute2 = patch[k] || null;
+          } else if (k === 'ca3') {
+            user.onPremisesExtensionAttributes = user.onPremisesExtensionAttributes || {};
+            user.onPremisesExtensionAttributes.extensionAttribute3 = patch[k] || null;
           } else if (k === 'employeeType') {
             user.employeeType = patch[k] || null;
           } else if (k === 'employeeHireDate') {
@@ -10388,6 +11778,12 @@
       font: { color: { rgb: '9C1C1C' }, italic: true, strike: true, sz: 11 },
       fill: { patternType: 'solid', fgColor: { rgb: 'FDECEC' } }
     };
+    // Recalled (and Withdrawn) users: same strike + italic treatment but in an
+    // orange palette so they visually differ from Separated at a glance.
+    const RECALLED_STYLE = {
+      font: { color: { rgb: '9A3412' }, italic: true, strike: true, sz: 11 },
+      fill: { patternType: 'solid', fgColor: { rgb: 'FFEDD5' } }
+    };
     // Per-SKU sheets: license was removed but user may still be active.
     // Red text, no strikethrough (still a valid current employee).
     const REMOVED_STYLE = {
@@ -10418,6 +11814,8 @@
       if (remarksCol < 0) return;
       // Style data rows based on Remarks value:
       //   Separated       → dark red italic strike + light red fill (whole row)
+      //   Recalled        → dark orange italic strike + light orange fill
+      //   Withdrawn       → same as Recalled (orange — closer to recalled than separated)
       //   Removed License → plain red text (whole row), no strike (still active)
       for (let r = 1; r <= range.e.r; r++) {
         const remarksCell = ws[XLSX.utils.encode_cell({ r, c: remarksCol })];
@@ -10425,6 +11823,7 @@
         const val = String(remarksCell.v || '').toLowerCase();
         let style = null;
         if (val === 'separated') style = SEPARATED_STYLE;
+        else if (val === 'recalled' || val === 'withdrawn') style = RECALLED_STYLE;
         else if (val === 'removed license') style = REMOVED_STYLE;
         if (!style) continue;
         for (let c = range.s.c; c <= range.e.c; c++) {
