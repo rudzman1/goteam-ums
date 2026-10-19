@@ -2195,6 +2195,8 @@
       { name: 'ObeContactNumber', text: {} },
       { name: 'ObeCurrentAddress', text: { allowMultipleLines: true } },
       { name: 'ObeEmergencyContact', text: {} },
+      { name: 'ScheduledOffboardingAt', text: {} },
+      { name: 'ScheduledIncludeShared', boolean: {} },
       { name: 'LocalId',          number: {} }
     ],
     licenses: [
@@ -2604,6 +2606,8 @@
       ObeContactNumber: d.contactNumber || '',
       ObeCurrentAddress: d.currentAddress || '',
       ObeEmergencyContact: d.emergencyContact || '',
+      ScheduledOffboardingAt: d.scheduledOffboardingAt || '',
+      ScheduledIncludeShared: !!d.scheduledIncludeShared,
       ChecklistJson: JSON.stringify(d.checklist || []),
       LocalId: d.id || 0
     };
@@ -2650,6 +2654,8 @@
       contactNumber: f.ObeContactNumber || '',
       currentAddress: f.ObeCurrentAddress || '',
       emergencyContact: f.ObeEmergencyContact || '',
+      scheduledOffboardingAt: f.ScheduledOffboardingAt || '',
+      scheduledIncludeShared: !!f.ScheduledIncludeShared,
       checklist: checklist.length ? checklist : defaultExitChecklist()
     };
   }
@@ -4606,6 +4612,7 @@
       '    <li>Remove all licenses</li>' +
       '    <li>Clear CA2 + CA3 (removed from Dynamic Distros)</li>' +
       '    <li>Remove auth methods (MFA)</li>' +
+      '    <li><strong style="color:#b45309;">Discover corporate Windows devices → disable each in Entra + Intune Force Sync</strong></li>' +
       '    <li>Remove directory role assignments (except Global Admin)</li>' +
       '    <li>Set Remarks to "Separated" / "Recalled"</li>' +
       '    <li>Write results back to SharePoint GoTeam-Departures</li>' +
@@ -4669,7 +4676,11 @@
   };
 
   function downloadTextFile(filename, text) {
-    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    // Prepend a UTF-8 BOM so Windows PowerShell 5.1 reads the file as UTF-8
+    // instead of ANSI (which would otherwise mangle any non-ASCII characters
+    // and break the parser on em-dashes, smart-quotes, etc.).
+    const BOM = '﻿';
+    const blob = new Blob([BOM + text], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -4684,7 +4695,7 @@
     const esc = (s) => String(s || '').replace(/"/g, '`"');
     const lines = [];
     lines.push('# ================================================================');
-    lines.push('# Offboarding — ' + o.tmName + ' (' + o.upn + ')');
+    lines.push('# Offboarding - ' + o.tmName + ' (' + o.upn + ')');
     lines.push('# Generated: ' + new Date().toISOString());
     lines.push('# Internal TM: ' + o.isInternal + '   Shared Mailbox conversion: ' + o.includeShared);
     lines.push('# ================================================================');
@@ -4705,14 +4716,18 @@
     lines.push('$log = @()');
     lines.push('$log += "===== Offboarding $TM_NAME ($TM_UPN) started $(Get-Date -Format o) ====="');
     lines.push('');
-    lines.push('# Delegated auth — relies on cached Connect-MgGraph / Connect-ExchangeOnline tokens');
+    lines.push('# Delegated auth - relies on cached Connect-MgGraph / Connect-ExchangeOnline tokens');
     lines.push('# saved by admin interactively during initial setup. If tokens expired, task will fail;');
     lines.push('# admin re-runs Setup-OffboardingAuth.ps1 to refresh them.');
     lines.push('try {');
+    lines.push('    Import-Module Microsoft.Graph.Authentication -ErrorAction Stop');
     lines.push('    Import-Module Microsoft.Graph.Users -ErrorAction Stop');
+    lines.push('    Import-Module Microsoft.Graph.Users.Actions -ErrorAction Stop  # Revoke-MgUserSignInSession, Set-MgUserLicense');
     lines.push('    Import-Module Microsoft.Graph.Groups -ErrorAction Stop');
     lines.push('    Import-Module Microsoft.Graph.Identity.DirectoryManagement -ErrorAction Stop');
-    lines.push('    Import-Module Microsoft.Graph.Identity.SignIns -ErrorAction Stop');
+    lines.push('    Import-Module Microsoft.Graph.Identity.SignIns -ErrorAction Stop  # Get-MgUserAuthenticationMethod');
+    lines.push('    Import-Module Microsoft.Graph.Identity.Governance -ErrorAction Stop  # Role Management cmdlets');
+    lines.push('    Import-Module Microsoft.Graph.Sites -ErrorAction Stop  # SharePoint writeback');
     if (o.includeShared) lines.push('    Import-Module ExchangeOnlineManagement -ErrorAction Stop');
     lines.push('    Connect-MgGraph -NoWelcome -ErrorAction Stop');
     if (o.includeShared) lines.push('    Connect-ExchangeOnline -ShowBanner:$false -ErrorAction Stop');
@@ -4803,6 +4818,64 @@
     lines.push('    $log += "[OK] Removed $mok non-password auth method(s)"');
     lines.push('} catch { $log += "[FAIL] Auth method removal: $_" }');
     lines.push('');
+    lines.push('# ===== Discover + disable corporate Windows devices =====');
+    lines.push('# Pulls Entra-registered + Intune-managed Windows devices for this user.');
+    lines.push('# For each one: disables the device object in Entra (kills PRT renewal) and');
+    lines.push('# forces an Intune policy sync (pushes block state to the device within ~60s if online).');
+    lines.push('try {');
+    lines.push('    $discoveredDevices = @()');
+    lines.push('    # Entra-registered Windows devices');
+    lines.push('    try {');
+    lines.push('        $regUri = "/v1.0/users/$TM_GRAPHID/registeredDevices?`$select=id,deviceId,displayName,operatingSystem,trustType,accountEnabled"');
+    lines.push('        $regResp = Invoke-MgGraphRequest -Method GET -Uri $regUri');
+    lines.push('        foreach ($dev in ($regResp.value)) {');
+    lines.push('            if ($dev.operatingSystem -notmatch "windows") { continue }');
+    lines.push('            if ($dev.trustType -and $dev.trustType -ne "AzureAd") { continue }  # skip Workplace/BYOD');
+    lines.push('            $discoveredDevices += [PSCustomObject]@{');
+    lines.push('                EntraId          = $dev.id');
+    lines.push('                DeviceId         = $dev.deviceId');
+    lines.push('                Name             = $dev.displayName');
+    lines.push('                ManagedDeviceId  = $null');
+    lines.push('            }');
+    lines.push('        }');
+    lines.push('    } catch {}');
+    lines.push('    # Intune-managed Windows devices — merge by azureADDeviceId');
+    lines.push('    try {');
+    lines.push('        $mgmtUri = "/v1.0/deviceManagement/managedDevices?`$filter=userPrincipalName eq \'$TM_UPN\'"');
+    lines.push('        $mgmtResp = Invoke-MgGraphRequest -Method GET -Uri $mgmtUri');
+    lines.push('        foreach ($md in ($mgmtResp.value)) {');
+    lines.push('            if ($md.operatingSystem -notmatch "windows") { continue }');
+    lines.push('            $match = $discoveredDevices | Where-Object { $_.DeviceId -and $md.azureADDeviceId -and $_.DeviceId.ToLower() -eq $md.azureADDeviceId.ToLower() } | Select-Object -First 1');
+    lines.push('            if ($match) { $match.ManagedDeviceId = $md.id; continue }');
+    lines.push('            $discoveredDevices += [PSCustomObject]@{');
+    lines.push('                EntraId          = $null');
+    lines.push('                DeviceId         = $md.azureADDeviceId');
+    lines.push('                Name             = $md.deviceName');
+    lines.push('                ManagedDeviceId  = $md.id');
+    lines.push('            }');
+    lines.push('        }');
+    lines.push('    } catch {}');
+    lines.push('    $log += "[INFO] Found $($discoveredDevices.Count) corporate Windows device(s) for $TM_UPN"');
+    lines.push('    $disabledCount = 0; $syncedCount = 0');
+    lines.push('    foreach ($dev in $discoveredDevices) {');
+    lines.push('        if ($dev.EntraId) {');
+    lines.push('            try {');
+    lines.push('                Invoke-MgGraphRequest -Method PATCH -Uri "/v1.0/devices/$($dev.EntraId)" -Body (@{ accountEnabled = $false } | ConvertTo-Json)');
+    lines.push('                $log += "[OK]   Disabled Entra device: $($dev.Name)"');
+    lines.push('                $disabledCount++');
+    lines.push('            } catch { $log += "[FAIL] Entra disable $($dev.Name): $_" }');
+    lines.push('        }');
+    lines.push('        if ($dev.ManagedDeviceId) {');
+    lines.push('            try {');
+    lines.push('                Invoke-MgGraphRequest -Method POST -Uri "/v1.0/deviceManagement/managedDevices/$($dev.ManagedDeviceId)/syncDevice"');
+    lines.push('                $log += "[OK]   Force Sync queued: $($dev.Name)"');
+    lines.push('                $syncedCount++');
+    lines.push('            } catch { $log += "[FAIL] Force Sync $($dev.Name): $_" }');
+    lines.push('        }');
+    lines.push('    }');
+    lines.push('    $log += "[OK] Device actions: $disabledCount disabled in Entra, $syncedCount Intune sync queued"');
+    lines.push('} catch { $log += "[FAIL] Device discovery: $_" }');
+    lines.push('');
     lines.push('# ===== Remove directory role assignments (except Global Admin) =====');
     lines.push('try {');
     lines.push('    $assigns = Get-MgRoleManagementDirectoryRoleAssignment -Filter "principalId eq \'$TM_GRAPHID\'" -ErrorAction Stop');
@@ -4837,26 +4910,34 @@
     lines.push('        New-Item -ItemType Directory -Path (Split-Path $local) -Force | Out-Null');
     lines.push('        Set-Content -Path $local -Value $content');
     lines.push('    }');
-    lines.push('    # Also write back to the dashboard\'s SharePoint list so Access Deactivated Date / Licenses Removed populate automatically');
+    lines.push('    # Also write back to the dashboard\'s SharePoint list so Access Deactivated Date / Licenses Removed populate automatically.');
+    lines.push('    # Appends a result line to the audit log so the SharePoint upload above captures what happened here too.');
+    lines.push('    $writebackMsg = ""');
     lines.push('    try {');
-    lines.push('        $site = Get-MgSite -Search "ITOperations" -ErrorAction Stop | Where-Object { $_.WebUrl -like "*/sites/ITOperations" } | Select-Object -First 1');
-    lines.push('        $list = Get-MgSiteList -SiteId $site.Id -Filter "displayName eq \'$DEP_LIST\'" -ErrorAction SilentlyContinue | Select-Object -First 1');
-    lines.push('        if ($list) {');
-    lines.push('            $items = Get-MgSiteListItem -SiteId $site.Id -ListId $list.Id -ExpandProperty "fields(select=LocalId)" -Filter "fields/LocalId eq $LOCAL_DEP_ID" -ErrorAction SilentlyContinue');
-    lines.push('            if ($items -and $items[0]) {');
-    lines.push('                $successCount = ($lines | Where-Object { $_ -match "^\\[OK\\]" }).Count');
-    lines.push('                Update-MgSiteListItemField -SiteId $site.Id -ListId $list.Id -ListItemId $items[0].Id -BodyParameter @{');
-    lines.push('                    AccessRevokedDone   = $true');
-    lines.push('                    AccessRevokedAt     = (Get-Date -Format o)');
-    lines.push('                    DepStatus           = "Completed"');
-    lines.push('                    SharedMailboxDone   = ' + (o.includeShared ? '$true' : '$false'));
-    lines.push('                    SharedMailboxDoneAt = ' + (o.includeShared ? '(Get-Date -Format o)' : '""'));
-    lines.push('                    NoteLabel           = "Auto-run via Task Scheduler · $successCount OK steps"');
-    lines.push('                } | Out-Null');
-    lines.push('                Write-Host "Dashboard writeback OK"');
-    lines.push('            }');
+    lines.push('        $wbSite = Get-MgSite -Search "ITOperations" -ErrorAction Stop | Where-Object { $_.WebUrl -like "*/sites/ITOperations" } | Select-Object -First 1');
+    lines.push('        if (-not $wbSite) { throw "ITOperations site not found via search" }');
+    lines.push('        $wbList = Get-MgSiteList -SiteId $wbSite.Id -ErrorAction Stop | Where-Object { $_.DisplayName -eq $DEP_LIST -or $_.Name -eq $DEP_LIST } | Select-Object -First 1');
+    lines.push('        if (-not $wbList) { throw "List $DEP_LIST not found on ITOperations site" }');
+    lines.push('        # ConsistencyLevel header is required for $filter on fields with Graph lists');
+    lines.push('        $filterUri = "/v1.0/sites/$($wbSite.Id)/lists/$($wbList.Id)/items?`$expand=fields(select=LocalId)&`$filter=fields/LocalId eq $LOCAL_DEP_ID"');
+    lines.push('        $resp = Invoke-MgGraphRequest -Method GET -Uri $filterUri -Headers @{ "ConsistencyLevel" = "eventual" }');
+    lines.push('        $item = $resp.value | Select-Object -First 1');
+    lines.push('        if (-not $item) { throw "No list item with LocalId=$LOCAL_DEP_ID in $DEP_LIST" }');
+    lines.push('        $successCount = ($lines | Where-Object { $_ -match "^\\[OK\\]" }).Count');
+    lines.push('        $patchBody = @{');
+    lines.push('            AccessRevokedDone     = $true');
+    lines.push('            AccessRevokedAt       = (Get-Date -Format o)');
+    lines.push('            DepStatus             = "Completed"');
+    lines.push('            SharedMailboxDone     = ' + (o.includeShared ? '$true' : '$false'));
+    lines.push('            SharedMailboxDoneAt   = ' + (o.includeShared ? '(Get-Date -Format o)' : '""'));
+    lines.push('            NoteLabel             = "Auto-run via Task Scheduler - $successCount OK steps"');
     lines.push('        }');
-    lines.push('    } catch { Write-Host "Dashboard writeback failed: $_" }');
+    lines.push('        Invoke-MgGraphRequest -Method PATCH -Uri "/v1.0/sites/$($wbSite.Id)/lists/$($wbList.Id)/items/$($item.id)/fields" -Body ($patchBody | ConvertTo-Json)');
+    lines.push('        $writebackMsg = "[OK] Dashboard SharePoint row updated (LocalId=$LOCAL_DEP_ID, $successCount OK steps)"');
+    lines.push('    } catch { $writebackMsg = "[FAIL] Dashboard writeback: $_" }');
+    lines.push('    Write-Host $writebackMsg');
+    lines.push('    # Append the writeback result to the log file we already uploaded');
+    lines.push('    try { Add-Content -Path $local -Value $writebackMsg -ErrorAction SilentlyContinue } catch {}');
     lines.push('}');
     lines.push('');
     lines.push('Write-AuditLog $log');
@@ -4944,7 +5025,7 @@
     lines.push('function Line()     { Write-Host ("=" * 70) -ForegroundColor DarkGray }');
     lines.push('');
     lines.push('Line');
-    lines.push('Write-Host " GoTeam Offboarding — Auth Setup" -ForegroundColor White');
+    lines.push('Write-Host " GoTeam Offboarding - Auth Setup" -ForegroundColor White');
     lines.push('Write-Host (" Running as:  {0}" -f $env:USERNAME) -ForegroundColor DarkGray');
     lines.push('Write-Host (" Host:        {0}" -f $env:COMPUTERNAME) -ForegroundColor DarkGray');
     lines.push('Line');
@@ -4971,17 +5052,20 @@
     lines.push('# ----- Step 3: Install/update required modules -----');
     lines.push('Info "Checking required PowerShell modules..."');
     lines.push('$needed = @(');
+    lines.push('    "Microsoft.Graph.Authentication",');
     lines.push('    "Microsoft.Graph.Users",');
+    lines.push('    "Microsoft.Graph.Users.Actions",');
     lines.push('    "Microsoft.Graph.Groups",');
     lines.push('    "Microsoft.Graph.Identity.DirectoryManagement",');
     lines.push('    "Microsoft.Graph.Identity.SignIns",');
+    lines.push('    "Microsoft.Graph.Identity.Governance",');
     lines.push('    "Microsoft.Graph.Sites",');
     lines.push('    "ExchangeOnlineManagement"');
     lines.push(')');
     lines.push('foreach ($m in $needed) {');
     lines.push('    $installed = Get-Module -ListAvailable -Name $m | Select-Object -First 1');
     lines.push('    if (-not $installed) {');
-    lines.push('        Warn "$m not installed — installing (this may take a minute)..."');
+    lines.push('        Warn "$m not installed - installing (this may take a minute)..."');
     lines.push('        try {');
     lines.push('            Install-Module $m -Scope CurrentUser -Force -AllowClobber');
     lines.push('            Ok "$m installed"');
@@ -5000,7 +5084,10 @@
     lines.push('    "Directory.ReadWrite.All",');
     lines.push('    "Sites.ReadWrite.All",');
     lines.push('    "RoleManagement.ReadWrite.Directory",');
-    lines.push('    "UserAuthenticationMethod.ReadWrite.All"');
+    lines.push('    "UserAuthenticationMethod.ReadWrite.All",');
+    lines.push('    "Device.ReadWrite.All",');
+    lines.push('    "DeviceManagementManagedDevices.Read.All",');
+    lines.push('    "DeviceManagementManagedDevices.PrivilegedOperations.All"');
     lines.push(')');
     lines.push('try {');
     lines.push('    # Clear any existing session so we always refresh the cache');
@@ -7884,6 +7971,7 @@
         let rowStyle = '';
         if (isSelected) rowStyle = ' style="background:#eff6ff;"';
         else if (isImmediate) rowStyle = ' style="background:#fee2e2;border-left:5px solid #dc2626;box-shadow:inset 0 0 0 1px #fca5a5;"';
+        else if (d.scheduledOffboardingAt && !d.accessRevokedDone) rowStyle = ' style="background:#faf5ff;border-left:5px solid #7c3aed;"';
         // Editable email textbox — stored on d.employeeEmail / d.leadershipCoachEmail.
         // If the stored value is blank we prefill the placeholder with the auto-derived
         // firstname.lastname email from ms365Username(). User can override to reflect
@@ -7896,7 +7984,7 @@
           <td>\
             <div class="user-cell">\
               <div class="avatar" style="background:' + avatarColor(d.name) + '">' + initials(d.name) + '</div>\
-              <div><div class="name">' + d.name + '</div>' + (isImmediate ? '<div style="font-size:10px;color:#dc2626;font-weight:600;">⚠ IMMEDIATE</div>' : '') + (d.removedFromTrackerAt ? '<div style="font-size:10px;color:#92400e;font-weight:600;background:#fef3c7;padding:1px 6px;border-radius:4px;margin-top:3px;display:inline-block;" title="Flagged ' + new Date(d.removedFromTrackerAt).toLocaleString() + ' — this person is no longer present in the Attrition Tracker, but kept here for audit history.">⚠ Removed from Tracker</div>' : '') + '</div>\
+              <div><div class="name">' + d.name + '</div>' + (isImmediate ? '<div style="font-size:10px;color:#dc2626;font-weight:600;">⚠ IMMEDIATE</div>' : '') + (d.removedFromTrackerAt ? '<div style="font-size:10px;color:#92400e;font-weight:600;background:#fef3c7;padding:1px 6px;border-radius:4px;margin-top:3px;display:inline-block;" title="Flagged ' + new Date(d.removedFromTrackerAt).toLocaleString() + ' — this person is no longer present in the Attrition Tracker, but kept here for audit history.">⚠ Removed from Tracker</div>' : '') + (d.scheduledOffboardingAt ? '<div style="font-size:10px;color:#6b21a8;font-weight:700;background:#f3e8ff;border:1px solid #c4b5fd;padding:2px 7px;border-radius:4px;margin-top:3px;display:inline-block;" title="Scheduled offboarding task created ' + escapeHtml(d.scheduledOffboardingAt) + (d.scheduledIncludeShared ? ' · includes Shared Mailbox conversion' : '') + '. The Task Scheduler job on the biometrics PC will run at this time and write results back here.">⏰ Scheduled ' + escapeHtml((d.scheduledOffboardingAt || '').replace('T', ' @ ')) + '</div>' : '') + '</div>\
             </div>\
           </td>\
           <td>' + emailInput(d.employeeEmail || emp, emp || 'firstname.lastname@go.team', 'employeeEmail') + '</td>\
