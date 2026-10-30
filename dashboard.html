@@ -836,7 +836,7 @@
         <div style="overflow-x: auto;">
           <table>
             <thead>
-              <tr><th class="col-checkbox" style="width:34px;"><input type="checkbox" class="row-checkbox" id="selectAllDepsStatic" /></th><th>Employee</th><th>Employee Email</th><th>Company</th><th>Leadership Coach</th><th>Coach Email</th><th>Effective Day</th><th>Type of Exit</th><th>Exit Notice Remarks</th><th>Status</th><th>Access Deactivated Date</th><th>Licenses Removed</th><th>Actions</th></tr>
+              <tr><th class="col-checkbox" style="width:34px;"><input type="checkbox" class="row-checkbox" id="selectAllDepsStatic" /></th><th>Employee ID</th><th>Employee</th><th>Employee Email</th><th>Company</th><th>Leadership Coach</th><th>Coach Email</th><th>Effective Day</th><th>Type of Exit</th><th>Exit Notice Remarks</th><th>Status</th><th>Access Deactivated Date</th><th>Licenses Removed</th><th>Actions</th></tr>
             </thead>
             <tbody id="departuresTbody"></tbody>
           </table>
@@ -2197,6 +2197,8 @@
       { name: 'ObeEmergencyContact', text: {} },
       { name: 'ScheduledOffboardingAt', text: {} },
       { name: 'ScheduledIncludeShared', boolean: {} },
+      { name: 'DepEmployeeId',    text: {} },
+      { name: 'SourcePriority',   text: {} },
       { name: 'LocalId',          number: {} }
     ],
     licenses: [
@@ -2608,6 +2610,8 @@
       ObeEmergencyContact: d.emergencyContact || '',
       ScheduledOffboardingAt: d.scheduledOffboardingAt || '',
       ScheduledIncludeShared: !!d.scheduledIncludeShared,
+      DepEmployeeId: d.employeeId || '',
+      SourcePriority: d.sourcePriority || '',
       ChecklistJson: JSON.stringify(d.checklist || []),
       LocalId: d.id || 0
     };
@@ -2656,6 +2660,8 @@
       emergencyContact: f.ObeEmergencyContact || '',
       scheduledOffboardingAt: f.ScheduledOffboardingAt || '',
       scheduledIncludeShared: !!f.ScheduledIncludeShared,
+      employeeId: f.DepEmployeeId || '',
+      sourcePriority: f.SourcePriority || '',
       checklist: checklist.length ? checklist : defaultExitChecklist()
     };
   }
@@ -3582,6 +3588,7 @@
           const rt = right[i] || [];
           // Column indices from left range: 0=A, 1=B, 2=C, 3=D, 4=E, 5=F, 6=G
           // Column indices from right range: 0=H, 1=I, 2=J, 3=K, 4=L, 5=M, 6=N
+          const empId = String(l[0] || '').trim();          // A — Employee ID
           const nameB = l[1];
           const nameC = l[2];
           // User's intent: first name comes from Column C, last/family name from Column B.
@@ -3598,6 +3605,7 @@
           if (!effDate) continue;
           proposals.push({
             source: 'Attrition Masterlist 2026',
+            employeeId: empId,
             name: combined,
             company,
             leadershipCoach: coach,
@@ -3624,6 +3632,7 @@
         let added = 0;
         for (const r of rows) {
           if (!r) continue;
+          const empId = String(r[1] || '').trim();          // B — Employee ID
           const name = String(r[4] || '').trim();          // E
           if (!name) continue;
           if (/^(name|full\s*name)/i.test(name)) continue;
@@ -3633,6 +3642,7 @@
           if (!effDate) continue;
           proposals.push({
             source: 'Recalled Masterlist',
+            employeeId: empId,
             name, company, leadershipCoach: coach,
             effectiveDate: effDate,
             typeOfExit: 'Recalled',
@@ -3657,6 +3667,7 @@
         let added = 0, skippedBlank = 0, skippedHeader = 0, skippedNoDate = 0;
         for (const r of rows) {
           if (!r) continue;
+          const empId = String(r[1] || '').trim();        // B — Employee ID
           const name = String(r[2] || '').trim();         // C
           if (!name) { skippedBlank++; continue; }
           if (/^(name|full\s*name|employee)/i.test(name)) { skippedHeader++; continue; }
@@ -3670,6 +3681,7 @@
           }
           proposals.push({
             source: 'RECALL with NTE',
+            employeeId: empId,
             name, company, leadershipCoach: coach,
             effectiveDate: effDate,
             typeOfExit: 'Recalled',
@@ -3717,15 +3729,32 @@
       const newItems = [];
       const updates = [];
       const seenKeys = new Set();
+      // Normalise a name for fuzzy fallback matching (strip periods, collapse whitespace).
+      const normName = (s) => String(s || '').toLowerCase().replace(/\./g, '').replace(/\s+/g, ' ').trim();
       filtered.forEach(p => {
-        const k = p.name.toLowerCase();
-        if (seenKeys.has(k)) return;
-        seenKeys.add(k);
-        const existing = state.departures.find(d => (d.name || '').toLowerCase() === k);
+        // Dedup by employeeId FIRST (strongest match), then name as fallback.
+        // This prevents duplicate rows when OBE and Tracker spell the name slightly differently.
+        const idKey = String(p.employeeId || '').trim().toLowerCase();
+        const nameKey = normName(p.name);
+        const combinedKey = idKey ? ('id:' + idKey) : ('name:' + nameKey);
+        if (seenKeys.has(combinedKey)) return;
+        seenKeys.add(combinedKey);
+        let existing = null;
+        if (idKey) {
+          existing = state.departures.find(d => String(d.employeeId || '').trim().toLowerCase() === idKey);
+        }
+        if (!existing) {
+          existing = state.departures.find(d => normName(d.name) === nameKey);
+        }
         if (!existing) {
           newItems.push(p);
         } else {
           const changes = [];
+          // Tracker is the final call — on conflicts with OBE-sourced data, Tracker WINS.
+          // We propose updates for any Tracker value that differs from the existing one.
+          // (Previously only pushed when existing value was blank; OBE rows kept stale info.)
+          if (p.employeeId && (existing.employeeId || '') !== p.employeeId) changes.push({ field: 'employeeId', oldValue: existing.employeeId || '', newValue: p.employeeId });
+          if (p.name && existing.name !== p.name) changes.push({ field: 'name', oldValue: existing.name || '', newValue: p.name });
           const curEff = existing.effectiveDate || existing.lastDay || '';
           if (p.effectiveDate && curEff !== p.effectiveDate) changes.push({ field: 'effectiveDate', oldValue: curEff, newValue: p.effectiveDate });
           const curType = existing.typeOfExit || existing.reason || '';
@@ -3733,6 +3762,9 @@
           if (p.company && (existing.company || '') !== p.company) changes.push({ field: 'company', oldValue: existing.company || '', newValue: p.company });
           if (p.leadershipCoach && (existing.leadershipCoach || '') !== p.leadershipCoach) changes.push({ field: 'leadershipCoach', oldValue: existing.leadershipCoach || '', newValue: p.leadershipCoach });
           if (p.exitNoticeRemarks && (existing.exitNoticeRemarks || '') !== p.exitNoticeRemarks) changes.push({ field: 'exitNoticeRemarks', oldValue: existing.exitNoticeRemarks || '', newValue: p.exitNoticeRemarks });
+          // If the row is currently flagged as "Removed from Tracker" but we DID re-match
+          // it in this refresh, the flag is stale — propose clearing it so the badge disappears.
+          if (existing.removedFromTrackerAt) changes.push({ field: 'removedFromTrackerAt', oldValue: existing.removedFromTrackerAt, newValue: '' });
           if (changes.length > 0) updates.push({ target: existing, name: existing.name, changes, source: p.source });
         }
       });
@@ -3742,12 +3774,20 @@
       // Scope: only flag dashboard departures whose effectiveDate falls within the
       // same month-range filter we just scanned — otherwise we'd falsely flag
       // every departure from outside the window.
-      const trackerNameSet = new Set(filtered.map(p => p.name.toLowerCase()));
+      // Match strategy mirrors the update path: Employee ID first (strongest), then
+      // fuzzy-normalised name (strip periods + collapse whitespace). This prevents
+      // false "removed" flags when the Tracker spells a name slightly differently
+      // from the OBE email (e.g. "John Roque B. Coronejo" vs "John Roque Coronejo").
+      const trackerIdSet   = new Set(filtered.filter(p => p.employeeId).map(p => String(p.employeeId).trim().toLowerCase()));
+      const trackerNameSet = new Set(filtered.map(p => normName(p.name)));
       const removedFromTracker = state.departures.filter(d => {
         if (d.removedFromTrackerAt) return false; // already noted
-        const key = (d.name || '').toLowerCase();
-        if (!key) return false;
-        if (trackerNameSet.has(key)) return false;
+        // If we have an Employee ID on the dashboard row AND the tracker had this ID this run → not removed
+        const idKey = String(d.employeeId || '').trim().toLowerCase();
+        if (idKey && trackerIdSet.has(idKey)) return false;
+        const nameKey = normName(d.name);
+        if (!nameKey) return false;
+        if (trackerNameSet.has(nameKey)) return false;
         const eff = d.effectiveDate || d.lastDay || '';
         if (!eff) return false;
         const parts = eff.split('-');
@@ -3875,6 +3915,7 @@
     selectedNew.forEach((p, i) => {
       state.departures.push({
         id: maxId + 1 + i,
+        employeeId: p.employeeId || '',
         name: p.name,
         company: p.company,
         leadershipCoach: p.leadershipCoach || '',
@@ -3889,6 +3930,7 @@
         noticeDate: '',
         status: 'Notice Period',
         lastDayEstimated: false,
+        sourcePriority: 'tracker',
         checklist: defaultExitChecklist()
       });
     });
@@ -3968,7 +4010,11 @@
 
     kv.obeNumber        = obeNumber;
     kv.clientName       = grab('Client Name') || client;
-    kv.employeeId       = (grab('TM ID\\s*\\(Employee No\\)') || grab('TM ID') || grab('Employee No')).replace(/\s+/g, '');
+    // Employee ID — pull just the digits, ignoring the "(Employee No)" label prefix.
+    // Handles "TM ID (Employee No) 2338", "TM ID: 2338", "Employee No 2338", etc.
+    const idMatch = text.match(/TM\s*ID[^0-9]*(\d{3,6})/i) ||
+                    text.match(/Employee\s*No[^0-9]*(\d{3,6})/i);
+    kv.employeeId       = idMatch ? idMatch[1] : '';
     kv.name             = grab('TM Name') || name;
     kv.position         = grab('Position');
     kv.separationType   = grab('Separation Type');
@@ -4053,14 +4099,18 @@
       // Match to existing departures and categorise
       const newItems = [];
       const updates = [];
+      // Fuzzy name normaliser — strip periods, collapse whitespace. Matches "John Roque B. Coronejo" with "John Roque Coronejo".
+      const obeNormName = (s) => String(s || '').toLowerCase().replace(/\./g, '').replace(/\s+/g, ' ').trim();
       parsedByObe.forEach(p => {
         const r = p.raw;
         const nameLc = (r.name || '').trim().toLowerCase();
+        const nameNorm = obeNormName(r.name);
         const idLc = String(r.employeeId || '').trim().toLowerCase();
-        // Match by OBE number first (strongest), then employee ID, then name.
+        // Match by OBE number first (strongest), then employee ID, then exact name, then fuzzy name.
         let existing = state.departures.find(d => d.obeNumber && r.obeNumber && d.obeNumber === r.obeNumber);
         if (!existing && idLc) existing = state.departures.find(d => String(d.employeeId || '').trim().toLowerCase() === idLc);
         if (!existing && nameLc) existing = state.departures.find(d => (d.name || '').trim().toLowerCase() === nameLc);
+        if (!existing && nameNorm) existing = state.departures.find(d => obeNormName(d.name) === nameNorm);
 
         const mapped = {
           obeNumber: r.obeNumber,
@@ -4088,11 +4138,19 @@
           newItems.push(mapped);
         } else {
           const changes = [];
+          // Tracker is the final call — if the existing record came from the Attrition Tracker,
+          // OBE only ENRICHES (fills blank fields with OBE's unique data). It never overwrites
+          // Tracker fields like name / employeeId / effectiveDate / typeOfExit / company.
+          const isTrackerSourced = existing.sourcePriority === 'tracker';
+          const trackerProtectedFields = new Set(['name', 'employeeId', 'company', 'effectiveDate', 'typeOfExit', 'exitNoticeRemarks']);
           const fieldsToCheck = ['obeNumber', 'company', 'employeeId', 'position', 'typeOfExit', 'noticeDate', 'effectiveDate', 'exitNoticeRemarks', 'reasonForLeaving', 'workSetup', 'replacementNeeded'];
           fieldsToCheck.forEach(f => {
-            if (mapped[f] && String(existing[f] || '') !== String(mapped[f])) {
-              changes.push({ field: f, oldValue: existing[f] || '(blank)', newValue: mapped[f] });
-            }
+            if (!mapped[f]) return;
+            const curVal = String(existing[f] || '');
+            if (curVal === String(mapped[f])) return;
+            // Tracker-protected fields: OBE only fills in when the existing value is blank
+            if (isTrackerSourced && trackerProtectedFields.has(f) && curVal) return;
+            changes.push({ field: f, oldValue: existing[f] || '(blank)', newValue: mapped[f] });
           });
           if (changes.length > 0) updates.push({ target: existing, name: existing.name, changes, obeNumber: r.obeNumber });
         }
@@ -4701,6 +4759,15 @@
     lines.push('# ================================================================');
     lines.push('');
     lines.push('$ErrorActionPreference = "Continue"');
+    lines.push('# PowerShell 5.1 default function-count cap is 4096. The full Microsoft.Graph');
+    lines.push('# submodule set adds thousands of auto-generated functions and will overflow');
+    lines.push('# this limit halfway through import, which silently breaks Connect-MgGraph.');
+    lines.push('# Must be set BEFORE any Import-Module call. 32768 is the hard cap.');
+    lines.push('$MaximumFunctionCount = 32768');
+    lines.push('$MaximumVariableCount = 32768');
+    lines.push('$MaximumAliasCount    = 32768');
+    lines.push('$MaximumDriveCount    = 32768');
+    lines.push('');
     lines.push('$TM_UPN     = "' + esc(o.upn) + '"');
     lines.push('$TM_NAME    = "' + esc(o.tmName) + '"');
     lines.push('$TM_GRAPHID = "' + esc(o.graphUserId) + '"');
@@ -4716,10 +4783,77 @@
     lines.push('$log = @()');
     lines.push('$log += "===== Offboarding $TM_NAME ($TM_UPN) started $(Get-Date -Format o) ====="');
     lines.push('');
-    lines.push('# Delegated auth - relies on cached Connect-MgGraph / Connect-ExchangeOnline tokens');
-    lines.push('# saved by admin interactively during initial setup. If tokens expired, task will fail;');
-    lines.push('# admin re-runs Setup-OffboardingAuth.ps1 to refresh them.');
+    lines.push('# ===== Transcript — a RAW safety-net log that captures every console write,');
+    lines.push('# including PowerShell parse errors and anything $log misses. Written locally.');
+    lines.push('$transcriptPath = "C:\\OffboardingTasks\\logs\\$($TM_NAME -replace \'[^\\w]+\',\'-\')-$((Get-Date).ToString(\'yyyyMMdd-HHmmss\')).transcript.log"');
+    lines.push('New-Item -ItemType Directory -Path (Split-Path $transcriptPath) -Force | Out-Null');
+    lines.push('try { Start-Transcript -Path $transcriptPath -Force | Out-Null } catch {}');
+    lines.push('');
+    lines.push('# ===== Write-AuditLog function (defined BEFORE anything that calls it).');
+    lines.push('# Uploads $log to SharePoint and writes a local fallback. PowerShell does not hoist');
+    lines.push('# function declarations, so this MUST appear before the auth try/catch block.');
+    lines.push('function Write-AuditLog ($lines) {');
+    lines.push('    $filename = ("{0}-{1:yyyyMMdd-HHmmss}.log" -f ($TM_NAME -replace "[^\\w]+","-"), (Get-Date))');
+    lines.push('    $content  = $lines -join "`r`n"');
+    lines.push('    $localPath = "C:\\OffboardingTasks\\logs\\$filename"');
+    lines.push('    # ALWAYS write local file first so there is a record even if SharePoint fails');
+    lines.push('    try {');
+    lines.push('        New-Item -ItemType Directory -Path (Split-Path $localPath) -Force | Out-Null');
+    lines.push('        Set-Content -Path $localPath -Value $content -Encoding UTF8');
+    lines.push('        Write-Host "Local log written: $localPath"');
+    lines.push('    } catch { Write-Host "Local log write FAILED: $_" }');
+    lines.push('    # Then try SharePoint upload');
+    lines.push('    try {');
+    lines.push('        $site   = Get-MgSite -Search "ITOperations" -ErrorAction Stop | Where-Object { $_.WebUrl -like "*/sites/ITOperations" } | Select-Object -First 1');
+    lines.push('        if (-not $site) { throw "ITOperations site not found" }');
+    lines.push('        $drive  = Get-MgSiteDrive -SiteId $site.Id -ErrorAction Stop | Where-Object { $_.Name -eq "Documents" } | Select-Object -First 1');
+    lines.push('        if (-not $drive) { throw "Documents drive not found" }');
+    lines.push('        Invoke-MgGraphRequest -Method PUT -Uri "/v1.0/drives/$($drive.Id)/root:/Offboarding Logs/$($filename):/content" -Body $content -ContentType "text/plain"');
+    lines.push('        Write-Host "Audit log uploaded to SharePoint: $filename"');
+    lines.push('    } catch { Write-Host "SharePoint upload FAILED (local file still saved): $_" }');
+    lines.push('    # Dashboard writeback — PATCH the matching GoTeam-Departures list row');
+    lines.push('    $writebackMsg = ""');
+    lines.push('    try {');
+    lines.push('        $wbSite = Get-MgSite -Search "ITOperations" -ErrorAction Stop | Where-Object { $_.WebUrl -like "*/sites/ITOperations" } | Select-Object -First 1');
+    lines.push('        if (-not $wbSite) { throw "ITOperations site not found via search" }');
+    lines.push('        $wbList = Get-MgSiteList -SiteId $wbSite.Id -ErrorAction Stop | Where-Object { $_.DisplayName -eq $DEP_LIST -or $_.Name -eq $DEP_LIST } | Select-Object -First 1');
+    lines.push('        if (-not $wbList) { throw "List $DEP_LIST not found on ITOperations site" }');
+    lines.push('        # NOTE: Graph requires $select nested inside $expand to use the $-prefix form');
+    lines.push('        # ($select=...). Easier to just expand all fields and let the server-side $filter');
+    lines.push('        # pick the row we want.');
+    lines.push('        $filterUri = "/v1.0/sites/$($wbSite.Id)/lists/$($wbList.Id)/items?`$expand=fields&`$filter=fields/LocalId eq $LOCAL_DEP_ID"');
+    lines.push('        # LocalId isn\'t an indexed SharePoint column — need the "HonorNonIndexedQueries" header');
+    lines.push('        # to filter on it. Fine for our list which is small (< a few thousand rows).');
+    lines.push('        $resp = Invoke-MgGraphRequest -Method GET -Uri $filterUri -Headers @{');
+    lines.push('            "ConsistencyLevel" = "eventual"');
+    lines.push('            "Prefer"           = "HonorNonIndexedQueriesWarningMayFailRandomly"');
+    lines.push('        }');
+    lines.push('        $item = $resp.value | Select-Object -First 1');
+    lines.push('        if (-not $item) { throw "No list item with LocalId=$LOCAL_DEP_ID in $DEP_LIST" }');
+    lines.push('        $successCount = ($lines | Where-Object { $_ -match "^\\[OK\\]" }).Count');
+    lines.push('        $patchBody = @{');
+    lines.push('            AccessRevokedDone     = $true');
+    lines.push('            AccessRevokedAt       = (Get-Date -Format o)');
+    lines.push('            DepStatus             = "Completed"');
+    lines.push('            SharedMailboxDone     = ' + (o.includeShared ? '$true' : '$false'));
+    lines.push('            SharedMailboxDoneAt   = ' + (o.includeShared ? '(Get-Date -Format o)' : '""'));
+    lines.push('            NoteLabel             = "Auto-run via Task Scheduler - $successCount OK steps"');
+    lines.push('        }');
+    lines.push('        Invoke-MgGraphRequest -Method PATCH -Uri "/v1.0/sites/$($wbSite.Id)/lists/$($wbList.Id)/items/$($item.id)/fields" -Body ($patchBody | ConvertTo-Json)');
+    lines.push('        $writebackMsg = "[OK] Dashboard SharePoint row updated (LocalId=$LOCAL_DEP_ID, $successCount OK steps)"');
+    lines.push('    } catch { $writebackMsg = "[FAIL] Dashboard writeback: $_" }');
+    lines.push('    Write-Host $writebackMsg');
+    lines.push('    try { Add-Content -Path $localPath -Value $writebackMsg -ErrorAction SilentlyContinue } catch {}');
+    lines.push('}');
+    lines.push('');
+    lines.push('# App-only auth via certificate - fully unattended, no browser prompts.');
+    lines.push('# Config is written by Setup-OffboardingAppAuth.ps1 (tenant, client, cert thumbprint).');
     lines.push('try {');
+    lines.push('    $appConfig = Get-Content "C:\\OffboardingTasks\\app-config.json" -Raw | ConvertFrom-Json');
+    lines.push('    $AUTH_TENANT = $appConfig.TenantId');
+    lines.push('    $AUTH_CLIENT = $appConfig.ClientId');
+    lines.push('    $AUTH_THUMB  = $appConfig.CertThumbprint');
+    lines.push('    $AUTH_EXO    = $appConfig.ExoOrganization');
     lines.push('    Import-Module Microsoft.Graph.Authentication -ErrorAction Stop');
     lines.push('    Import-Module Microsoft.Graph.Users -ErrorAction Stop');
     lines.push('    Import-Module Microsoft.Graph.Users.Actions -ErrorAction Stop  # Revoke-MgUserSignInSession, Set-MgUserLicense');
@@ -4729,9 +4863,9 @@
     lines.push('    Import-Module Microsoft.Graph.Identity.Governance -ErrorAction Stop  # Role Management cmdlets');
     lines.push('    Import-Module Microsoft.Graph.Sites -ErrorAction Stop  # SharePoint writeback');
     if (o.includeShared) lines.push('    Import-Module ExchangeOnlineManagement -ErrorAction Stop');
-    lines.push('    Connect-MgGraph -NoWelcome -ErrorAction Stop');
-    if (o.includeShared) lines.push('    Connect-ExchangeOnline -ShowBanner:$false -ErrorAction Stop');
-    lines.push('    $log += "[OK] Connected to Graph" + $(if ($' + o.includeShared + ') { " + ExO" })');
+    lines.push('    Connect-MgGraph -TenantId $AUTH_TENANT -ClientId $AUTH_CLIENT -CertificateThumbprint $AUTH_THUMB -NoWelcome -ErrorAction Stop');
+    if (o.includeShared) lines.push('    Connect-ExchangeOnline -AppId $AUTH_CLIENT -CertificateThumbprint $AUTH_THUMB -Organization $AUTH_EXO -ShowBanner:$false -ErrorAction Stop');
+    lines.push('    $log += "[OK] Connected to Graph (AppOnly cert)" + $(if ($' + o.includeShared + ') { " + ExO" } else { "" })');
     lines.push('} catch {');
     lines.push('    $log += "[FAIL] Auth: $_"');
     lines.push('    Write-AuditLog $log; exit 1');
@@ -4893,55 +5027,10 @@
     lines.push('');
     lines.push('$log += "===== Finished $(Get-Date -Format o) ====="');
     lines.push('');
-    lines.push('# ===== Write-AuditLog function =====');
-    lines.push('function Write-AuditLog ($lines) {');
-    lines.push('    $filename = ("{0}-{1:yyyyMMdd-HHmmss}.log" -f ($TM_NAME -replace "[^\\w]+","-"), (Get-Date))');
-    lines.push('    $content  = $lines -join "`r`n"');
-    lines.push('    # Upload to SharePoint document library via Graph');
-    lines.push('    try {');
-    lines.push('        $site   = Get-MgSite -Search "ITOperations" -ErrorAction Stop | Where-Object { $_.WebUrl -like "*/sites/ITOperations" } | Select-Object -First 1');
-    lines.push('        $drive  = Get-MgSiteDrive -SiteId $site.Id -ErrorAction Stop | Where-Object { $_.Name -eq "Documents" } | Select-Object -First 1');
-    lines.push('        $folderPath = "Offboarding Logs"');
-    lines.push('        $upload = Invoke-MgGraphRequest -Method PUT -Uri "/v1.0/drives/$($drive.Id)/root:/$folderPath/$($filename):/content" -Body $content -ContentType "text/plain"');
-    lines.push('        Write-Host "Audit log uploaded: $filename"');
-    lines.push('    } catch {');
-    lines.push('        Write-Host "Audit upload failed, writing local fallback: $_"');
-    lines.push('        $local = "C:\\OffboardingTasks\\logs\\$filename"');
-    lines.push('        New-Item -ItemType Directory -Path (Split-Path $local) -Force | Out-Null');
-    lines.push('        Set-Content -Path $local -Value $content');
-    lines.push('    }');
-    lines.push('    # Also write back to the dashboard\'s SharePoint list so Access Deactivated Date / Licenses Removed populate automatically.');
-    lines.push('    # Appends a result line to the audit log so the SharePoint upload above captures what happened here too.');
-    lines.push('    $writebackMsg = ""');
-    lines.push('    try {');
-    lines.push('        $wbSite = Get-MgSite -Search "ITOperations" -ErrorAction Stop | Where-Object { $_.WebUrl -like "*/sites/ITOperations" } | Select-Object -First 1');
-    lines.push('        if (-not $wbSite) { throw "ITOperations site not found via search" }');
-    lines.push('        $wbList = Get-MgSiteList -SiteId $wbSite.Id -ErrorAction Stop | Where-Object { $_.DisplayName -eq $DEP_LIST -or $_.Name -eq $DEP_LIST } | Select-Object -First 1');
-    lines.push('        if (-not $wbList) { throw "List $DEP_LIST not found on ITOperations site" }');
-    lines.push('        # ConsistencyLevel header is required for $filter on fields with Graph lists');
-    lines.push('        $filterUri = "/v1.0/sites/$($wbSite.Id)/lists/$($wbList.Id)/items?`$expand=fields(select=LocalId)&`$filter=fields/LocalId eq $LOCAL_DEP_ID"');
-    lines.push('        $resp = Invoke-MgGraphRequest -Method GET -Uri $filterUri -Headers @{ "ConsistencyLevel" = "eventual" }');
-    lines.push('        $item = $resp.value | Select-Object -First 1');
-    lines.push('        if (-not $item) { throw "No list item with LocalId=$LOCAL_DEP_ID in $DEP_LIST" }');
-    lines.push('        $successCount = ($lines | Where-Object { $_ -match "^\\[OK\\]" }).Count');
-    lines.push('        $patchBody = @{');
-    lines.push('            AccessRevokedDone     = $true');
-    lines.push('            AccessRevokedAt       = (Get-Date -Format o)');
-    lines.push('            DepStatus             = "Completed"');
-    lines.push('            SharedMailboxDone     = ' + (o.includeShared ? '$true' : '$false'));
-    lines.push('            SharedMailboxDoneAt   = ' + (o.includeShared ? '(Get-Date -Format o)' : '""'));
-    lines.push('            NoteLabel             = "Auto-run via Task Scheduler - $successCount OK steps"');
-    lines.push('        }');
-    lines.push('        Invoke-MgGraphRequest -Method PATCH -Uri "/v1.0/sites/$($wbSite.Id)/lists/$($wbList.Id)/items/$($item.id)/fields" -Body ($patchBody | ConvertTo-Json)');
-    lines.push('        $writebackMsg = "[OK] Dashboard SharePoint row updated (LocalId=$LOCAL_DEP_ID, $successCount OK steps)"');
-    lines.push('    } catch { $writebackMsg = "[FAIL] Dashboard writeback: $_" }');
-    lines.push('    Write-Host $writebackMsg');
-    lines.push('    # Append the writeback result to the log file we already uploaded');
-    lines.push('    try { Add-Content -Path $local -Value $writebackMsg -ErrorAction SilentlyContinue } catch {}');
-    lines.push('}');
-    lines.push('');
+    lines.push('# ===== End of execution — upload audit log and write back to dashboard =====');
     lines.push('Write-AuditLog $log');
     lines.push('$log | ForEach-Object { Write-Host $_ }');
+    lines.push('try { Stop-Transcript | Out-Null } catch {}');
     return lines.join('\r\n');
   }
 
@@ -5015,6 +5104,13 @@
     lines.push('#>');
     lines.push('');
     lines.push('$ErrorActionPreference = "Stop"');
+    lines.push('# Raise PowerShell 5.1 scope caps BEFORE any Import-Module. The full set of');
+    lines.push('# Microsoft.Graph submodules exceeds the default 4096 function limit and silently');
+    lines.push('# breaks subsequent Connect-MgGraph calls. 32768 is the hard cap.');
+    lines.push('$MaximumFunctionCount = 32768');
+    lines.push('$MaximumVariableCount = 32768');
+    lines.push('$MaximumAliasCount    = 32768');
+    lines.push('$MaximumDriveCount    = 32768');
     lines.push('$StateFile = "C:\\OffboardingTasks\\auth-state.json"');
     lines.push('');
     lines.push('# ----- UI helpers -----');
@@ -5905,6 +6001,16 @@
     renderHires();
 
     alert(log.join('\n'));
+  };
+
+  window.clearRemovedFromTracker = function(depId) {
+    const d = state.departures.find(x => x.id === depId);
+    if (!d) return;
+    if (!confirm('Clear the "Removed from Tracker" flag for ' + d.name + '?\n\nThis just removes the badge — the person\'s record stays as-is. Useful when they were falsely flagged (e.g. the Tracker name differs from the dashboard name).')) return;
+    d.removedFromTrackerAt = '';
+    save();
+    renderDepartures();
+    showToast('Cleared "Removed from Tracker" flag for ' + d.name);
   };
 
   window.updateHireField = function(id, field, value) {
@@ -7831,7 +7937,19 @@
     // Migrate any legacy "Asset Return" statuses → "Notice Period" since that
     // status is no longer available (other team handles asset return).
     let migratedAny = false;
-    state.departures.forEach(d => { if (d.status === 'Asset Return') { d.status = 'Notice Period'; migratedAny = true; } });
+    state.departures.forEach(d => {
+      if (d.status === 'Asset Return') { d.status = 'Notice Period'; migratedAny = true; }
+      // Clean up legacy Employee IDs that have the "(Employee No)" label prefix
+      // baked in from the earlier OBE parser bug (e.g. "(EmployeeNo)2338" → "2338").
+      if (d.employeeId) {
+        const digits = String(d.employeeId).match(/\d{3,6}/);
+        const cleaned = digits ? digits[0] : '';
+        if (cleaned !== d.employeeId) {
+          d.employeeId = cleaned;
+          migratedAny = true;
+        }
+      }
+    });
     if (migratedAny) save();
 
     const search = (document.getElementById('depSearch').value || '').toLowerCase();
@@ -7936,6 +8054,7 @@
       }
       depsThead.innerHTML =
         '<th class="col-checkbox" style="width:34px;"><input type="checkbox" class="row-checkbox" onchange="toggleSelectAllDepartures(this)" id="selectAllDeps" title="Select all departures in this week"></th>' +
+        depHeader('Employee ID', 'employeeId') +
         depHeader('Employee', 'name') +
         depHeader('Employee Email', 'employeeEmail') +
         depHeader('Company', 'company') +
@@ -7981,10 +8100,11 @@
         return '\
         <tr' + rowStyle + '>\
           <td class="col-checkbox"><input type="checkbox" class="dep-row-checkbox" data-dep-id="' + d.id + '" ' + (isSelected ? 'checked' : '') + ' onchange="toggleDepartureSelection(' + d.id + ')"></td>\
+          <td>' + (d.employeeId ? '<span class="id-chip">' + escapeHtml(d.employeeId) + '</span>' : '<span style="color:#cbd5e1;font-size:12px">—</span>') + '</td>\
           <td>\
             <div class="user-cell">\
               <div class="avatar" style="background:' + avatarColor(d.name) + '">' + initials(d.name) + '</div>\
-              <div><div class="name">' + d.name + '</div>' + (isImmediate ? '<div style="font-size:10px;color:#dc2626;font-weight:600;">⚠ IMMEDIATE</div>' : '') + (d.removedFromTrackerAt ? '<div style="font-size:10px;color:#92400e;font-weight:600;background:#fef3c7;padding:1px 6px;border-radius:4px;margin-top:3px;display:inline-block;" title="Flagged ' + new Date(d.removedFromTrackerAt).toLocaleString() + ' — this person is no longer present in the Attrition Tracker, but kept here for audit history.">⚠ Removed from Tracker</div>' : '') + (d.scheduledOffboardingAt ? '<div style="font-size:10px;color:#6b21a8;font-weight:700;background:#f3e8ff;border:1px solid #c4b5fd;padding:2px 7px;border-radius:4px;margin-top:3px;display:inline-block;" title="Scheduled offboarding task created ' + escapeHtml(d.scheduledOffboardingAt) + (d.scheduledIncludeShared ? ' · includes Shared Mailbox conversion' : '') + '. The Task Scheduler job on the biometrics PC will run at this time and write results back here.">⏰ Scheduled ' + escapeHtml((d.scheduledOffboardingAt || '').replace('T', ' @ ')) + '</div>' : '') + '</div>\
+              <div><div class="name">' + d.name + '</div>' + (isImmediate ? '<div style="font-size:10px;color:#dc2626;font-weight:600;">⚠ IMMEDIATE</div>' : '') + (d.removedFromTrackerAt ? '<div style="font-size:10px;color:#92400e;font-weight:600;background:#fef3c7;padding:1px 6px;border-radius:4px;margin-top:3px;display:inline-block;cursor:pointer;" title="Flagged ' + new Date(d.removedFromTrackerAt).toLocaleString() + ' — this person is no longer present in the Attrition Tracker, but kept here for audit history. Click to clear if they are back in the tracker." onclick="clearRemovedFromTracker(' + d.id + ')">⚠ Removed from Tracker <span style="opacity:0.6;">×</span></div>' : '') + (d.scheduledOffboardingAt ? '<div style="font-size:10px;color:#6b21a8;font-weight:700;background:#f3e8ff;border:1px solid #c4b5fd;padding:2px 7px;border-radius:4px;margin-top:3px;display:inline-block;" title="Scheduled offboarding task created ' + escapeHtml(d.scheduledOffboardingAt) + (d.scheduledIncludeShared ? ' · includes Shared Mailbox conversion' : '') + '. The Task Scheduler job on the biometrics PC will run at this time and write results back here.">⏰ Scheduled ' + escapeHtml((d.scheduledOffboardingAt || '').replace('T', ' @ ')) + '</div>' : '') + '</div>\
             </div>\
           </td>\
           <td>' + emailInput(d.employeeEmail || emp, emp || 'firstname.lastname@go.team', 'employeeEmail') + '</td>\
