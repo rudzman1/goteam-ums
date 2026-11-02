@@ -1021,6 +1021,7 @@
             <option value="">All licenses</option>
           </select>
           <input type="text" class="search-input" id="licMovementSearch" placeholder="Search user or actor..." oninput="debouncedRenderLicMovement()" />
+          <button class="btn" onclick="openLicenseAuditDiagnostic()" title="Dump raw Microsoft audit events for a single user — useful when the Movement Log is missing a known assignment/removal." style="font-size:11px;padding:5px 10px;background:#fef3c7;color:#92400e;border:1px solid #fde68a;border-radius:6px;font-weight:600;cursor:pointer;">🔍 Diagnose</button>
         </div>
       </div>
       <div id="licMovementBody">
@@ -4608,6 +4609,102 @@
   const SCHEDULE_AUDIT_SITE = 'goteam1.sharepoint.com,ITOperations';
   const SCHEDULE_AUDIT_PATH = '/sites/ITOperations/Shared Documents/Offboarding Logs';
 
+  // Bulk schedule — iterates every selected departure, fetches CA3, auto-detects
+  // 6am (Morning) / 10pm (Night) time, and generates the .ps1 + .xml for each.
+  // Skips rows missing an email, effective date, or whose CA3 can't be classified.
+  window.bulkScheduleOffboarding = async function() {
+    const selected = getSelectedDeparturesSorted();
+    if (selected.length === 0) { showToast('No departures selected'); return; }
+    if (!msalAccount) { alert('Sign in via the sidebar first so we can read each TM\'s CA3 from Entra.'); return; }
+    const eligible = selected.filter(d => (d.employeeEmail || '').trim() && (d.effectiveDate || d.lastDay || ''));
+    const skippedNoEmail = selected.length - eligible.length;
+    if (eligible.length === 0) { alert('None of the selected departures have both Employee Email and Effective Date set.'); return; }
+    if (!confirm(
+      'Bulk Schedule Offboarding for ' + eligible.length + ' TM(s)?\n\n' +
+      (skippedNoEmail > 0 ? '(Skipping ' + skippedNoEmail + ' row(s) missing email or effective date)\n\n' : '') +
+      'For each TM the dashboard will:\n' +
+      '  1. Read CA3 from Entra to determine shift (Morning → 06:00, Night → 22:00, else prompt)\n' +
+      '  2. Generate a Revoke-<name>-<trigger>.ps1 and matching .xml\n' +
+      '  3. Download them to your browser downloads folder\n\n' +
+      'You still need to copy the files to C:\\OffboardingTasks on the biometrics PC and import each .xml into Task Scheduler.\n\n' +
+      'Continue?'
+    )) return;
+
+    showToast('Processing ' + eligible.length + ' TM(s)… watch the downloads folder.');
+    const results = { ok: 0, failed: 0, failures: [] };
+    for (const d of eligible) {
+      const upn = d.employeeEmail.trim();
+      let user, ca3;
+      try {
+        user = await graphFetch('/users/' + encodeURIComponent(upn) + '?$select=id,displayName,companyName,onPremisesExtensionAttributes');
+        ca3 = (user.onPremisesExtensionAttributes && user.onPremisesExtensionAttributes.extensionAttribute3) || '';
+      } catch (e) {
+        results.failed++;
+        results.failures.push(d.name + ' (' + upn + '): Entra lookup failed — ' + (e.message || '').slice(0, 100));
+        continue;
+      }
+      let hhmm = '';
+      if (/morning/i.test(ca3)) hhmm = '06:00';
+      else if (/night/i.test(ca3)) hhmm = '22:00';
+      if (!hhmm) {
+        // Prompt admin for shift time on this specific TM
+        const picked = prompt(
+          d.name + ' — CA3 is "' + (ca3 || 'blank') + '" (not Morning/Night).\n\n' +
+          'Enter trigger time in HH:MM 24-hour format (e.g. 06:00 or 22:00), or Cancel to skip this TM:',
+          '06:00'
+        );
+        if (!picked || !/^\d{1,2}:\d{2}$/.test(picked)) {
+          results.failed++;
+          results.failures.push(d.name + ': skipped (no shift time provided)');
+          continue;
+        }
+        hhmm = picked;
+      }
+      const effIso = (d.effectiveDate || d.lastDay || '').slice(0, 10);
+      const triggerDt = effIso + 'T' + hhmm;
+      const isInternal = isInternalTeamMember(d) || /goteam/i.test((user.companyName || ''));
+      const includeShared = isInternal; // auto-tick for internal TMs
+      const _tox = String(d.typeOfExit || d.reason || '').toLowerCase();
+      const remark = _tox.indexOf('recall') > -1 ? 'Recalled' : 'Separated';
+      const safeNameForFile = (d.name || '').replace(/[^\w]+/g, '-').replace(/^-|-$/g, '').toLowerCase() || 'tm';
+      const stamp = triggerDt.replace(/[-:]/g, '').replace('T', '-');
+      const ps1 = buildOffboardingPowerShell({
+        tmName: d.name, upn, graphUserId: user.id, isInternal, includeShared,
+        coachUpn: (d.leadershipCoachEmail || '').trim(),
+        coachName: (d.leadershipCoach || '').trim(),
+        remark, effectiveDate: effIso,
+        sharePointListId: 'GoTeam-Departures',
+        auditSiteHost: 'goteam1.sharepoint.com',
+        auditSitePath: '/sites/ITOperations',
+        auditLibraryPath: 'Shared Documents/Offboarding Logs',
+        localDepartureId: d.id
+      });
+      const taskXml = buildTaskSchedulerXml({
+        tmName: d.name, triggerDt,
+        scriptPath: 'C:\\OffboardingTasks\\Revoke-' + safeNameForFile + '-' + stamp + '.ps1'
+      });
+      downloadTextFile('Revoke-' + safeNameForFile + '-' + stamp + '.ps1', ps1);
+      // Tiny gap between downloads so Chrome doesn't fold them into "multiple downloads" prompts
+      await new Promise(r => setTimeout(r, 200));
+      downloadTextFile('Revoke-' + safeNameForFile + '-' + stamp + '.xml', taskXml);
+      await new Promise(r => setTimeout(r, 200));
+      d.scheduledOffboardingAt = triggerDt;
+      d.scheduledIncludeShared = includeShared;
+      results.ok++;
+    }
+    save();
+    renderDepartures();
+    clearDepartureSelection();
+    const summary = 'Bulk Schedule finished:\n\n' +
+      '  ✓ Generated: ' + results.ok + ' TM(s)\n' +
+      '  ✗ Failed/skipped: ' + results.failed + '\n' +
+      (skippedNoEmail > 0 ? '  — Skipped (no email/date): ' + skippedNoEmail + '\n' : '') +
+      '\n' +
+      (results.failures.length > 0 ? 'Failures:\n' + results.failures.join('\n') + '\n\n' : '') +
+      'Next: copy all .ps1 + .xml from your Downloads folder to C:\\OffboardingTasks on the biometrics PC, then import each .xml into Task Scheduler.';
+    alert(summary);
+  };
+
   // Open the schedule modal for a specific departure id (or bulk if array).
   window.openScheduleOffboardingModal = async function(depId) {
     const d = state.departures.find(x => x.id === depId);
@@ -4665,7 +4762,7 @@
       '    <li>Revoke all sessions</li>' +
       (isInternal ? '    <li><strong style="color:#1d4ed8;">Convert mailbox to Shared</strong></li>' +
                      '    <li><strong style="color:#1d4ed8;">Set Full Access + Send As for Leadership Coach</strong></li>' +
-                     '    <li><strong style="color:#1d4ed8;">Set auto-reply pointing to coach</strong></li>' : '') +
+                     '    <li><strong style="color:#1d4ed8;">Disable any existing auto-reply (CEO policy — no auto-reply on resigned staff)</strong></li>' : '') +
       '    <li>Remove from all groups</li>' +
       '    <li>Remove all licenses</li>' +
       '    <li>Clear CA2 + CA3 (removed from Dynamic Distros)</li>' +
@@ -4781,6 +4878,7 @@
     lines.push('$LOCAL_DEP_ID = ' + (o.localDepartureId | 0));
     lines.push('');
     lines.push('$log = @()');
+    lines.push('$removedLicensesStr = ""  # captured by license-removal step, surfaced to dashboard writeback');
     lines.push('$log += "===== Offboarding $TM_NAME ($TM_UPN) started $(Get-Date -Format o) ====="');
     lines.push('');
     lines.push('# ===== Transcript — a RAW safety-net log that captures every console write,');
@@ -4837,6 +4935,7 @@
     lines.push('            DepStatus             = "Completed"');
     lines.push('            SharedMailboxDone     = ' + (o.includeShared ? '$true' : '$false'));
     lines.push('            SharedMailboxDoneAt   = ' + (o.includeShared ? '(Get-Date -Format o)' : '""'));
+    lines.push('            LicensesRemoved       = $removedLicensesStr');
     lines.push('            NoteLabel             = "Auto-run via Task Scheduler - $successCount OK steps"');
     lines.push('        }');
     lines.push('        Invoke-MgGraphRequest -Method PATCH -Uri "/v1.0/sites/$($wbSite.Id)/lists/$($wbList.Id)/items/$($item.id)/fields" -Body ($patchBody | ConvertTo-Json)');
@@ -4900,14 +4999,16 @@
       lines.push('    } catch { $log += "[FAIL] 4/N Coach permissions: $_" }');
       lines.push('}');
       lines.push('');
-      lines.push('# ===== Step 5: Set auto-reply pointing to coach =====');
-      lines.push('if ($COACH_UPN) {');
-      lines.push('    $autoReply = "Hi, I am no longer with GoTeam. For urgent matters please contact $COACH_NAME at $COACH_UPN. Thank you."');
-      lines.push('    try {');
-      lines.push('        Set-MailboxAutoReplyConfiguration -Identity $TM_UPN -AutoReplyState Enabled -InternalMessage $autoReply -ExternalMessage $autoReply -ExternalAudience All -ErrorAction Stop');
-      lines.push('        $log += "[OK] 5/N Auto-reply enabled"');
-      lines.push('    } catch { $log += "[FAIL] 5/N Auto-reply: $_" }');
-      lines.push('}');
+      lines.push('# ===== Step 5: Disable existing auto-reply (CEO policy — no auto-reply on resigned staff) =====');
+      lines.push('try {');
+      lines.push('    $arCfg = Get-MailboxAutoReplyConfiguration -Identity $TM_UPN -ErrorAction Stop');
+      lines.push('    if ($arCfg.AutoReplyState -ne "Disabled") {');
+      lines.push('        Set-MailboxAutoReplyConfiguration -Identity $TM_UPN -AutoReplyState Disabled -InternalMessage "" -ExternalMessage "" -ErrorAction Stop');
+      lines.push('        $log += "[OK] 5/N Auto-reply disabled (was $($arCfg.AutoReplyState))"');
+      lines.push('    } else {');
+      lines.push('        $log += "[OK] 5/N Auto-reply already disabled - no change"');
+      lines.push('    }');
+      lines.push('} catch { $log += "[FAIL] 5/N Auto-reply disable: $_" }');
       lines.push('');
     }
     lines.push('# ===== Remove from all groups =====');
@@ -4923,8 +5024,18 @@
     lines.push('    $u = Get-MgUser -UserId $TM_GRAPHID -Property AssignedLicenses -ErrorAction Stop');
     lines.push('    $skuIds = @($u.AssignedLicenses | ForEach-Object { $_.SkuId })');
     lines.push('    if ($skuIds.Count -gt 0) {');
+    lines.push('        # Build SkuId → SkuPartNumber map so we can log + write back friendly names');
+    lines.push('        try {');
+    lines.push('            $allSkus = Get-MgSubscribedSku -All -ErrorAction Stop');
+    lines.push('            $skuMap  = @{}');
+    lines.push('            foreach ($s in $allSkus) { $skuMap[$s.SkuId] = $s.SkuPartNumber }');
+    lines.push('            $removedNames = foreach ($id in $skuIds) {');
+    lines.push('                if ($skuMap.ContainsKey($id)) { $skuMap[$id] } else { $id }');
+    lines.push('            }');
+    lines.push('            $removedLicensesStr = ($removedNames -join ", ")');
+    lines.push('        } catch { $removedLicensesStr = ($skuIds -join ", ") }');
     lines.push('        Set-MgUserLicense -UserId $TM_GRAPHID -AddLicenses @() -RemoveLicenses $skuIds -ErrorAction Stop | Out-Null');
-    lines.push('        $log += "[OK] Removed $($skuIds.Count) license(s)"');
+    lines.push('        $log += "[OK] Removed $($skuIds.Count) license(s): $removedLicensesStr"');
     lines.push('    } else { $log += "[OK] No licenses to remove" }');
     lines.push('} catch { $log += "[FAIL] License removal: $_" }');
     lines.push('');
@@ -7684,6 +7795,10 @@
         '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' +
         ' Revoke Access &amp; License' +
       '</button>' +
+      '<button class="btn-bulk-action" onclick="bulkScheduleOffboarding()" style="background:#f3e8ff;color:#6b21a8;">' +
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' +
+        ' Schedule Offboarding' +
+      '</button>' +
       '<button class="btn-clear" onclick="clearDepartureSelection()">Deselect All</button>' +
     '</div>';
   }
@@ -9611,6 +9726,107 @@
     }
   }
 
+  // ---- License Audit Diagnostic (raw audit dump for one user) ----
+  window.openLicenseAuditDiagnostic = async function openLicenseAuditDiagnostic() {
+    const who = prompt('Enter the user\'s UPN (e.g. hannah.bacalla@go.team) or exact display name:');
+    if (!who) return;
+    const daysStr = prompt('How many days back to search? (default 30, max 90)', '30');
+    const days = Math.min(90, Math.max(1, parseInt(daysStr, 10) || 30));
+
+    // Overlay
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;';
+    overlay.innerHTML = '<div style="background:#fff;padding:20px;border-radius:10px;max-width:90vw;max-height:90vh;overflow:auto;min-width:600px;">\
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">\
+        <h3 style="margin:0;">Audit Diagnostic: ' + who + ' (last ' + days + ' days)</h3>\
+        <button onclick="this.closest(\'div[style*=fixed]\').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;">×</button>\
+      </div>\
+      <div id="licDiagStatus" style="padding:12px;background:#f3f4f6;border-radius:6px;font-family:ui-monospace,monospace;font-size:12px;">Loading…</div>\
+      <pre id="licDiagOutput" style="margin-top:12px;padding:12px;background:#111827;color:#e5e7eb;border-radius:6px;font-size:11px;line-height:1.5;max-height:60vh;overflow:auto;"></pre>\
+      <div style="margin-top:10px;display:flex;gap:8px;">\
+        <button class="btn" onclick="(function(){var t=document.getElementById(\'licDiagOutput\').textContent;navigator.clipboard.writeText(t);alert(\'Copied\');})()">Copy All</button>\
+      </div>\
+    </div>';
+    document.body.appendChild(overlay);
+    const statusEl = overlay.querySelector('#licDiagStatus');
+    const outEl    = overlay.querySelector('#licDiagOutput');
+
+    try {
+      statusEl.textContent = 'Resolving user…';
+      // Try UPN first; fall back to displayName search
+      let userObj = null;
+      try { userObj = await graphFetch('/users/' + encodeURIComponent(who) + '?$select=id,userPrincipalName,displayName,assignedLicenses'); }
+      catch (_) {
+        const results = await graphFetch("/users?$filter=startswith(displayName,'" + who.replace(/'/g,"''") + "')&$top=5&$select=id,userPrincipalName,displayName,assignedLicenses");
+        if (results.value && results.value.length) userObj = results.value[0];
+      }
+      if (!userObj || !userObj.id) {
+        statusEl.textContent = 'User not found: ' + who;
+        return;
+      }
+
+      statusEl.innerHTML = 'User: <b>' + userObj.displayName + '</b> &lt;' + userObj.userPrincipalName + '&gt;<br>ID: ' + userObj.id + '<br>Fetching audit events…';
+
+      const sinceIso = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+      // Fetch EVERYTHING for this time window, no activityDisplayName filter.
+      // Then client-side filter to this user.
+      const all = await graphPageAll(
+        "/auditLogs/directoryAudits?$filter=activityDateTime ge " + sinceIso + "&$top=999"
+      );
+      const uid = String(userObj.id).toLowerCase();
+      const upn = String(userObj.userPrincipalName || '').toLowerCase();
+      const matching = all.filter(ev => {
+        const tgt = ev.targetResources || [];
+        return tgt.some(t =>
+          String(t.id || '').toLowerCase() === uid ||
+          String(t.userPrincipalName || '').toLowerCase() === upn
+        );
+      });
+
+      statusEl.innerHTML += '<br>Audit events in window: <b>' + all.length + '</b> &nbsp; Matching this user: <b>' + matching.length + '</b>';
+
+      // Group by activityDisplayName for quick summary
+      const byActivity = {};
+      matching.forEach(ev => {
+        const name = ev.activityDisplayName || '(none)';
+        byActivity[name] = (byActivity[name] || 0) + 1;
+      });
+      let summary = '--- EVENT TYPE COUNT ---\n';
+      Object.keys(byActivity).sort().forEach(k => { summary += '  ' + k + ': ' + byActivity[k] + '\n'; });
+      summary += '\n--- RAW EVENTS (newest first) ---\n';
+
+      // Print each event compactly
+      matching.sort((a, b) => (b.activityDateTime || '').localeCompare(a.activityDateTime || ''));
+      matching.forEach((ev, i) => {
+        summary += '\n[' + (i + 1) + '] ' + ev.activityDateTime + '  ' + ev.activityDisplayName + '\n';
+        summary += '    result: ' + ev.result + '\n';
+        const actor = (ev.initiatedBy && ev.initiatedBy.user && (ev.initiatedBy.user.userPrincipalName || ev.initiatedBy.user.displayName))
+                    || (ev.initiatedBy && ev.initiatedBy.app && ev.initiatedBy.app.displayName) || 'System';
+        summary += '    actor:  ' + actor + '\n';
+        (ev.targetResources || []).forEach(t => {
+          if (String(t.id || '').toLowerCase() !== uid && String(t.userPrincipalName || '').toLowerCase() !== upn) return;
+          (t.modifiedProperties || []).forEach(p => {
+            if (!p.displayName) return;
+            summary += '    [' + p.displayName + ']\n';
+            summary += '      old: ' + (p.oldValue || '(empty)') + '\n';
+            summary += '      new: ' + (p.newValue || '(empty)') + '\n';
+          });
+        });
+        if (ev.additionalDetails && ev.additionalDetails.length) {
+          summary += '    additionalDetails:\n';
+          ev.additionalDetails.forEach(d => {
+            const val = String(d.value || '');
+            summary += '      ' + d.key + ' = ' + (val.length > 500 ? val.slice(0, 500) + '…[truncated]' : val) + '\n';
+          });
+        }
+      });
+      outEl.textContent = summary;
+      statusEl.innerHTML += '<br><span style="color:#065f46;">Done. Review the raw events below.</span>';
+    } catch (e) {
+      statusEl.innerHTML = '<span style="color:#b91c1c;">Error: ' + (e && e.message ? e.message : e) + '</span>';
+    }
+  };
+
   // ---- License Movement panel ----
   function renderLicenseMovement() {
     const audit = ensureLicenseAuditState();
@@ -9875,6 +10091,7 @@
     { key: 'employeeId',      label: 'Employee ID',         sortable: true,  editable: true,  type: 'text' },
     { key: 'companyName',     label: 'Company',             sortable: true,  editable: true,  type: 'text' },
     { key: 'employeeType',    label: 'Employee Type',       sortable: true,  editable: true,  type: 'select', opts: 'AU_ETYPE_OPTIONS' },
+    { key: 'ca1',             label: 'CA1 (Remarks)',       sortable: true,  editable: true,  type: 'text',   tip: 'Remarks / status (extensionAttribute1). Common values: Active, Separated, Withdrawn. Free text — type any value.' },
     { key: 'ca2',             label: 'CA2 (Internal)',      sortable: true,  editable: true,  type: 'select', opts: 'AU_CA2_OPTIONS', tip: 'Internal GoTeam staff only. Leave blank for client-facing TMs — their shift lives in CA3.' },
     { key: 'ca3',             label: 'CA3 (Shift)',         sortable: true,  editable: true,  type: 'select', opts: 'AU_CA3_OPTIONS', tip: 'Shift value for client-facing TMs — Morning or Night. Internal GoTeam staff should leave this blank.' },
     { key: 'department',      label: 'Department',          sortable: true,  editable: true,  type: 'text' },
@@ -9966,6 +10183,7 @@
       case 'employeeHireDate':
         return user.employeeHireDate ? String(user.employeeHireDate).slice(0, 10) : '';
       case 'managerName':     return user.manager ? (user.manager.displayName || '') : '';
+      case 'ca1':             return ext.extensionAttribute1 || '';
       case 'ca2':             return ext.extensionAttribute2 || '';
       case 'ca3':             return ext.extensionAttribute3 || '';
       case 'employeeId':      return user.employeeId || '';
@@ -10078,6 +10296,7 @@
         '<td style="' + cell() + 'min-width:100px;">' + input('employeeId') + '</td>' +
         '<td style="' + cell() + 'min-width:140px;">' + input('companyName') + '</td>' +
         '<td style="' + cell() + 'min-width:130px;">' + select('employeeType', AU_ETYPE_OPTIONS) + '</td>' +
+        '<td style="' + cell() + 'min-width:130px;">' + input('ca1') + '</td>' +
         '<td style="' + cell() + 'min-width:110px;">' + select('ca2', AU_CA2_OPTIONS) + '</td>' +
         '<td style="' + cell() + 'min-width:110px;">' + select('ca3', AU_CA3_OPTIONS) + '</td>' +
         '<td style="' + cell() + 'min-width:160px;">' + input('department') + '</td>' +
@@ -10749,6 +10968,7 @@
           case 'officeLocation':   body.officeLocation = v; break;
           case 'employeeHireDate': body.employeeHireDate = v ? (v + 'T00:00:00Z') : null; break;
           case 'employeeId':       body.employeeId = v; break;
+          case 'ca1':              extPatch.extensionAttribute1 = v; break;
           case 'ca2':              extPatch.extensionAttribute2 = v; break;
           case 'ca3':              extPatch.extensionAttribute3 = v; break;
           case 'managerName':
@@ -10805,6 +11025,9 @@
           if (k === 'managerName') {
             if (resolvedManager) user.manager = resolvedManager;
             else user.manager = null;
+          } else if (k === 'ca1') {
+            user.onPremisesExtensionAttributes = user.onPremisesExtensionAttributes || {};
+            user.onPremisesExtensionAttributes.extensionAttribute1 = patch[k] || null;
           } else if (k === 'ca2') {
             user.onPremisesExtensionAttributes = user.onPremisesExtensionAttributes || {};
             user.onPremisesExtensionAttributes.extensionAttribute2 = patch[k] || null;
@@ -11106,7 +11329,83 @@
         return out;
       }
 
-      // 4. Build per-user license-change map from audit events
+      // 4. Reassemble Microsoft's chunked audit events BEFORE processing.
+      //    Big license-change payloads are split across multiple audit events
+      //    sharing additionalDetails.id and labeled seq=1..c (c is total parts).
+      //    Each individual chunk's `b` value is a fragment of the real JSON;
+      //    JSON.parse fails on it, which caused removes to be silently dropped
+      //    for license swaps (e.g. Business Basic → F1 at the same timestamp).
+      //    We collapse all chunks of the same group into one synthetic event
+      //    whose `b` is the reassembled JSON string.
+      function reassembleChunkedAuditEvents(events) {
+        const getDetailMap = (ev) => {
+          const map = {};
+          const d = ev.additionalDetails;
+          if (!d) return map;
+          if (Array.isArray(d)) d.forEach(x => { if (x && x.key != null) map[x.key] = x.value; });
+          else if (typeof d === 'object') Object.keys(d).forEach(k => { map[k] = d[k]; });
+          return map;
+        };
+        const groupKey = (ev) => {
+          const dm = getDetailMap(ev);
+          if (dm.id == null || dm.seq == null || dm.c == null) return null;
+          // Microsoft keys the group by activity + id + target. Including
+          // activityDisplayName so "Change user license" and "Update user" –
+          // which Microsoft fires as parallel chunk sequences – stay separate.
+          const tids = (ev.targetResources || []).map(t => t.id).sort().join(',');
+          return (ev.activityDisplayName || '') + '|' + dm.id + '|' + tids;
+        };
+        const groups = {};
+        const out = [];
+        events.forEach(ev => {
+          const key = groupKey(ev);
+          if (!key) { out.push(ev); return; }
+          groups[key] = groups[key] || [];
+          groups[key].push(ev);
+        });
+        Object.keys(groups).forEach(key => {
+          const chunks = groups[key];
+          if (chunks.length === 1) { out.push(chunks[0]); return; }
+          // Sort by seq (numeric) ascending.
+          chunks.sort((a, b) => {
+            const sa = Number(getDetailMap(a).seq || 0);
+            const sb = Number(getDetailMap(b).seq || 0);
+            return sa - sb;
+          });
+          // Clone the first chunk as the base, concatenate all b values.
+          const base = Object.assign({}, chunks[0]);
+          const combinedB = chunks.map(c => {
+            const dm = getDetailMap(c);
+            return typeof dm.b === 'string' ? dm.b : '';
+          }).join('');
+          const baseDm = getDetailMap(base);
+          base.additionalDetails = [
+            { key: 'id',  value: baseDm.id || '' },
+            { key: 'seq', value: '1' },
+            { key: 'c',   value: '1' },
+            { key: 'b',   value: combinedB }
+          ];
+          // Preserve any non-chunk keys (like UserType, User-Agent) by merging
+          // them in from any chunk that has them.
+          const extraKeys = new Set();
+          chunks.forEach(c => {
+            Object.keys(getDetailMap(c)).forEach(k => {
+              if (k !== 'id' && k !== 'seq' && k !== 'c' && k !== 'b') extraKeys.add(k);
+            });
+          });
+          extraKeys.forEach(k => {
+            for (let i = 0; i < chunks.length; i++) {
+              const v = getDetailMap(chunks[i])[k];
+              if (v != null) { base.additionalDetails.push({ key: k, value: v }); break; }
+            }
+          });
+          out.push(base);
+        });
+        return out;
+      }
+      auditEvents = reassembleChunkedAuditEvents(auditEvents);
+
+      // 4b. Build per-user license-change map from audit events
       //    key = userId; value = [ { skuId, action:'add'|'remove', ts, actor } ]
       //    Also assemble a flat movement log for the License Movement panel.
       const changeMap = {};
