@@ -9918,10 +9918,16 @@
       .filter(s => !HIDDEN_SKUS_MOVEMENT.has(String(s.skuPartNumber || '').toUpperCase()))
       .map(s => ({ id: s.skuId, name: s.friendlyName || s.skuPartNumber || s.skuId }))
       .sort((a, b) => a.name.localeCompare(b.name));
-    // Bucket by LOCAL month (matches the row date shown in the log). The
-    // Monthly Summary uses summaryFiltered → driven by the HOLDERS month picker.
+    // Bucket by LOCAL month (matches the row date shown in the log). We MUST
+    // build this from ALL movements (sharedFiltered) rather than the
+    // month-picker-filtered subset, because the walk-backward end-of-month
+    // calculation below needs every month's net change to work correctly.
+    // Previously using summaryFiltered meant picking "September" would leave
+    // the calc with no October/November nets to subtract — and every past
+    // month ended up displaying the CURRENT seat count. Fix: compute on all
+    // months, then filter the DISPLAY to the picked month further down.
     const monthMap = {}; // { 'YYYY-MM': { skuId: { add, remove } } }
-    summaryFiltered.forEach(m => {
+    sharedFiltered.forEach(m => {
       const month = localMonth(m.ts);
       if (!month) return;
       monthMap[month] = monthMap[month] || {};
@@ -9991,7 +9997,12 @@
           });
         });
 
-        summaryTbody.innerHTML = months.map((month, rowIdx) => {
+        // If the month picker is active, show only that month's row.
+        // Otherwise show every month in the range.
+        const displayMonths = summaryMonthFilter
+          ? months.filter(m => m === summaryMonthFilter)
+          : months;
+        summaryTbody.innerHTML = displayMonths.map((month, rowIdx) => {
           const [y, m] = month.split('-');
           const monthLabel = new Date(parseInt(y, 10), parseInt(m, 10) - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
           const zebra = rowIdx % 2 === 0 ? '#ffffff' : '#f8fafc';
