@@ -1937,6 +1937,28 @@
       // stale, the per-user assignLicense call will still log its own [WARN].
     }
 
+    // ---- MFA group self-heal ----
+    // Same per-origin localStorage drift risk as the SKU GUIDs. Resolve the
+    // MFA group by its stable display name ('MFA-Enforced Users') and fall
+    // back to the stored ID if the lookup fails.
+    const MFA_GROUP_NAME = 'MFA-Enforced Users';
+    let liveMfaGroupId = settings.mfaGroupId;
+    try {
+      const mfaResp = await graphFetch("/groups?$filter=displayName eq '" + MFA_GROUP_NAME.replace(/'/g, "''") + "'&$select=id,displayName&$top=1");
+      const resolved = (mfaResp.value && mfaResp.value[0] && mfaResp.value[0].id) || null;
+      if (resolved && resolved.toLowerCase() !== String(liveMfaGroupId || '').toLowerCase()) {
+        log("[Self-heal] MFA group ID refreshed from /groups: " + (liveMfaGroupId || '(empty)').slice(0, 8) + "… → " + resolved.slice(0, 8) + "…", '#60a5fa');
+        liveMfaGroupId = resolved;
+        try {
+          settings.mfaGroupId = liveMfaGroupId;
+          localStorage.setItem(MS_SETTINGS_KEY, JSON.stringify(settings));
+        } catch (_) {}
+      }
+    } catch (_) {
+      // Non-fatal — fall back to settings.mfaGroupId. Per-user add-to-group
+      // call will log a [WARN] if the stale ID no longer exists.
+    }
+
     for (let i = 0; i < hires.length; i++) {
       const h = hires[i];
       const first = ms365FirstName(h.starterName);
@@ -2058,10 +2080,10 @@
           log('    [SKIP] No SKU ID configured for ' + (isInternal ? 'Internal' : 'Client'), '#fbbf24');
         }
 
-        // 3. Add to MFA group
-        if (settings.mfaGroupId) {
+        // 3. Add to MFA group (uses self-healed live group ID, not the raw settings value)
+        if (liveMfaGroupId) {
           try {
-            await graphFetch('/groups/' + settings.mfaGroupId + '/members/$ref', {
+            await graphFetch('/groups/' + liveMfaGroupId + '/members/$ref', {
               method: 'POST',
               body: { '@odata.id': 'https://graph.microsoft.com/v1.0/directoryObjects/' + newUser.id }
             });
