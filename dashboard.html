@@ -11056,6 +11056,41 @@
     btn.disabled = (Object.keys(edits).length === 0);
   }
 
+  // Self-heal missing SharePoint list IDs. Runs at the start of every License
+  // Audit sync. Enumerates the configured site's lists once, matches by
+  // displayName against SP_LIST_NAMES, and backfills any missing GUIDs to
+  // localStorage so a dashboard served from a different origin (localhost vs
+  // github.io, say) doesn't silently skip SP pulls just because its own
+  // localStorage never saw the Initialize step. Does NOT create missing lists
+  // — if a list genuinely isn't in SP yet, user must click Repair Schema.
+  async function selfHealListIds(settings) {
+    if (!settings || !settings.siteId) return { settings, backfilled: [] };
+    try {
+      const resp = await graphFetch('/sites/' + settings.siteId + '/lists?$select=id,displayName');
+      const byName = {};
+      (resp.value || []).forEach(l => { byName[l.displayName] = l.id; });
+      settings.listIds = settings.listIds || {};
+      const backfilled = [];
+      for (const key of Object.keys(SP_LIST_NAMES)) {
+        const listName = SP_LIST_NAMES[key];
+        const haveId = settings.listIds[key];
+        const foundId = byName[listName];
+        if (!haveId && foundId) {
+          settings.listIds[key] = foundId;
+          backfilled.push(key + ' → ' + foundId.substring(0, 8) + '…');
+        }
+      }
+      if (backfilled.length > 0) {
+        localStorage.setItem(MS_SETTINGS_KEY, JSON.stringify(settings));
+        console.log('[Self-heal] Backfilled ' + backfilled.length + ' missing list ID(s): ' + backfilled.join(', '));
+      }
+      return { settings, backfilled };
+    } catch (e) {
+      console.warn('[Self-heal] Could not enumerate SP lists for self-heal:', e);
+      return { settings, backfilled: [] };
+    }
+  }
+
   async function syncLicenseAudit() {
     if (!msalAccount) { showToast('Sign in first via the sidebar'); return; }
     const audit = ensureLicenseAuditState();
@@ -11063,6 +11098,13 @@
     status.textContent = 'Syncing…';
     status.style.color = '#0284c7';
     try {
+      // 0. Self-heal any missing list IDs so pulls/pushes don't silently
+      //    no-op on a fresh origin (e.g. localhost vs github.io split brain).
+      status.textContent = 'Checking SharePoint list IDs…';
+      const healResult = await selfHealListIds(getMSSettings());
+      if (healResult.backfilled.length > 0) {
+        showToast('Recovered ' + healResult.backfilled.length + ' SharePoint list ID(s)');
+      }
       // 1. Fetch all SKUs
       status.textContent = 'Fetching SKUs…';
       const skuResp = await graphFetch('/subscribedSkus');
@@ -11666,7 +11708,24 @@
       status.textContent = 'Checking for seat-count changes…';
       const _settings = getMSSettings();
       const priorChanges = await pullSeatChangesFromSP(_settings);
-      audit.seatChanges = priorChanges;
+      // Preserve any locally-detected entries that haven't yet made it to
+      // SharePoint (spId undefined). Retry the push now so they aren't lost
+      // on this sync. Previously `audit.seatChanges = priorChanges` wiped
+      // these silently — if SP settings were missing, every sync erased the
+      // pending records. Now we keep them and attempt a resend.
+      const pendingLocal = (audit.seatChanges || []).filter(c => !c.spId);
+      const retriedPending = [];
+      for (const c of pendingLocal) {
+        const existsInSP = priorChanges.some(p =>
+          String(p.skuId).toLowerCase() === String(c.skuId).toLowerCase() &&
+          String(p.detectedAt).slice(0, 16) === String(c.detectedAt).slice(0, 16)
+        );
+        if (existsInSP) continue; // already represented in SP, drop the local copy
+        const spId = await pushSeatChangeToSP(_settings, c);
+        if (spId) c.spId = spId;
+        retriedPending.push(c);
+      }
+      audit.seatChanges = retriedPending.concat(priorChanges);
       // Build baseline: latest seatsAfter per skuId (from SP history), or the
       // current state.licenseAudit.seatBaseline (browser-side fallback if SP
       // is missing rows for a SKU).
@@ -12655,8 +12714,8 @@
       const rowA = [fmtCycleLabel(cy.start, cy.end), '', '', '', '', fmtCycleLabel(nextCyStart, nextCyEnd), ''];
       rowA.push('', 'DATE RANGE', '', '', '', '', '', '', '');
       bcRows.push(rowA);
-      bcMerges.push({ s: { r: rowStart, c: 1 }, e: { r: rowStart, c: 5 } });                   // B-F cycle header
-      bcMerges.push({ s: { r: rowStart, c: 5 }, e: { r: rowStart, c: 6 } });                   // G ending header
+      bcMerges.push({ s: { r: rowStart, c: 1 }, e: { r: rowStart, c: 4 } });                   // B-E cycle header
+      bcMerges.push({ s: { r: rowStart, c: 5 }, e: { r: rowStart, c: 6 } });                   // F-G ending header
       bcMerges.push({ s: { r: rowStart, c: 9 }, e: { r: rowStart, c: 10 } });                  // J-K DATE RANGE
       bcStyleMap[rowStart + ',1'] = BC_BLOCK_HEADER;
       bcStyleMap[rowStart + ',5'] = BC_BLOCK_HEADER;
