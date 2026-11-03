@@ -2183,6 +2183,7 @@
       { name: 'AccessRevokedDone', boolean: {} },
       { name: 'AccessRevokedAt',   text: {} },
       { name: 'LicensesRemoved',   text: { allowMultipleLines: true } },
+      { name: 'AbsoluteFreezeRequests', text: { allowMultipleLines: true } },
       { name: 'SharedMailboxDone', boolean: {} },
       { name: 'SharedMailboxDoneAt', text: {} },
       { name: 'RemovedFromTrackerAt', text: {} },
@@ -4754,6 +4755,8 @@
       '  <input type="datetime-local" id="scheduleTriggerDt" value="' + defaultDateTime + '" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;" />' +
       '  <label style="color:var(--muted);">Include Shared Mailbox conversion:</label>' +
       '  <div><input type="checkbox" id="scheduleIncludeShared" ' + (isInternal ? 'checked' : '') + ' /> <span style="font-size:12px;color:var(--muted);">' + (isInternal ? 'Auto-ticked (Internal TM). Script will convert BEFORE license removal.' : 'Client-facing TM — leave unticked.') + '</span></div>' +
+      '  <label style="color:var(--muted);">Freeze device(s) via Absolute:</label>' +
+      '  <div><input type="checkbox" id="scheduleFreezeAbsolute" /> <span style="font-size:12px;color:var(--muted);">Submits an OS-level On-Demand Freeze to Absolute for each discovered corporate Windows device. Firmware-level freeze still requires the Absolute console (API limitation) — the script will log a MANUAL ACTION REQUIRED line so IT can escalate.</span></div>' +
       '</div>' +
       '<div style="margin-top:14px;background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:12px;font-size:11px;line-height:1.6;">' +
       '  <strong>Execution sequence' + (isInternal ? ' (Internal — conversion first)' : '') + ':</strong>' +
@@ -4768,6 +4771,7 @@
       '    <li>Clear CA2 + CA3 (removed from Dynamic Distros)</li>' +
       '    <li>Remove auth methods (MFA)</li>' +
       '    <li><strong style="color:#b45309;">Discover corporate Windows devices → disable each in Entra + Intune Force Sync</strong></li>' +
+      '    <li><strong style="color:#7c2d12;">[Optional] Absolute OS Freeze each discovered device + flag firmware freeze for manual follow-up</strong></li>' +
       '    <li>Remove directory role assignments (except Global Admin)</li>' +
       '    <li>Set Remarks to "Separated" / "Recalled"</li>' +
       '    <li>Write results back to SharePoint GoTeam-Departures</li>' +
@@ -4787,6 +4791,7 @@
     const triggerDt = document.getElementById('scheduleTriggerDt').value; // "2026-10-20T06:00"
     if (!triggerDt) { alert('Set a trigger datetime.'); return; }
     const includeShared = document.getElementById('scheduleIncludeShared').checked;
+    const freezeAbsolute = document.getElementById('scheduleFreezeAbsolute').checked;
 
     // Determine remark based on type of exit (same logic as manual Revoke)
     const _tox = String(d.typeOfExit || d.reason || '').toLowerCase();
@@ -4801,6 +4806,7 @@
       graphUserId: ctx.userGraphId,
       isInternal: ctx.isInternal,
       includeShared,
+      freezeAbsolute,
       coachUpn: (d.leadershipCoachEmail || '').trim(),
       coachName: (d.leadershipCoach || '').trim(),
       remark,
@@ -4824,6 +4830,7 @@
     // Mark the departure as scheduled in local state
     d.scheduledOffboardingAt = triggerDt;
     d.scheduledIncludeShared = includeShared;
+    d.scheduledFreezeAbsolute = freezeAbsolute;
     save();
     renderDepartures();
     closeModal('scheduleOffboardingModal');
@@ -4936,6 +4943,7 @@
     lines.push('            SharedMailboxDone     = ' + (o.includeShared ? '$true' : '$false'));
     lines.push('            SharedMailboxDoneAt   = ' + (o.includeShared ? '(Get-Date -Format o)' : '""'));
     lines.push('            LicensesRemoved       = $removedLicensesStr');
+    lines.push('            AbsoluteFreezeRequests = $absFreezeStr');
     lines.push('            NoteLabel             = "Auto-run via Task Scheduler - $successCount OK steps"');
     lines.push('        }');
     lines.push('        Invoke-MgGraphRequest -Method PATCH -Uri "/v1.0/sites/$($wbSite.Id)/lists/$($wbList.Id)/items/$($item.id)/fields" -Body ($patchBody | ConvertTo-Json)');
@@ -5121,6 +5129,56 @@
     lines.push('    $log += "[OK] Device actions: $disabledCount disabled in Entra, $syncedCount Intune sync queued"');
     lines.push('} catch { $log += "[FAIL] Device discovery: $_" }');
     lines.push('');
+    if (o.freezeAbsolute) {
+      lines.push('# ===== Absolute OS Freeze on each discovered Windows device =====');
+      lines.push('# Submits an On-Demand (OS-level) Freeze via Absolute V3 JWS API for every');
+      lines.push('# device that was just disabled in Entra. Firmware-level Freeze is NOT');
+      lines.push('# available via the Absolute API - the admin must escalate manually in');
+      lines.push('# the Absolute console (we flag it with [MANUAL ACTION REQUIRED]).');
+      lines.push('# Depends on AbsoluteV3-Lib.ps1 + absolute-private.xml provisioned on this PC.');
+      lines.push('$absoluteFreezeRequests = @()');
+      lines.push('$absoluteFreezeFailures = @()');
+      lines.push('try {');
+      lines.push('    . "C:\\OffboardingTasks\\AbsoluteV3-Lib.ps1"');
+      lines.push('    Initialize-AbsoluteV3');
+      lines.push('    foreach ($dev in $discoveredDevices) {');
+      lines.push('        if (-not $dev.Name) { continue }');
+      lines.push('        try {');
+      lines.push('            $absDev = Find-AbsoluteDeviceByName -DeviceName $dev.Name');
+      lines.push('            if (-not $absDev) {');
+      lines.push('                $log += "[WARN]   Absolute lookup: no device found for $($dev.Name)"');
+      lines.push('                $absoluteFreezeFailures += $dev.Name');
+      lines.push('                continue');
+      lines.push('            }');
+      lines.push('            $freezeTitle = "GoTeam Offboarding - $TM_NAME - $($dev.Name)"');
+      lines.push('            $freezeResult = Invoke-AbsoluteFreeze `');
+      lines.push('                -DeviceUid $absDev.deviceUid `');
+      lines.push('                -RequestTitle $freezeTitle `');
+      lines.push('                -MessageUid "ffe8122b-ad78-4675-930e-2c02bc8c3578" `');
+      lines.push('                -NotificationEmails @("itdepartment@go.team")');
+      lines.push('            if ($freezeResult.Success) {');
+      lines.push('                $ruid = $null');
+      lines.push('                try { $ruid = $freezeResult.Content.data.requestUid } catch {}');
+      lines.push('                $log += "[OK]   Absolute OS Freeze requested: $($dev.Name) (requestUid=$ruid)"');
+      lines.push('                $log += "[MANUAL ACTION REQUIRED] Firmware-level freeze for $($dev.Name) - open Absolute console and escalate"');
+      lines.push('                $absoluteFreezeRequests += "$($dev.Name)=$ruid"');
+      lines.push('            } else {');
+      lines.push('                $log += "[FAIL]   Absolute Freeze $($dev.Name): HTTP $($freezeResult.Status)"');
+      lines.push('                $absoluteFreezeFailures += $dev.Name');
+      lines.push('            }');
+      lines.push('        } catch {');
+      lines.push('            $log += "[FAIL]   Absolute Freeze $($dev.Name): $_"');
+      lines.push('            $absoluteFreezeFailures += $dev.Name');
+      lines.push('        }');
+      lines.push('    }');
+      lines.push('    $log += "[OK] Absolute Freeze: $($absoluteFreezeRequests.Count) requested, $($absoluteFreezeFailures.Count) failed/not-found"');
+      lines.push('} catch { $log += "[FAIL] Absolute Freeze setup: $_" }');
+      lines.push('$absFreezeStr = ($absoluteFreezeRequests -join "; ")');
+      lines.push('');
+    } else {
+      lines.push('$absFreezeStr = ""');
+      lines.push('');
+    }
     lines.push('# ===== Remove directory role assignments (except Global Admin) =====');
     lines.push('try {');
     lines.push('    $assigns = Get-MgRoleManagementDirectoryRoleAssignment -Filter "principalId eq \'$TM_GRAPHID\'" -ErrorAction Stop');
@@ -10302,19 +10360,19 @@
         return '<select data-uid="' + u.id + '" data-field="' + field + '" onchange="auOnEdit(this)" style="width:100%;padding:4px 6px;border:' + border + ';border-radius:4px;font-size:12px;box-sizing:border-box;background:#fff;">' + opts + '</select>';
       };
       return '<tr style="' + rowBg + '">' +
-        '<td style="' + cell() + 'font-weight:600;white-space:nowrap;">' + escapeHtml(u.displayName || '') + disabled + '</td>' +
-        '<td style="' + cell() + 'color:var(--muted);white-space:nowrap;">' + escapeHtml(u.userPrincipalName || '') + '</td>' +
-        '<td style="' + cell() + 'min-width:100px;">' + input('employeeId') + '</td>' +
-        '<td style="' + cell() + 'min-width:140px;">' + input('companyName') + '</td>' +
-        '<td style="' + cell() + 'min-width:130px;">' + select('employeeType', AU_ETYPE_OPTIONS) + '</td>' +
-        '<td style="' + cell() + 'min-width:130px;">' + input('ca1') + '</td>' +
-        '<td style="' + cell() + 'min-width:110px;">' + select('ca2', AU_CA2_OPTIONS) + '</td>' +
-        '<td style="' + cell() + 'min-width:110px;">' + select('ca3', AU_CA3_OPTIONS) + '</td>' +
-        '<td style="' + cell() + 'min-width:160px;">' + input('department') + '</td>' +
-        '<td style="' + cell() + 'min-width:120px;">' + select('officeLocation', AU_OFFICE_OPTIONS) + '</td>' +
-        '<td style="' + cell() + 'min-width:130px;">' + input('employeeHireDate', 'date') + '</td>' +
-        '<td style="' + cell() + 'min-width:200px;">' + input('managerName') + '</td>' +
-        '<td style="' + cell() + 'text-align:center;">' +
+        '<td style="' + cell() + 'font-weight:600;font-size:12px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(u.displayName || '') + '">' + escapeHtml(u.displayName || '') + disabled + '</td>' +
+        '<td style="' + cell() + 'color:var(--muted);font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(u.userPrincipalName || '') + '">' + escapeHtml(u.userPrincipalName || '') + '</td>' +
+        '<td style="' + cell() + 'min-width:70px;width:70px;">' + input('employeeId') + '</td>' +
+        '<td style="' + cell() + 'min-width:110px;">' + input('companyName') + '</td>' +
+        '<td style="' + cell() + 'min-width:100px;">' + select('employeeType', AU_ETYPE_OPTIONS) + '</td>' +
+        '<td style="' + cell() + 'min-width:95px;">' + input('ca1') + '</td>' +
+        '<td style="' + cell() + 'min-width:90px;">' + select('ca2', AU_CA2_OPTIONS) + '</td>' +
+        '<td style="' + cell() + 'min-width:90px;">' + select('ca3', AU_CA3_OPTIONS) + '</td>' +
+        '<td style="' + cell() + 'min-width:130px;">' + input('department') + '</td>' +
+        '<td style="' + cell() + 'min-width:100px;">' + select('officeLocation', AU_OFFICE_OPTIONS) + '</td>' +
+        '<td style="' + cell() + 'min-width:115px;width:115px;">' + input('employeeHireDate', 'date') + '</td>' +
+        '<td style="' + cell() + 'min-width:140px;">' + input('managerName') + '</td>' +
+        '<td style="' + cell() + 'text-align:center;width:40px;">' +
           (dirty ? '<button onclick="auResetRow(\'' + u.id + '\')" style="padding:3px 8px;font-size:11px;background:#fff;border:1px solid #e5e7eb;border-radius:4px;cursor:pointer;">↺</button>' : '<span style="color:#cbd5e1;">—</span>') +
         '</td>' +
       '</tr>';
