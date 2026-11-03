@@ -1891,6 +1891,52 @@
     // Pre-fetch tenant SKU friendly-name map so we can label whatever SKU we assign.
     const _skuMap = await getSkuNameMap();
 
+    // ---- SKU self-heal ----
+    // The settings pane stores SKU IDs as hard GUIDs, which drift when Microsoft
+    // re-issues a SKU or when the tenant swaps editions. Also the per-origin
+    // localStorage split (localhost vs github.io) means one origin can have a
+    // stale GUID while the other is fresh. To insulate against both, resolve
+    // the CURRENT live GUID for the known SkuPartNumbers right now from
+    // /subscribedSkus. If a part number isn't found (unusual SKU not in the
+    // tenant), we fall back to the stored settings GUID so this is strictly
+    // additive — nothing breaks that previously worked.
+    //
+    // Mapping:
+    //   Internal slot → O365_BUSINESS_ESSENTIALS (Business Basic). Fallback: SPB (Business Premium).
+    //   Client   slot → M365_F1_COMM (F1 Comm). Fallback: SPE_F1 (classic F1).
+    let liveInternalSku = settings.skuInternal;
+    let liveClientSku   = settings.skuClient;
+    try {
+      const skuResp = await graphFetch('/subscribedSkus');
+      const byPart = {};
+      (skuResp.value || []).forEach(s => { if (s.skuPartNumber) byPart[String(s.skuPartNumber).toUpperCase()] = s.skuId; });
+      const resolved = {
+        internal: byPart['O365_BUSINESS_ESSENTIALS'] || byPart['SPB'] || null,
+        client:   byPart['M365_F1_COMM']            || byPart['SPE_F1'] || null
+      };
+      const healLog = [];
+      if (resolved.internal && resolved.internal.toLowerCase() !== String(liveInternalSku || '').toLowerCase()) {
+        healLog.push('Internal: ' + (liveInternalSku || '(empty)').slice(0, 8) + '… → ' + resolved.internal.slice(0, 8) + '…');
+        liveInternalSku = resolved.internal;
+      }
+      if (resolved.client && resolved.client.toLowerCase() !== String(liveClientSku || '').toLowerCase()) {
+        healLog.push('Client: ' + (liveClientSku || '(empty)').slice(0, 8) + '… → ' + resolved.client.slice(0, 8) + '…');
+        liveClientSku = resolved.client;
+      }
+      if (healLog.length > 0) {
+        log('[Self-heal] SKU GUID(s) refreshed from /subscribedSkus: ' + healLog.join('; '), '#60a5fa');
+        // Persist so future runs on this origin have the fresh GUIDs cached too.
+        try {
+          settings.skuInternal = liveInternalSku;
+          settings.skuClient   = liveClientSku;
+          localStorage.setItem(MS_SETTINGS_KEY, JSON.stringify(settings));
+        } catch (_) {}
+      }
+    } catch (_) {
+      // Non-fatal — fall back to the GUIDs already in settings. If they're
+      // stale, the per-user assignLicense call will still log its own [WARN].
+    }
+
     for (let i = 0; i < hires.length; i++) {
       const h = hires[i];
       const first = ms365FirstName(h.starterName);
@@ -1913,9 +1959,11 @@
       const hireDateForGraph  = hireDateIso ? (hireDateIso + 'T00:00:00Z') : null;
       const password = passwords[i];
       // Internal (GoTeam) staff get BOTH Business Basic + F1; Client-assigned staff get F1 only.
+      // Use self-healed live SKU GUIDs rather than the raw settings values so a stale
+      // localStorage copy on a secondary origin (e.g. GitHub Pages) can't poison this call.
       const skuIds = isInternal
-        ? [settings.skuInternal, settings.skuClient].filter(Boolean)
-        : [settings.skuClient].filter(Boolean);
+        ? [liveInternalSku, liveClientSku].filter(Boolean)
+        : [liveClientSku].filter(Boolean);
 
       log('[' + (i+1) + '/' + hires.length + '] ' + display + ' (' + upn + ')');
       try {
