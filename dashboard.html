@@ -2184,6 +2184,7 @@
       { name: 'AccessRevokedAt',   text: {} },
       { name: 'LicensesRemoved',   text: { allowMultipleLines: true } },
       { name: 'AbsoluteFreezeRequests', text: { allowMultipleLines: true } },
+      { name: 'TeramindRevoked',   text: {} },
       { name: 'SharedMailboxDone', boolean: {} },
       { name: 'SharedMailboxDoneAt', text: {} },
       { name: 'RemovedFromTrackerAt', text: {} },
@@ -4757,6 +4758,8 @@
       '  <div><input type="checkbox" id="scheduleIncludeShared" ' + (isInternal ? 'checked' : '') + ' /> <span style="font-size:12px;color:var(--muted);">' + (isInternal ? 'Auto-ticked (Internal TM). Script will convert BEFORE license removal.' : 'Client-facing TM — leave unticked.') + '</span></div>' +
       '  <label style="color:var(--muted);">Freeze device(s) via Absolute:</label>' +
       '  <div><input type="checkbox" id="scheduleFreezeAbsolute" /> <span style="font-size:12px;color:var(--muted);">Submits an OS-level On-Demand Freeze to Absolute for each discovered corporate Windows device. Firmware-level freeze still requires the Absolute console (API limitation) — the script will log a MANUAL ACTION REQUIRED line so IT can escalate.</span></div>' +
+      '  <label style="color:var(--muted);">Revoke Teramind access:</label>' +
+      '  <div><input type="checkbox" id="scheduleRevokeTeramind" checked /> <span style="font-size:12px;color:var(--muted);">Looks up the TM in Teramind by email, disables monitoring (flags bit 12), clears the department, then deletes the user. Destructive — no recovery via the script.</span></div>' +
       '</div>' +
       '<div style="margin-top:14px;background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:12px;font-size:11px;line-height:1.6;">' +
       '  <strong>Execution sequence' + (isInternal ? ' (Internal — conversion first)' : '') + ':</strong>' +
@@ -4772,10 +4775,12 @@
       '    <li>Remove auth methods (MFA)</li>' +
       '    <li><strong style="color:#b45309;">Discover corporate Windows devices → disable each in Entra + Intune Force Sync</strong></li>' +
       '    <li><strong style="color:#7c2d12;">[Optional] Absolute OS Freeze each discovered device + flag firmware freeze for manual follow-up</strong></li>' +
+      '    <li><strong style="color:#065f46;">[Optional] Teramind: disable monitoring + clear department + delete user</strong></li>' +
       '    <li>Remove directory role assignments (except Global Admin)</li>' +
       '    <li>Set Remarks to "Separated" / "Recalled"</li>' +
       '    <li>Write results back to SharePoint GoTeam-Departures</li>' +
       '    <li>Append log line to <code>' + escapeHtml(SCHEDULE_AUDIT_PATH) + '</code></li>' +
+      '    <li><strong style="color:#1d4ed8;">Send professional confirmation email to rudy.maneja@go.team</strong></li>' +
       '  </ol>' +
       '</div>';
     // Stash context on the modal for the Generate step
@@ -4792,6 +4797,7 @@
     if (!triggerDt) { alert('Set a trigger datetime.'); return; }
     const includeShared = document.getElementById('scheduleIncludeShared').checked;
     const freezeAbsolute = document.getElementById('scheduleFreezeAbsolute').checked;
+    const revokeTeramind = document.getElementById('scheduleRevokeTeramind').checked;
 
     // Determine remark based on type of exit (same logic as manual Revoke)
     const _tox = String(d.typeOfExit || d.reason || '').toLowerCase();
@@ -4807,6 +4813,7 @@
       isInternal: ctx.isInternal,
       includeShared,
       freezeAbsolute,
+      revokeTeramind,
       coachUpn: (d.leadershipCoachEmail || '').trim(),
       coachName: (d.leadershipCoach || '').trim(),
       remark,
@@ -4831,6 +4838,7 @@
     d.scheduledOffboardingAt = triggerDt;
     d.scheduledIncludeShared = includeShared;
     d.scheduledFreezeAbsolute = freezeAbsolute;
+    d.scheduledRevokeTeramind = revokeTeramind;
     save();
     renderDepartures();
     closeModal('scheduleOffboardingModal');
@@ -4944,6 +4952,7 @@
     lines.push('            SharedMailboxDoneAt   = ' + (o.includeShared ? '(Get-Date -Format o)' : '""'));
     lines.push('            LicensesRemoved       = $removedLicensesStr');
     lines.push('            AbsoluteFreezeRequests = $absFreezeStr');
+    lines.push('            TeramindRevoked       = $teramindResult');
     lines.push('            NoteLabel             = "Auto-run via Task Scheduler - $successCount OK steps"');
     lines.push('        }');
     lines.push('        Invoke-MgGraphRequest -Method PATCH -Uri "/v1.0/sites/$($wbSite.Id)/lists/$($wbList.Id)/items/$($item.id)/fields" -Body ($patchBody | ConvertTo-Json)');
@@ -5155,7 +5164,7 @@
       lines.push('                -DeviceUid $absDev.deviceUid `');
       lines.push('                -RequestTitle $freezeTitle `');
       lines.push('                -MessageUid "ffe8122b-ad78-4675-930e-2c02bc8c3578" `');
-      lines.push('                -NotificationEmails @("itdepartment@go.team")');
+      lines.push('                -NotificationEmails @("itnotificationalerts@go.team")');
       lines.push('            if ($freezeResult.Success) {');
       lines.push('                $ruid = $null');
       lines.push('                try { $ruid = $freezeResult.Content.data.requestUid } catch {}');
@@ -5179,6 +5188,46 @@
       lines.push('$absFreezeStr = ""');
       lines.push('');
     }
+    if (o.revokeTeramind) {
+      lines.push('# ===== Teramind revoke: unmonitor, clear department, delete user =====');
+      lines.push('# Looks up the TM in Teramind on-prem by email, PATCHes the agent record');
+      lines.push('# (flags |= 4096 to turn monitoring OFF, department_id = 0 to clear dept),');
+      lines.push('# then DELETEs the user. Depends on Teramind-Lib.ps1 + teramind-secret.xml');
+      lines.push('# + teramind-config.json provisioned on this PC.');
+      lines.push('$teramindResult = "skipped"');
+      lines.push('try {');
+      lines.push('    . "C:\\OffboardingTasks\\Teramind-Lib.ps1"');
+      lines.push('    Initialize-Teramind');
+      lines.push('    $tmAgent = Find-TeramindAgentByEmail -Email $TM_UPN');
+      lines.push('    if (-not $tmAgent) { $tmAgent = Find-TeramindAgentByEmail -Email $TM_UPN -IncludeAllStates }');
+      lines.push('    if (-not $tmAgent) {');
+      lines.push('        $log += "[WARN] Teramind: no agent found for $TM_UPN - skipping"');
+      lines.push('        $teramindResult = "not-found"');
+      lines.push('    } else {');
+      lines.push('        $tmAgentId = $tmAgent.AgentId');
+      lines.push('        $log += "[INFO] Teramind agent found: id=$tmAgentId, dept=$($tmAgent.DepartmentName), monitored=$($tmAgent.Monitored)"');
+      lines.push('        $patchR = Disable-TeramindMonitoringAndClearDept -AgentId $tmAgentId');
+      lines.push('        if ($patchR.Success) {');
+      lines.push('            $log += "[OK] Teramind PATCH: monitor OFF + department cleared (HTTP $($patchR.Status))"');
+      lines.push('            $delR = Remove-TeramindAgent -AgentId $tmAgentId');
+      lines.push('            if ($delR.Success) {');
+      lines.push('                $log += "[OK] Teramind DELETE: agent $tmAgentId removed (HTTP $($delR.Status))"');
+      lines.push('                $teramindResult = "deleted (agentId=$tmAgentId)"');
+      lines.push('            } else {');
+      lines.push('                $log += "[FAIL] Teramind DELETE: HTTP $($delR.Status) - $($delR.Raw)"');
+      lines.push('                $teramindResult = "patched-but-delete-failed (agentId=$tmAgentId)"');
+      lines.push('            }');
+      lines.push('        } else {');
+      lines.push('            $log += "[FAIL] Teramind PATCH: HTTP $($patchR.Status) - $($patchR.Raw)"');
+      lines.push('            $teramindResult = "patch-failed (agentId=$tmAgentId)"');
+      lines.push('        }');
+      lines.push('    }');
+      lines.push('} catch { $log += "[FAIL] Teramind step setup: $_"; $teramindResult = "setup-failed" }');
+      lines.push('');
+    } else {
+      lines.push('$teramindResult = "skipped"');
+      lines.push('');
+    }
     lines.push('# ===== Remove directory role assignments (except Global Admin) =====');
     lines.push('try {');
     lines.push('    $assigns = Get-MgRoleManagementDirectoryRoleAssignment -Filter "principalId eq \'$TM_GRAPHID\'" -ErrorAction Stop');
@@ -5199,6 +5248,46 @@
     lines.push('# ===== End of execution — upload audit log and write back to dashboard =====');
     lines.push('Write-AuditLog $log');
     lines.push('$log | ForEach-Object { Write-Host $_ }');
+    lines.push('');
+    lines.push('# ===== Confirmation email =====');
+    lines.push('# Sends a professional summary email to IT so a human sees the result');
+    lines.push('# without having to open SharePoint. Uses the same app-only cert auth.');
+    lines.push('# Requires Mail.Send (Application) permission + admin consent on the app');
+    lines.push('# registration. "From" is the no-reply service mailbox (itnotificationalerts@go.team).');
+    lines.push('try {');
+    lines.push('    $okCount   = ($log | Where-Object { $_ -match "^\\[OK\\]" }).Count');
+    lines.push('    $failCount = ($log | Where-Object { $_ -match "^\\[FAIL\\]" }).Count');
+    lines.push('    $warnCount = ($log | Where-Object { $_ -match "^\\[WARN\\]" }).Count');
+    lines.push('    $manualCount = ($log | Where-Object { $_ -match "MANUAL ACTION REQUIRED" }).Count');
+    lines.push('    $deviceLines = $log | Where-Object { $_ -match "Disabled Entra device|Found .* corporate Windows device" }');
+    lines.push('    $devicesHtml = if ($deviceLines) { ($deviceLines | ForEach-Object { "<li>" + [System.Web.HttpUtility]::HtmlEncode($_) + "</li>" }) -join "" } else { "<li>None discovered</li>" }');
+    lines.push('    $freezeHtml = if ($absFreezeStr) { [System.Web.HttpUtility]::HtmlEncode($absFreezeStr) } else { "<em>Not requested for this offboarding.</em>" }');
+    lines.push('    $teramindHtml = [System.Web.HttpUtility]::HtmlEncode($teramindResult)');
+    lines.push('    $licensesHtml = if ($removedLicensesStr) { [System.Web.HttpUtility]::HtmlEncode($removedLicensesStr) } else { "<em>None</em>" }');
+    lines.push('    $overallStatus = if ($failCount -eq 0) { "Completed Successfully" } else { "Completed with $failCount Failure(s)" }');
+    lines.push('    $statusColor  = if ($failCount -eq 0) { "#059669" } else { "#dc2626" }');
+    lines.push('    $subject = "[GoTeam IT] Offboarding $overallStatus - $TM_NAME"');
+    lines.push('    $htmlBody = @"');
+    lines.push('<!DOCTYPE html>');
+    lines.push('<html><head><meta charset="utf-8"><style>body{font-family:-apple-system,Segoe UI,Arial,sans-serif;color:#111827;background:#f9fafb;padding:24px;margin:0}.card{background:#fff;max-width:640px;margin:0 auto;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,0.08);overflow:hidden}.header{background:linear-gradient(135deg,#1e40af 0%,#1d4ed8 100%);color:#fff;padding:28px 32px}.header h1{margin:0;font-size:20px;font-weight:700;letter-spacing:0.2px}.header .sub{margin-top:6px;font-size:13px;opacity:0.85}.status-bar{padding:14px 32px;font-size:14px;font-weight:600;color:#fff;background:$statusColor;display:flex;align-items:center;gap:8px}.body{padding:28px 32px}h2{font-size:14px;color:#374151;margin:0 0 10px;text-transform:uppercase;letter-spacing:0.6px;font-weight:700}.grid{display:grid;grid-template-columns:140px 1fr;gap:8px 16px;font-size:13.5px;line-height:1.6;margin-bottom:24px}.grid .k{color:#6b7280}.grid .v{color:#111827;font-weight:500}.section{border-top:1px solid #e5e7eb;padding-top:20px;margin-top:20px}.badge{display:inline-block;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;letter-spacing:0.3px}.b-ok{background:#d1fae5;color:#065f46}.b-fail{background:#fee2e2;color:#991b1b}.b-warn{background:#fef3c7;color:#92400e}.b-info{background:#dbeafe;color:#1e40af}ul{margin:4px 0 0 20px;padding:0;font-size:13px;color:#374151;line-height:1.7}.footer{padding:18px 32px;background:#f9fafb;color:#6b7280;font-size:11px;line-height:1.5;border-top:1px solid #e5e7eb}</style></head>');
+    lines.push('<body><div class="card"><div class="header"><h1>Offboarding Confirmation</h1><div class="sub">Automated workflow executed on $(Get-Date -Format "dddd, MMMM d, yyyy \\\"at\\\" HH:mm") PHT</div></div><div class="status-bar">$overallStatus</div><div class="body"><h2>Team Member</h2><div class="grid"><div class="k">Full Name</div><div class="v">$TM_NAME</div><div class="k">Email</div><div class="v">$TM_UPN</div><div class="k">Local Dep ID</div><div class="v">$LOCAL_DEP_ID</div></div><div class="section"><h2>Execution Summary</h2><div class="grid"><div class="k">OK Steps</div><div class="v"><span class="badge b-ok">$okCount</span></div><div class="k">Warnings</div><div class="v"><span class="badge b-warn">$warnCount</span></div><div class="k">Failures</div><div class="v"><span class="badge b-fail">$failCount</span></div><div class="k">Manual Follow-up</div><div class="v"><span class="badge b-info">$manualCount</span></div></div></div><div class="section"><h2>Microsoft 365</h2><div class="grid"><div class="k">Sign-in</div><div class="v">Blocked, all sessions revoked</div><div class="k">Licenses Removed</div><div class="v">$licensesHtml</div><div class="k">Groups</div><div class="v">Removed from all synced groups</div><div class="k">MFA Methods</div><div class="v">Removed (non-password)</div><div class="k">CA2 / CA3</div><div class="v">Cleared from Dynamic Distros</div><div class="k">Remarks</div><div class="v">Set to &quot;$REMARK&quot;</div></div></div><div class="section"><h2>Device Access</h2><div class="grid"><div class="k">Windows Devices</div><div class="v"><ul>$devicesHtml</ul></div><div class="k">Absolute Freeze</div><div class="v">$freezeHtml</div></div></div><div class="section"><h2>Teramind</h2><div class="grid"><div class="k">Result</div><div class="v">$teramindHtml</div></div></div><div class="section"><h2>Audit Trail</h2><div class="grid"><div class="k">Full Log</div><div class="v">Uploaded to SharePoint &rarr; <em>ITOperations / Offboarding Logs</em></div><div class="k">Dashboard Row</div><div class="v">Writeback complete to <em>GoTeam-Departures</em> (LocalId $LOCAL_DEP_ID)</div></div></div></div><div class="footer">This is an automated message from the GoTeam User Management System. No reply is required.<br>If any failure is listed above, review the full audit log in SharePoint and escalate as needed.<br>Generated by scheduled offboarding workflow &middot; $(hostname)</div></div></body></html>');
+    lines.push('"@');
+    lines.push('    Add-Type -AssemblyName System.Web -ErrorAction SilentlyContinue | Out-Null');
+    lines.push('    $mailBody = @{');
+    lines.push('        message = @{');
+    lines.push('            subject = $subject');
+    lines.push('            body    = @{ contentType = "HTML"; content = $htmlBody }');
+    lines.push('            toRecipients = @(@{ emailAddress = @{ address = "rudy.maneja@go.team" } })');
+    lines.push('        }');
+    lines.push('        saveToSentItems = $true');
+    lines.push('    }');
+    lines.push('    Invoke-MgGraphRequest -Method POST -Uri "/v1.0/users/itnotificationalerts@go.team/sendMail" -Body ($mailBody | ConvertTo-Json -Depth 10)');
+    lines.push('    Write-Host "[OK] Confirmation email sent to rudy.maneja@go.team"');
+    lines.push('} catch {');
+    lines.push('    Write-Host "[FAIL] Confirmation email: $_"');
+    lines.push('    try { Add-Content -Path $localPath -Value "[FAIL] Confirmation email: $_" -ErrorAction SilentlyContinue } catch {}');
+    lines.push('}');
+    lines.push('');
     lines.push('try { Stop-Transcript | Out-Null } catch {}');
     return lines.join('\r\n');
   }
