@@ -2255,6 +2255,7 @@
       { name: 'LicensesRemoved',   text: { allowMultipleLines: true } },
       { name: 'AbsoluteFreezeRequests', text: { allowMultipleLines: true } },
       { name: 'TeramindRevoked',   text: {} },
+      { name: 'TeramindComputersRevoked', text: { allowMultipleLines: true } },
       { name: 'SharedMailboxDone', boolean: {} },
       { name: 'SharedMailboxDoneAt', text: {} },
       { name: 'RemovedFromTrackerAt', text: {} },
@@ -4845,7 +4846,8 @@
       '    <li>Remove auth methods (MFA)</li>' +
       '    <li><strong style="color:#b45309;">Discover corporate Windows devices → disable each in Entra + Intune Force Sync</strong></li>' +
       '    <li><strong style="color:#7c2d12;">[Optional] Absolute OS Freeze each discovered device + flag firmware freeze for manual follow-up</strong></li>' +
-      '    <li><strong style="color:#065f46;">[Optional] Teramind: disable monitoring + clear department + delete user</strong></li>' +
+      '    <li><strong style="color:#065f46;">[Optional] Teramind user: disable monitoring + clear department + delete user</strong></li>' +
+      '    <li><strong style="color:#065f46;">[Optional] Teramind computer(s): disable monitoring + soft-delete each discovered device</strong></li>' +
       '    <li>Remove directory role assignments (except Global Admin)</li>' +
       '    <li>Set Remarks to "Separated" / "Recalled"</li>' +
       '    <li>Write results back to SharePoint GoTeam-Departures</li>' +
@@ -5023,6 +5025,7 @@
     lines.push('            LicensesRemoved       = $removedLicensesStr');
     lines.push('            AbsoluteFreezeRequests = $absFreezeStr');
     lines.push('            TeramindRevoked       = $teramindResult');
+    lines.push('            TeramindComputersRevoked = $teramindComputersStr');
     lines.push('            NoteLabel             = "Auto-run via Task Scheduler - $successCount OK steps"');
     lines.push('        }');
     lines.push('        Invoke-MgGraphRequest -Method PATCH -Uri "/v1.0/sites/$($wbSite.Id)/lists/$($wbList.Id)/items/$($item.id)/fields" -Body ($patchBody | ConvertTo-Json)');
@@ -5294,8 +5297,50 @@
       lines.push('    }');
       lines.push('} catch { $log += "[FAIL] Teramind step setup: $_"; $teramindResult = "setup-failed" }');
       lines.push('');
+      lines.push('# ===== Teramind: disable monitoring + soft-delete each corporate Windows device =====');
+      lines.push('# Mirrors the Absolute step: loop through the devices discovered from Entra,');
+      lines.push('# look each up in Teramind computers grid by hostname (case-insensitive),');
+      lines.push('# disable monitoring (POST /disable-monitoring) and soft-delete (PUT with');
+      lines.push('# deleted=2, is_deleted=true). Entra hostnames are upper-case, Teramind stores');
+      lines.push('# lower-case - the lib match is case-insensitive so this works out of the box.');
+      lines.push('$teramindComputerResults = @()');
+      lines.push('try {');
+      lines.push('    foreach ($dev in $discoveredDevices) {');
+      lines.push('        if (-not $dev.Name) { continue }');
+      lines.push('        try {');
+      lines.push('            $tmComp = Find-TeramindComputerByName -ComputerName $dev.Name');
+      lines.push('            if (-not $tmComp) {');
+      lines.push('                $log += "[WARN]   Teramind computer: no match for $($dev.Name)"');
+      lines.push('                $teramindComputerResults += "$($dev.Name)=not-found"');
+      lines.push('                continue');
+      lines.push('            }');
+      lines.push('            $compId = $tmComp.ComputerId');
+      lines.push('            $disR = Disable-TeramindComputerMonitoring -ComputerId $compId');
+      lines.push('            if ($disR.Success) {');
+      lines.push('                $delR = Remove-TeramindComputer -ComputerId $compId');
+      lines.push('                if ($delR.Success) {');
+      lines.push('                    $log += "[OK]   Teramind computer $($dev.Name) (id=$compId): monitor OFF + deleted"');
+      lines.push('                    $teramindComputerResults += "$($dev.Name)=deleted(id=$compId)"');
+      lines.push('                } else {');
+      lines.push('                    $log += "[FAIL]   Teramind computer $($dev.Name) delete: HTTP $($delR.Status)"');
+      lines.push('                    $teramindComputerResults += "$($dev.Name)=monitor-off-but-delete-failed(id=$compId)"');
+      lines.push('                }');
+      lines.push('            } else {');
+      lines.push('                $log += "[FAIL]   Teramind computer $($dev.Name) disable-monitoring: HTTP $($disR.Status)"');
+      lines.push('                $teramindComputerResults += "$($dev.Name)=disable-failed(id=$compId)"');
+      lines.push('            }');
+      lines.push('        } catch {');
+      lines.push('            $log += "[FAIL]   Teramind computer $($dev.Name): $_"');
+      lines.push('            $teramindComputerResults += "$($dev.Name)=exception"');
+      lines.push('        }');
+      lines.push('    }');
+      lines.push('    $log += "[OK] Teramind computers processed: $($teramindComputerResults.Count)"');
+      lines.push('} catch { $log += "[FAIL] Teramind computers step: $_" }');
+      lines.push('$teramindComputersStr = ($teramindComputerResults -join "; ")');
+      lines.push('');
     } else {
       lines.push('$teramindResult = "skipped"');
+      lines.push('$teramindComputersStr = ""');
       lines.push('');
     }
     lines.push('# ===== Remove directory role assignments (except Global Admin) =====');
@@ -5333,6 +5378,7 @@
     lines.push('    $devicesHtml = if ($deviceLines) { ($deviceLines | ForEach-Object { "<li>" + [System.Web.HttpUtility]::HtmlEncode($_) + "</li>" }) -join "" } else { "<li>None discovered</li>" }');
     lines.push('    $freezeHtml = if ($absFreezeStr) { [System.Web.HttpUtility]::HtmlEncode($absFreezeStr) } else { "<em>Not requested for this offboarding.</em>" }');
     lines.push('    $teramindHtml = [System.Web.HttpUtility]::HtmlEncode($teramindResult)');
+    lines.push('    $teramindComputersHtml = if ($teramindComputersStr) { [System.Web.HttpUtility]::HtmlEncode($teramindComputersStr) } else { "<em>No devices processed.</em>" }');
     lines.push('    $licensesHtml = if ($removedLicensesStr) { [System.Web.HttpUtility]::HtmlEncode($removedLicensesStr) } else { "<em>None</em>" }');
     lines.push('    $overallStatus = if ($failCount -eq 0) { "Completed Successfully" } else { "Completed with $failCount Failure(s)" }');
     lines.push('    $statusColor  = if ($failCount -eq 0) { "#059669" } else { "#dc2626" }');
@@ -5340,7 +5386,7 @@
     lines.push('    $htmlBody = @"');
     lines.push('<!DOCTYPE html>');
     lines.push('<html><head><meta charset="utf-8"><style>body{font-family:-apple-system,Segoe UI,Arial,sans-serif;color:#111827;background:#f9fafb;padding:24px;margin:0}.card{background:#fff;max-width:640px;margin:0 auto;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,0.08);overflow:hidden}.header{background:linear-gradient(135deg,#1e40af 0%,#1d4ed8 100%);color:#fff;padding:28px 32px}.header h1{margin:0;font-size:20px;font-weight:700;letter-spacing:0.2px}.header .sub{margin-top:6px;font-size:13px;opacity:0.85}.status-bar{padding:14px 32px;font-size:14px;font-weight:600;color:#fff;background:$statusColor;display:flex;align-items:center;gap:8px}.body{padding:28px 32px}h2{font-size:14px;color:#374151;margin:0 0 10px;text-transform:uppercase;letter-spacing:0.6px;font-weight:700}.grid{display:grid;grid-template-columns:140px 1fr;gap:8px 16px;font-size:13.5px;line-height:1.6;margin-bottom:24px}.grid .k{color:#6b7280}.grid .v{color:#111827;font-weight:500}.section{border-top:1px solid #e5e7eb;padding-top:20px;margin-top:20px}.badge{display:inline-block;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;letter-spacing:0.3px}.b-ok{background:#d1fae5;color:#065f46}.b-fail{background:#fee2e2;color:#991b1b}.b-warn{background:#fef3c7;color:#92400e}.b-info{background:#dbeafe;color:#1e40af}ul{margin:4px 0 0 20px;padding:0;font-size:13px;color:#374151;line-height:1.7}.footer{padding:18px 32px;background:#f9fafb;color:#6b7280;font-size:11px;line-height:1.5;border-top:1px solid #e5e7eb}</style></head>');
-    lines.push('<body><div class="card"><div class="header"><h1>Offboarding Confirmation</h1><div class="sub">Automated workflow executed on $(Get-Date -Format "dddd, MMMM d, yyyy \\\"at\\\" HH:mm") PHT</div></div><div class="status-bar">$overallStatus</div><div class="body"><h2>Team Member</h2><div class="grid"><div class="k">Full Name</div><div class="v">$TM_NAME</div><div class="k">Email</div><div class="v">$TM_UPN</div><div class="k">Local Dep ID</div><div class="v">$LOCAL_DEP_ID</div></div><div class="section"><h2>Execution Summary</h2><div class="grid"><div class="k">OK Steps</div><div class="v"><span class="badge b-ok">$okCount</span></div><div class="k">Warnings</div><div class="v"><span class="badge b-warn">$warnCount</span></div><div class="k">Failures</div><div class="v"><span class="badge b-fail">$failCount</span></div><div class="k">Manual Follow-up</div><div class="v"><span class="badge b-info">$manualCount</span></div></div></div><div class="section"><h2>Microsoft 365</h2><div class="grid"><div class="k">Sign-in</div><div class="v">Blocked, all sessions revoked</div><div class="k">Licenses Removed</div><div class="v">$licensesHtml</div><div class="k">Groups</div><div class="v">Removed from all synced groups</div><div class="k">MFA Methods</div><div class="v">Removed (non-password)</div><div class="k">CA2 / CA3</div><div class="v">Cleared from Dynamic Distros</div><div class="k">Remarks</div><div class="v">Set to &quot;$REMARK&quot;</div></div></div><div class="section"><h2>Device Access</h2><div class="grid"><div class="k">Windows Devices</div><div class="v"><ul>$devicesHtml</ul></div><div class="k">Absolute Freeze</div><div class="v">$freezeHtml</div></div></div><div class="section"><h2>Teramind</h2><div class="grid"><div class="k">Result</div><div class="v">$teramindHtml</div></div></div><div class="section"><h2>Audit Trail</h2><div class="grid"><div class="k">Full Log</div><div class="v">Uploaded to SharePoint &rarr; <em>ITOperations / Offboarding Logs</em></div><div class="k">Dashboard Row</div><div class="v">Writeback complete to <em>GoTeam-Departures</em> (LocalId $LOCAL_DEP_ID)</div></div></div></div><div class="footer">This is an automated message from the GoTeam User Management System. No reply is required.<br>If any failure is listed above, review the full audit log in SharePoint and escalate as needed.<br>Generated by scheduled offboarding workflow &middot; $(hostname)</div></div></body></html>');
+    lines.push('<body><div class="card"><div class="header"><h1>Offboarding Confirmation</h1><div class="sub">Automated workflow executed on $(Get-Date -Format "dddd, MMMM d, yyyy \\\"at\\\" HH:mm") PHT</div></div><div class="status-bar">$overallStatus</div><div class="body"><h2>Team Member</h2><div class="grid"><div class="k">Full Name</div><div class="v">$TM_NAME</div><div class="k">Email</div><div class="v">$TM_UPN</div><div class="k">Local Dep ID</div><div class="v">$LOCAL_DEP_ID</div></div><div class="section"><h2>Execution Summary</h2><div class="grid"><div class="k">OK Steps</div><div class="v"><span class="badge b-ok">$okCount</span></div><div class="k">Warnings</div><div class="v"><span class="badge b-warn">$warnCount</span></div><div class="k">Failures</div><div class="v"><span class="badge b-fail">$failCount</span></div><div class="k">Manual Follow-up</div><div class="v"><span class="badge b-info">$manualCount</span></div></div></div><div class="section"><h2>Microsoft 365</h2><div class="grid"><div class="k">Sign-in</div><div class="v">Blocked, all sessions revoked</div><div class="k">Licenses Removed</div><div class="v">$licensesHtml</div><div class="k">Groups</div><div class="v">Removed from all synced groups</div><div class="k">MFA Methods</div><div class="v">Removed (non-password)</div><div class="k">CA2 / CA3</div><div class="v">Cleared from Dynamic Distros</div><div class="k">Remarks</div><div class="v">Set to &quot;$REMARK&quot;</div></div></div><div class="section"><h2>Device Access</h2><div class="grid"><div class="k">Windows Devices</div><div class="v"><ul>$devicesHtml</ul></div><div class="k">Absolute Freeze</div><div class="v">$freezeHtml</div></div></div><div class="section"><h2>Teramind</h2><div class="grid"><div class="k">User</div><div class="v">$teramindHtml</div><div class="k">Computer(s)</div><div class="v">$teramindComputersHtml</div></div></div><div class="section"><h2>Audit Trail</h2><div class="grid"><div class="k">Full Log</div><div class="v">Uploaded to SharePoint &rarr; <em>ITOperations / Offboarding Logs</em></div><div class="k">Dashboard Row</div><div class="v">Writeback complete to <em>GoTeam-Departures</em> (LocalId $LOCAL_DEP_ID)</div></div></div></div><div class="footer">This is an automated message from the GoTeam User Management System. No reply is required.<br>If any failure is listed above, review the full audit log in SharePoint and escalate as needed.<br>Generated by scheduled offboarding workflow &middot; $(hostname)</div></div></body></html>');
     lines.push('"@');
     lines.push('    Add-Type -AssemblyName System.Web -ErrorAction SilentlyContinue | Out-Null');
     lines.push('    $mailBody = @{');
