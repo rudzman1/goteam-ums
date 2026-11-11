@@ -2256,6 +2256,8 @@
       { name: 'AbsoluteFreezeRequests', text: { allowMultipleLines: true } },
       { name: 'TeramindRevoked',   text: {} },
       { name: 'TeramindComputersRevoked', text: { allowMultipleLines: true } },
+      { name: 'AnvizRevoked',      text: {} },
+      { name: 'FortiVpnRevoked',   text: {} },
       { name: 'SharedMailboxDone', boolean: {} },
       { name: 'SharedMailboxDoneAt', text: {} },
       { name: 'RemovedFromTrackerAt', text: {} },
@@ -4692,15 +4694,24 @@
     const eligible = selected.filter(d => (d.employeeEmail || '').trim() && (d.effectiveDate || d.lastDay || ''));
     const skippedNoEmail = selected.length - eligible.length;
     if (eligible.length === 0) { alert('None of the selected departures have both Employee Email and Effective Date set.'); return; }
-    if (!confirm(
+    // Bulk defaults - match the single-TM modal's checkbox defaults, but with
+    // Absolute freeze OFF by default (bulk is riskier, admin should opt-in explicitly).
+    const bulkFreeze = confirm(
       'Bulk Schedule Offboarding for ' + eligible.length + ' TM(s)?\n\n' +
       (skippedNoEmail > 0 ? '(Skipping ' + skippedNoEmail + ' row(s) missing email or effective date)\n\n' : '') +
-      'For each TM the dashboard will:\n' +
-      '  1. Read CA3 from Entra to determine shift (Morning → 06:00, Night → 22:00, else prompt)\n' +
-      '  2. Generate a Revoke-<name>-<trigger>.ps1 and matching .xml\n' +
-      '  3. Download them to your browser downloads folder\n\n' +
-      'You still need to copy the files to C:\\OffboardingTasks on the biometrics PC and import each .xml into Task Scheduler.\n\n' +
-      'Continue?'
+      'Per-TM steps that will fire:\n' +
+      '  • M365 revoke (owned-objects transfer + sign-in + licenses + groups + MFA + CA2/CA3 + Remarks + manager)\n' +
+      '  • Entra device disable + Intune Force Sync\n' +
+      '  • Teramind user + computer delete (ON by default)\n' +
+      '  • CrossChex biometric de-authorize (ON by default, uses Employee ID as User No.)\n' +
+      '  • SharePoint writeback + confirmation email\n\n' +
+      '>>> Include ABSOLUTE OS FREEZE for every TM in this batch? <<<\n\n' +
+      'OK = include freeze.    Cancel (or dismiss) = skip freeze (M365+Teramind+CrossChex still run).'
+    );
+    // Second confirm so we can distinguish "skip freeze but continue" from "abort entirely"
+    if (!confirm(
+      'Proceed with bulk schedule for ' + eligible.length + ' TM(s)?' + (bulkFreeze ? '\n\nAbsolute freeze: INCLUDED' : '\n\nAbsolute freeze: SKIPPED') + '\n\n' +
+      'Click OK to generate all .ps1 + .xml files now, Cancel to abort.'
     )) return;
 
     showToast('Processing ' + eligible.length + ' TM(s)… watch the downloads folder.');
@@ -4741,8 +4752,17 @@
       const remark = _tox.indexOf('recall') > -1 ? 'Recalled' : 'Separated';
       const safeNameForFile = (d.name || '').replace(/[^\w]+/g, '-').replace(/^-|-$/g, '').toLowerCase() || 'tm';
       const stamp = triggerDt.replace(/[-:]/g, '').replace('T', '-');
+      // Bulk defaults - match the single-TM modal's default checkbox state.
+      // biometricUserNo falls back to employeeId (common case). For TMs where CrossChex
+      // uses a different User No., the worker's UserCode -> userid auto-resolve handles it,
+      // and TMs not in CrossChex at all get the benign "not-in-crosschex" result.
       const ps1 = buildOffboardingPowerShell({
         tmName: d.name, upn, graphUserId: user.id, isInternal, includeShared,
+        freezeAbsolute: bulkFreeze,
+        revokeTeramind:  true,
+        revokeBiometric: true,
+        biometricUserNo: (d.employeeId || '').toString().trim(),
+        revokeFortiVpn:  true,
         coachUpn: (d.leadershipCoachEmail || '').trim(),
         coachName: (d.leadershipCoach || '').trim(),
         remark, effectiveDate: effIso,
@@ -4763,6 +4783,11 @@
       await new Promise(r => setTimeout(r, 200));
       d.scheduledOffboardingAt = triggerDt;
       d.scheduledIncludeShared = includeShared;
+      d.scheduledFreezeAbsolute = bulkFreeze;
+      d.scheduledRevokeTeramind = true;
+      d.scheduledRevokeBiometric = true;
+      d.scheduledRevokeFortiVpn = true;
+      if (!d.biometricUserNo) d.biometricUserNo = (d.employeeId || '').toString().trim();
       results.ok++;
     }
     save();
@@ -4831,10 +4856,17 @@
       '  <div><input type="checkbox" id="scheduleFreezeAbsolute" /> <span style="font-size:12px;color:var(--muted);">Submits an OS-level On-Demand Freeze to Absolute for each discovered corporate Windows device. Firmware-level freeze still requires the Absolute console (API limitation) — the script will log a MANUAL ACTION REQUIRED line so IT can escalate.</span></div>' +
       '  <label style="color:var(--muted);">Revoke Teramind access:</label>' +
       '  <div><input type="checkbox" id="scheduleRevokeTeramind" checked /> <span style="font-size:12px;color:var(--muted);">Looks up the TM in Teramind by email, disables monitoring (flags bit 12), clears the department, then deletes the user. Destructive — no recovery via the script.</span></div>' +
+      '  <label style="color:var(--muted);">Revoke biometric access:</label>' +
+      '  <div style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="scheduleRevokeBiometric" checked /> <span style="font-size:12px;color:var(--muted);">De-authorize from all Anviz devices. CrossChex record stays for audit.</span></div>' +
+      '  <label style="color:var(--muted);">Revoke FortiGate VPN:</label>' +
+      '  <div style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="scheduleRevokeFortiVpn" checked /> <span style="font-size:12px;color:var(--muted);">Flags [MANUAL ACTION REQUIRED] in the audit log + confirmation email. API automation is on hold pending FortiOS 7.4.13 investigation. IT disables the local user in FortiGate GUI (System &rarr; Administrators &rarr; User Definition) as part of the offboarding checklist.</span></div>' +
+      '  <label style="color:var(--muted);">CrossChex User No.:</label>' +
+      '  <div style="display:flex;align-items:center;gap:8px;"><input type="text" id="scheduleBiometricUserNo" value="' + escapeHtml(d.employeeId || '') + '" placeholder="e.g. 4111" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;width:160px;" /> <span style="font-size:12px;color:var(--muted);">Defaults to Employee ID. Override here if CrossChex uses a different number for this TM.</span></div>' +
       '</div>' +
       '<div style="margin-top:14px;background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:12px;font-size:11px;line-height:1.6;">' +
       '  <strong>Execution sequence' + (isInternal ? ' (Internal — conversion first)' : '') + ':</strong>' +
       '  <ol style="margin:4px 0 0 18px;padding:0;color:var(--muted);">' +
+      '    <li><strong style="color:#92400e;">Transfer owned directory objects (groups &rarr; Leadership Coach; apps/SPs &rarr; itnotificationalerts@go.team parking, flagged for manual review)</strong></li>' +
       '    <li>Block sign-in</li>' +
       '    <li>Revoke all sessions</li>' +
       (isInternal ? '    <li><strong style="color:#1d4ed8;">Convert mailbox to Shared</strong></li>' +
@@ -4843,11 +4875,14 @@
       '    <li>Remove from all groups</li>' +
       '    <li>Remove all licenses</li>' +
       '    <li>Clear CA2 + CA3 (removed from Dynamic Distros)</li>' +
+      '    <li>Clear manager relationship (keeps manager\'s org chart clean in Outlook/Teams/Delve)</li>' +
       '    <li>Remove auth methods (MFA)</li>' +
       '    <li><strong style="color:#b45309;">Discover corporate Windows devices → disable each in Entra + Intune Force Sync</strong></li>' +
       '    <li><strong style="color:#7c2d12;">[Optional] Absolute OS Freeze each discovered device + flag firmware freeze for manual follow-up</strong></li>' +
       '    <li><strong style="color:#065f46;">[Optional] Teramind user: disable monitoring + clear department + delete user</strong></li>' +
       '    <li><strong style="color:#065f46;">[Optional] Teramind computer(s): disable monitoring + soft-delete each discovered device</strong></li>' +
+      '    <li><strong style="color:#92400e;">[Optional] CrossChex: DELETE UserPower rows, then auto-restart CrossChex so it reloads the DB and pushes the deletion to physical devices</strong></li>' +
+      '    <li><strong style="color:#92400e;">[Optional] FortiGate VPN: [MANUAL ACTION REQUIRED] IT disables the local user in FortiGate GUI (automation on hold)</strong></li>' +
       '    <li>Remove directory role assignments (except Global Admin)</li>' +
       '    <li>Set Remarks to "Separated" / "Recalled"</li>' +
       '    <li>Write results back to SharePoint GoTeam-Departures</li>' +
@@ -4870,6 +4905,9 @@
     const includeShared = document.getElementById('scheduleIncludeShared').checked;
     const freezeAbsolute = document.getElementById('scheduleFreezeAbsolute').checked;
     const revokeTeramind = document.getElementById('scheduleRevokeTeramind').checked;
+    const revokeBiometric = document.getElementById('scheduleRevokeBiometric').checked;
+    const revokeFortiVpn = document.getElementById('scheduleRevokeFortiVpn').checked;
+    const biometricUserNo = (document.getElementById('scheduleBiometricUserNo').value || '').trim();
 
     // Determine remark based on type of exit (same logic as manual Revoke)
     const _tox = String(d.typeOfExit || d.reason || '').toLowerCase();
@@ -4886,6 +4924,9 @@
       includeShared,
       freezeAbsolute,
       revokeTeramind,
+      revokeBiometric,
+      biometricUserNo,
+      revokeFortiVpn,
       coachUpn: (d.leadershipCoachEmail || '').trim(),
       coachName: (d.leadershipCoach || '').trim(),
       remark,
@@ -4911,6 +4952,9 @@
     d.scheduledIncludeShared = includeShared;
     d.scheduledFreezeAbsolute = freezeAbsolute;
     d.scheduledRevokeTeramind = revokeTeramind;
+    d.scheduledRevokeBiometric = revokeBiometric;
+    d.scheduledRevokeFortiVpn = revokeFortiVpn;
+    d.biometricUserNo = biometricUserNo;  // persisted so next schedule remembers the override
     save();
     renderDepartures();
     closeModal('scheduleOffboardingModal');
@@ -4981,6 +5025,7 @@
     lines.push('    $filename = ("{0}-{1:yyyyMMdd-HHmmss}.log" -f ($TM_NAME -replace "[^\\w]+","-"), (Get-Date))');
     lines.push('    $content  = $lines -join "`r`n"');
     lines.push('    $localPath = "C:\\OffboardingTasks\\logs\\$filename"');
+    lines.push('    $script:AuditLogPath = $localPath  # expose to callers after this function returns');
     lines.push('    # ALWAYS write local file first so there is a record even if SharePoint fails');
     lines.push('    try {');
     lines.push('        New-Item -ItemType Directory -Path (Split-Path $localPath) -Force | Out-Null');
@@ -5026,6 +5071,8 @@
     lines.push('            AbsoluteFreezeRequests = $absFreezeStr');
     lines.push('            TeramindRevoked       = $teramindResult');
     lines.push('            TeramindComputersRevoked = $teramindComputersStr');
+    lines.push('            AnvizRevoked          = $anvizResult');
+    lines.push('            FortiVpnRevoked       = $fortiVpnResult');
     lines.push('            NoteLabel             = "Auto-run via Task Scheduler - $successCount OK steps"');
     lines.push('        }');
     lines.push('        Invoke-MgGraphRequest -Method PATCH -Uri "/v1.0/sites/$($wbSite.Id)/lists/$($wbList.Id)/items/$($item.id)/fields" -Body ($patchBody | ConvertTo-Json)');
@@ -5051,13 +5098,99 @@
     lines.push('    Import-Module Microsoft.Graph.Identity.SignIns -ErrorAction Stop  # Get-MgUserAuthenticationMethod');
     lines.push('    Import-Module Microsoft.Graph.Identity.Governance -ErrorAction Stop  # Role Management cmdlets');
     lines.push('    Import-Module Microsoft.Graph.Sites -ErrorAction Stop  # SharePoint writeback');
-    if (o.includeShared) lines.push('    Import-Module ExchangeOnlineManagement -ErrorAction Stop');
+    // Always import + connect Exchange Online, even when the mailbox-convert step is skipped.
+    // Needed for the distribution-list fallback in the group-removal step (mail-only DLs
+    // can't be modified through Graph - Microsoft reserves them for Exchange Online).
+    lines.push('    Import-Module ExchangeOnlineManagement -ErrorAction Stop');
     lines.push('    Connect-MgGraph -TenantId $AUTH_TENANT -ClientId $AUTH_CLIENT -CertificateThumbprint $AUTH_THUMB -NoWelcome -ErrorAction Stop');
-    if (o.includeShared) lines.push('    Connect-ExchangeOnline -AppId $AUTH_CLIENT -CertificateThumbprint $AUTH_THUMB -Organization $AUTH_EXO -ShowBanner:$false -ErrorAction Stop');
-    lines.push('    $log += "[OK] Connected to Graph (AppOnly cert)" + $(if ($' + o.includeShared + ') { " + ExO" } else { "" })');
+    lines.push('    Connect-ExchangeOnline -AppId $AUTH_CLIENT -CertificateThumbprint $AUTH_THUMB -Organization $AUTH_EXO -ShowBanner:$false -ErrorAction Stop');
+    lines.push('    $log += "[OK] Connected to Graph (AppOnly cert) + ExO"');
     lines.push('} catch {');
     lines.push('    $log += "[FAIL] Auth: $_"');
     lines.push('    Write-AuditLog $log; exit 1');
+    lines.push('}');
+    lines.push('');
+    lines.push('# ===== Step 0: Transfer owned directory objects (BEFORE sign-in block) =====');
+    lines.push('# Entra forbids a User.ReadWrite.All service principal from disabling a user who');
+    lines.push('# owns ANY directory object (groups, apps, SPs). If skipped, Step 1 fails with');
+    lines.push('# Authorization_RequestDenied. Transfer pattern per owned object type:');
+    lines.push('#   - Group               => Leadership Coach (keep the group)');
+    lines.push('#   - App Registration    => parked on itnotificationalerts@go.team, flagged for manual review+delete');
+    lines.push('#   - Service Principal   => parked on itnotificationalerts@go.team, flagged for manual review (NEVER auto-delete)');
+    lines.push('#   - Other               => MANUAL ACTION REQUIRED, skip');
+    lines.push('$ownedTransferStr = "not processed"');
+    lines.push('try {');
+    lines.push('    $owned = @((Invoke-MgGraphRequest -Method GET -Uri "/v1.0/users/$TM_GRAPHID/ownedObjects" -ErrorAction Stop).value)');
+    lines.push('    if (-not $owned -or $owned.Count -eq 0) {');
+    lines.push('        $log += "[OK] 0/N Owned objects: none to transfer"');
+    lines.push('        $ownedTransferStr = "none"');
+    lines.push('    } else {');
+    lines.push('        $ownedResults = @()');
+    lines.push('        # Resolve Leadership Coach + Parking owner objectIds up front');
+    lines.push('        $coachId = $null');
+    lines.push('        if ($COACH_UPN) {');
+    lines.push('            try { $coachId = (Invoke-MgGraphRequest -Method GET -Uri ("/v1.0/users/" + $COACH_UPN + "?`$select=id") -ErrorAction Stop).id } catch { }');
+    lines.push('        }');
+    lines.push('        $parkUpn = "itnotificationalerts@go.team"');
+    lines.push('        $parkId = $null');
+    lines.push('        try { $parkId = (Invoke-MgGraphRequest -Method GET -Uri ("/v1.0/users/" + $parkUpn + "?`$select=id") -ErrorAction Stop).id } catch { }');
+    lines.push('        foreach ($o in $owned) {');
+    lines.push('            $odType = $o."@odata.type"');
+    lines.push('            $oName = if ($o.displayName) { $o.displayName } else { "(unnamed)" }');
+    lines.push('            try {');
+    lines.push('                if ($odType -eq "#microsoft.graph.group") {');
+    lines.push('                    if (-not $coachId) {');
+    lines.push('                        $log += "[MANUAL ACTION REQUIRED] Group ' + "'" + '$oName' + "'" + ': no Leadership Coach on record; transfer owner manually"');
+    lines.push('                        $ownedResults += "group ' + "'" + '$oName' + "'" + ' -> MANUAL (no coach)"');
+    lines.push('                        continue');
+    lines.push('                    }');
+    lines.push('                    $addBody = @{ "@odata.id" = "https://graph.microsoft.com/v1.0/users/$coachId" } | ConvertTo-Json');
+    lines.push('                    Invoke-MgGraphRequest -Method POST -Uri ("/v1.0/groups/" + $o.id + "/owners/`$ref") -Body $addBody -ContentType "application/json" -ErrorAction Stop');
+    lines.push('                    Invoke-MgGraphRequest -Method DELETE -Uri ("/v1.0/groups/" + $o.id + "/owners/" + $TM_GRAPHID + "/`$ref") -ErrorAction Stop');
+    lines.push('                    $log += "[OK] Group ' + "'" + '$oName' + "'" + ' transferred to $COACH_UPN"');
+    lines.push('                    $ownedResults += "group ' + "'" + '$oName' + "'" + ' -> $COACH_UPN"');
+    lines.push('                }');
+    lines.push('                elseif ($odType -eq "#microsoft.graph.application") {');
+    lines.push('                    if (-not $parkId) {');
+    lines.push('                        $log += "[MANUAL ACTION REQUIRED] App ' + "'" + '$oName' + "'" + ': parking account unavailable; transfer owner manually"');
+    lines.push('                        $ownedResults += "app ' + "'" + '$oName' + "'" + ' -> MANUAL (no park)"');
+    lines.push('                        continue');
+    lines.push('                    }');
+    lines.push('                    $addBody = @{ "@odata.id" = "https://graph.microsoft.com/v1.0/directoryObjects/$parkId" } | ConvertTo-Json');
+    lines.push('                    Invoke-MgGraphRequest -Method POST -Uri ("/v1.0/applications/" + $o.id + "/owners/`$ref") -Body $addBody -ContentType "application/json" -ErrorAction Stop');
+    lines.push('                    Invoke-MgGraphRequest -Method DELETE -Uri ("/v1.0/applications/" + $o.id + "/owners/" + $TM_GRAPHID + "/`$ref") -ErrorAction Stop');
+    lines.push('                    $log += "[OK] App registration ' + "'" + '$oName' + "'" + ' parked on $parkUpn"');
+    lines.push('                    $log += "[MANUAL ACTION REQUIRED] Review and delete orphaned app ' + "'" + '$oName' + "'" + ' (now parked on $parkUpn)"');
+    lines.push('                    $ownedResults += "app ' + "'" + '$oName' + "'" + ' -> parked (review/delete)"');
+    lines.push('                }');
+    lines.push('                elseif ($odType -eq "#microsoft.graph.servicePrincipal") {');
+    lines.push('                    if (-not $parkId) {');
+    lines.push('                        $log += "[MANUAL ACTION REQUIRED] SP ' + "'" + '$oName' + "'" + ': parking account unavailable; transfer owner manually"');
+    lines.push('                        $ownedResults += "sp ' + "'" + '$oName' + "'" + ' -> MANUAL (no park)"');
+    lines.push('                        continue');
+    lines.push('                    }');
+    lines.push('                    $addBody = @{ "@odata.id" = "https://graph.microsoft.com/v1.0/directoryObjects/$parkId" } | ConvertTo-Json');
+    lines.push('                    Invoke-MgGraphRequest -Method POST -Uri ("/v1.0/servicePrincipals/" + $o.id + "/owners/`$ref") -Body $addBody -ContentType "application/json" -ErrorAction Stop');
+    lines.push('                    Invoke-MgGraphRequest -Method DELETE -Uri ("/v1.0/servicePrincipals/" + $o.id + "/owners/" + $TM_GRAPHID + "/`$ref") -ErrorAction Stop');
+    lines.push('                    $log += "[OK] Service principal ' + "'" + '$oName' + "'" + ' parked on $parkUpn"');
+    lines.push('                    $log += "[MANUAL ACTION REQUIRED] Review orphaned SP ' + "'" + '$oName' + "'" + ' (now parked on $parkUpn) - do NOT delete without verifying no active SaaS integration"');
+    lines.push('                    $ownedResults += "sp ' + "'" + '$oName' + "'" + ' -> parked (review ONLY)"');
+    lines.push('                }');
+    lines.push('                else {');
+    lines.push('                    $log += "[MANUAL ACTION REQUIRED] Owned object ' + "'" + '$oName' + "'" + ' (type=$odType): unsupported auto-transfer type"');
+    lines.push('                    $ownedResults += "' + "'" + '$oName' + "'" + ' (type=$odType) -> MANUAL"');
+    lines.push('                }');
+    lines.push('            } catch {');
+    lines.push('                $log += "[FAIL] Owned object transfer ' + "'" + '$oName' + "'" + ' ($odType): $_"');
+    lines.push('                $ownedResults += "' + "'" + '$oName' + "'" + ' -> FAILED"');
+    lines.push('            }');
+    lines.push('        }');
+    lines.push('        $ownedTransferStr = ($ownedResults -join "; ")');
+    lines.push('        $log += "[OK] 0/N Owned objects processed: $($owned.Count)"');
+    lines.push('    }');
+    lines.push('} catch {');
+    lines.push('    $log += "[FAIL] 0/N Owned objects enumeration: $_"');
+    lines.push('    $ownedTransferStr = "enumeration failed"');
     lines.push('}');
     lines.push('');
     lines.push('# ===== Step 1: Block sign-in =====');
@@ -5102,10 +5235,39 @@
       lines.push('');
     }
     lines.push('# ===== Remove from all groups =====');
+    lines.push('# Graph DELETE handles Security Groups and M365 (Unified) Groups.');
+    lines.push('# Exchange Distribution Lists (mailEnabled=True, securityEnabled=False, not Unified)');
+    lines.push('# cannot be modified via Graph - Microsoft reserves those for Exchange Online.');
+    lines.push('# Fallback: if Graph DELETE fails AND the group is a DL AND ExO is connected,');
+    lines.push('# retry with Remove-DistributionGroupMember. Anything still unremoved after both');
+    lines.push('# paths is logged as MANUAL ACTION REQUIRED so IT can handle it.');
     lines.push('try {');
-    lines.push('    $grps = Get-MgUserMemberOfAsGroup -UserId $TM_GRAPHID -ErrorAction Stop');
+    lines.push('    $grps = Get-MgUserMemberOfAsGroup -UserId $TM_GRAPHID -All -ErrorAction Stop');
     lines.push('    $gok = 0');
-    lines.push('    foreach ($g in $grps) { try { Remove-MgGroupMemberByRef -GroupId $g.Id -DirectoryObjectId $TM_GRAPHID -ErrorAction Stop; $gok++ } catch {} }');
+    lines.push('    $dlFallback = 0');
+    lines.push('    $dlManual = @()');
+    lines.push('    foreach ($g in $grps) {');
+    lines.push('        $isDl = $g.MailEnabled -and -not $g.SecurityEnabled -and ($g.GroupTypes -notcontains "Unified")');
+    lines.push('        $removed = $false');
+    lines.push('        try {');
+    lines.push('            Remove-MgGroupMemberByRef -GroupId $g.Id -DirectoryObjectId $TM_GRAPHID -ErrorAction Stop');
+    lines.push('            $removed = $true');
+    lines.push('        } catch { }');
+    lines.push('        if (-not $removed -and $isDl) {');
+    lines.push('            try {');
+    lines.push('                Remove-DistributionGroupMember -Identity $g.Id -Member $TM_UPN -Confirm:$false -BypassSecurityGroupManagerCheck -ErrorAction Stop');
+    lines.push('                $removed = $true');
+    lines.push('                $dlFallback++');
+    lines.push('            } catch {');
+    lines.push('                $dlManual += $g.DisplayName');
+    lines.push('            }');
+    lines.push('        }');
+    lines.push('        if ($removed) { $gok++ }');
+    lines.push('    }');
+    lines.push('    if ($dlFallback -gt 0) { $log += "[OK] Group removal: $dlFallback distribution list(s) removed via Exchange Online fallback" }');
+    lines.push('    foreach ($dlName in $dlManual) {');
+    lines.push('        $log += "[MANUAL ACTION REQUIRED] Distribution list ' + "'" + '$dlName' + "'" + ' - remove ' + "'" + '$TM_UPN' + "'" + ' manually (Exchange admin > Recipients > Groups)"');
+    lines.push('    }');
     lines.push('    $log += "[OK] Removed from $gok/$($grps.Count) group(s)"');
     lines.push('} catch { $log += "[FAIL] Group removal: $_" }');
     lines.push('');
@@ -5124,8 +5286,38 @@
     lines.push('            }');
     lines.push('            $removedLicensesStr = ($removedNames -join ", ")');
     lines.push('        } catch { $removedLicensesStr = ($skuIds -join ", ") }');
-    lines.push('        Set-MgUserLicense -UserId $TM_GRAPHID -AddLicenses @() -RemoveLicenses $skuIds -ErrorAction Stop | Out-Null');
-    lines.push('        $log += "[OK] Removed $($skuIds.Count) license(s): $removedLicensesStr"');
+    lines.push('        # Some licenses are group-inherited (assignmentState=ActiveFromGroup). Those were');
+    lines.push('        # already removed when we removed the user from the group above. Attempting a direct');
+    lines.push('        # removal on an inherited license returns 400 "cannot be removed directly from the user".');
+    lines.push('        # Filter down to DIRECT-assigned licenses only; if the result is empty, the group');
+    lines.push('        # removal already handled the whole set and we log success.');
+    lines.push('        $directSkuIds = @()');
+    lines.push('        try {');
+    lines.push('            $licState = Get-MgUser -UserId $TM_GRAPHID -Property LicenseAssignmentStates -ErrorAction Stop');
+    lines.push('            foreach ($s in ($licState.LicenseAssignmentStates | Where-Object { $_.AssignedByGroup -eq $null -or $_.AssignedByGroup -eq "" })) {');
+    lines.push('                if ($s.SkuId -and $skuIds -contains $s.SkuId) { $directSkuIds += $s.SkuId }');
+    lines.push('            }');
+    lines.push('        } catch { $directSkuIds = $skuIds }  # fallback: attempt all');
+    lines.push('        if ($directSkuIds.Count -eq 0) {');
+    lines.push('            $log += "[OK] Removed $($skuIds.Count) license(s) via group removal: $removedLicensesStr"');
+    lines.push('        } else {');
+    lines.push('            try {');
+    lines.push('                Set-MgUserLicense -UserId $TM_GRAPHID -AddLicenses @() -RemoveLicenses $directSkuIds -ErrorAction Stop | Out-Null');
+    lines.push('                $log += "[OK] Removed $($skuIds.Count) license(s): $removedLicensesStr"');
+    lines.push('            } catch {');
+    lines.push('                # If the direct call still fails with the inherited error, re-check if the user');
+    lines.push('                # actually has any licenses left. If none, treat as success (group removal did it).');
+    lines.push('                $errMsg = "$_"');
+    lines.push('                if ($errMsg -match "inherited from a group membership") {');
+    lines.push('                    try {');
+    lines.push('                        $uPost = Get-MgUser -UserId $TM_GRAPHID -Property AssignedLicenses -ErrorAction Stop');
+    lines.push('                        if (($uPost.AssignedLicenses | Measure-Object).Count -eq 0) {');
+    lines.push('                            $log += "[OK] Removed $($skuIds.Count) license(s) via group removal: $removedLicensesStr"');
+    lines.push('                        } else { $log += "[FAIL] License removal (partial): $errMsg" }');
+    lines.push('                    } catch { $log += "[FAIL] License removal: $errMsg" }');
+    lines.push('                } else { $log += "[FAIL] License removal: $errMsg" }');
+    lines.push('            }');
+    lines.push('        }');
     lines.push('    } else { $log += "[OK] No licenses to remove" }');
     lines.push('} catch { $log += "[FAIL] License removal: $_" }');
     lines.push('');
@@ -5135,6 +5327,28 @@
     lines.push('    Update-MgUser -UserId $TM_GRAPHID -OnPremisesExtensionAttributes $extAttrs -ErrorAction Stop');
     lines.push('    $log += "[OK] CA2 + CA3 cleared, Remarks = $REMARK"');
     lines.push('} catch { $log += "[FAIL] Clear CA2/CA3 / Remarks: $_" }');
+    lines.push('');
+    lines.push('# ===== Clear manager (org chart hygiene) =====');
+    lines.push('# Entra\'s manager property is bidirectional - if it stays set after offboarding,');
+    lines.push('# the leaver keeps appearing under "People reporting to <manager>" in Outlook,');
+    lines.push('# Teams, Delve, and SharePoint. Clearing it keeps the manager\'s org chart clean.');
+    lines.push('# The prior manager is captured in the audit log in case rehire / dispute requires it.');
+    lines.push('try {');
+    lines.push('    $priorManager = $null');
+    lines.push('    try {');
+    lines.push('        $mgrResp = Invoke-MgGraphRequest -Method GET -Uri "/v1.0/users/$TM_GRAPHID/manager" -ErrorAction Stop');
+    lines.push('        $priorManager = $mgrResp.displayName');
+    lines.push('    } catch {');
+    lines.push('        # 404 Not Found means no manager was set - nothing to clear.');
+    lines.push('        $priorManager = $null');
+    lines.push('    }');
+    lines.push('    if ($priorManager) {');
+    lines.push('        Invoke-MgGraphRequest -Method DELETE -Uri "/v1.0/users/$TM_GRAPHID/manager/`$ref" -ErrorAction Stop');
+    lines.push('        $log += "[OK] Manager cleared (was: $priorManager)"');
+    lines.push('    } else {');
+    lines.push('        $log += "[OK] Manager: none set, nothing to clear"');
+    lines.push('    }');
+    lines.push('} catch { $log += "[FAIL] Clear manager: $_" }');
     lines.push('');
     lines.push('# ===== Remove auth methods (MFA) =====');
     lines.push('try {');
@@ -5237,7 +5451,10 @@
       lines.push('                -DeviceUid $absDev.deviceUid `');
       lines.push('                -RequestTitle $freezeTitle `');
       lines.push('                -MessageUid "ffe8122b-ad78-4675-930e-2c02bc8c3578" `');
-      lines.push('                -NotificationEmails @("itnotificationalerts@go.team")');
+      // TESTING PHASE: send freeze notifications to rudy.maneja@go.team.
+      // PRODUCTION: swap the string below to "itdepartment@go.team" when IT
+      // is ready to own the alert channel for scheduled offboardings.
+      lines.push('                -NotificationEmails @("rudy.maneja@go.team")');
       lines.push('            if ($freezeResult.Success) {');
       lines.push('                $ruid = $null');
       lines.push('                try { $ruid = $freezeResult.Content.data.requestUid } catch {}');
@@ -5343,6 +5560,105 @@
       lines.push('$teramindComputersStr = ""');
       lines.push('');
     }
+    if (o.revokeBiometric && o.biometricUserNo) {
+      lines.push('# ===== CrossChex biometric de-authorization =====');
+      lines.push('# Deletes the TM\'s rows from the UserPower table in CrossChex.mdb,');
+      lines.push('# which drops their authorization from every Anviz device they were on.');
+      lines.push('# Userinfo + UserFinger records are KEPT for audit/rehire scenarios.');
+      lines.push('#');
+      lines.push('# Jet OLEDB (needed to read the MDB) is 32-bit-only, so we spawn a');
+      lines.push('# 32-bit PowerShell worker (Invoke-CrossChexRevoke.ps1). The worker');
+      lines.push('# does UserCode->userid auto-resolve (so the TM\'s CrossChex UI "User No."');
+      lines.push('# just works even when it differs from the internal userid).');
+      lines.push('$anvizUserNo = "' + o.biometricUserNo.replace(/"/g, '`"') + '"');
+      lines.push('$anvizResult = "skipped"');
+      lines.push('try {');
+      lines.push('    $workerPath = "C:\\OffboardingTasks\\Invoke-CrossChexRevoke.ps1"');
+      lines.push('    if (Test-Path $workerPath) {');
+      lines.push('        $ps32 = "$env:WINDIR\\SysWOW64\\WindowsPowerShell\\v1.0\\powershell.exe"');
+      lines.push('        $workerOut = & $ps32 -NoProfile -ExecutionPolicy Bypass -File $workerPath -UserNo $anvizUserNo 2>&1');
+      lines.push('        $resultLine = $workerOut | Where-Object { "$_" -match "^RESULT:" } | Select-Object -First 1');
+      lines.push('        if ($resultLine) {');
+      lines.push('            $json = ("$resultLine" -replace "^RESULT:", "")');
+      lines.push('            $r = $json | ConvertFrom-Json');
+      lines.push('            if ($r.Success) {');
+      lines.push('                # Three success cases to distinguish:');
+      lines.push('                #   a) "not-in-crosschex" - TM never enrolled (common for WFH staff)');
+      lines.push('                #   b) 0 UserPower rows deleted - TM is in CrossChex but had no device access');
+      lines.push('                #   c) N > 0 UserPower rows deleted - normal successful revoke');
+      lines.push('                if ($r.Message -eq "not-in-crosschex") {');
+      lines.push('                    $log += "[INFO] CrossChex: no record for UserNo=$anvizUserNo (common for WFH / remote staff) - nothing to revoke"');
+      lines.push('                    $anvizResult = "not-in-crosschex"');
+      lines.push('                } elseif ($r.DeviceCount -eq 0) {');
+      lines.push('                    $log += "[INFO] CrossChex: $($r.Name) (UserNo=$anvizUserNo) is enrolled but had no active device authorizations - nothing to revoke"');
+      lines.push('                    $anvizResult = "no-device-access"');
+      lines.push('                } else {');
+      lines.push('                    $log += "[OK] CrossChex biometric access revoked: $($r.Name) (UserNo=$anvizUserNo, userid=$($r.ResolvedUserId)), $($r.DeviceCount) device(s)"');
+      lines.push('                    $anvizResult = "revoked ($($r.DeviceCount) devices, UserNo=$anvizUserNo)"');
+      lines.push('                }');
+      lines.push('                # ---- Auto-restart CrossChex so it reloads the DB and syncs to physical devices ----');
+      lines.push('                # Only needed when we actually deleted rows. Skip restart for not-in-crosschex / no-device-access.');
+      lines.push('                $needsRestart = ($r.DeviceCount -gt 0)');
+      lines.push('                if ($needsRestart) {');
+      lines.push('                try {');
+      lines.push('                    $ccProcs = Get-Process -Name "CrossChex Standard" -ErrorAction SilentlyContinue');
+      lines.push('                    if ($ccProcs) {');
+      lines.push('                        $ccExe = ($ccProcs | Select-Object -First 1).Path');
+      lines.push('                        if (-not $ccExe) { $ccExe = "C:\\Program Files (x86)\\Anviz\\CrossChex Standard\\CrossChex Standard.exe" }');
+      lines.push('                        # Try graceful close first (CloseMainWindow), wait up to 10s');
+      lines.push('                        foreach ($p in $ccProcs) { try { $p.CloseMainWindow() | Out-Null } catch {} }');
+      lines.push('                        $deadline = (Get-Date).AddSeconds(10)');
+      lines.push('                        while ((Get-Date) -lt $deadline -and (Get-Process -Name "CrossChex Standard" -ErrorAction SilentlyContinue)) { Start-Sleep -Milliseconds 500 }');
+      lines.push('                        # Force kill any stragglers');
+      lines.push('                        Get-Process -Name "CrossChex Standard" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue');
+      lines.push('                        Start-Sleep -Seconds 2');
+      lines.push('                        # Relaunch');
+      lines.push('                        if (Test-Path $ccExe) {');
+      lines.push('                            Start-Process -FilePath $ccExe -ErrorAction Stop');
+      lines.push('                            Start-Sleep -Seconds 3');
+      lines.push('                            $up = Get-Process -Name "CrossChex Standard" -ErrorAction SilentlyContinue');
+      lines.push('                            if ($up) { $log += "[OK]   CrossChex restarted (PID $($up.Id | Select-Object -First 1)) - will push deletion to devices on next sync" }');
+      lines.push('                            else { $log += "[WARN]   CrossChex did not come back up - start it manually to push the deletion" }');
+      lines.push('                        } else { $log += "[WARN]   CrossChex exe not found at $ccExe - start CrossChex manually to push deletion" }');
+      lines.push('                    } else {');
+      lines.push('                        # Not running - start it so it loads the modified DB');
+      lines.push('                        $ccExe = "C:\\Program Files (x86)\\Anviz\\CrossChex Standard\\CrossChex Standard.exe"');
+      lines.push('                        if (Test-Path $ccExe) { Start-Process -FilePath $ccExe; $log += "[OK]   CrossChex was not running - started it now" }');
+      lines.push('                        else { $log += "[WARN]   CrossChex was not running and exe not found - manual start needed" }');
+      lines.push('                    }');
+      lines.push('                } catch { $log += "[WARN]   CrossChex restart failed: $_" }');
+      lines.push('                } # end if needsRestart');
+      lines.push('            } else {');
+      lines.push('                $log += "[WARN] CrossChex: $($r.Message)"');
+      lines.push('                $anvizResult = "failed: $($r.Message)"');
+      lines.push('            }');
+      lines.push('        } else {');
+      lines.push('            $log += "[FAIL] CrossChex worker returned no RESULT line. Output: $workerOut"');
+      lines.push('            $anvizResult = "worker-no-output"');
+      lines.push('        }');
+      lines.push('    } else {');
+      lines.push('        $log += "[SKIP] Invoke-CrossChexRevoke.ps1 not installed - MANUAL ACTION: remove User No. $anvizUserNo from CrossChex via UI"');
+      lines.push('        $anvizResult = "manual-required (UserNo=$anvizUserNo)"');
+      lines.push('    }');
+      lines.push('} catch { $log += "[FAIL] CrossChex biometric step: $_"; $anvizResult = "failed" }');
+      lines.push('');
+    } else {
+      lines.push('$anvizResult = "skipped"');
+      lines.push('');
+    }
+    if (o.revokeFortiVpn) {
+      lines.push('# ===== FortiGate VPN revoke =====');
+      lines.push('# API automation blocked by HTTP 424 on FortiOS 7.4.13 (see Diagnose-FortiPut-V4);');
+      lines.push('# log MANUAL ACTION so IT disables the local user in the FortiGate GUI as part');
+      lines.push('# of the offboarding checklist. All FortiGate automation infra (REST API admin,');
+      lines.push('# token, DPAPI encryption, Forti-Lib.ps1) is kept in place for future retry.');
+      lines.push('$log += "[MANUAL ACTION REQUIRED] FortiGate VPN: disable local user ' + "'" + '$TM_UPN' + "'" + ' at the FortiGate Dashboard (User & Authentication > User Definition)"');
+      lines.push('$fortiVpnResult = "manual-required (email=$TM_UPN)"');
+      lines.push('');
+    } else {
+      lines.push('$fortiVpnResult = "skipped"');
+      lines.push('');
+    }
     lines.push('# ===== Remove directory role assignments (except Global Admin) =====');
     lines.push('try {');
     lines.push('    $assigns = Get-MgRoleManagementDirectoryRoleAssignment -Filter "principalId eq \'$TM_GRAPHID\'" -ErrorAction Stop');
@@ -5378,15 +5694,142 @@
     lines.push('    $devicesHtml = if ($deviceLines) { ($deviceLines | ForEach-Object { "<li>" + [System.Web.HttpUtility]::HtmlEncode($_) + "</li>" }) -join "" } else { "<li>None discovered</li>" }');
     lines.push('    $freezeHtml = if ($absFreezeStr) { [System.Web.HttpUtility]::HtmlEncode($absFreezeStr) } else { "<em>Not requested for this offboarding.</em>" }');
     lines.push('    $teramindHtml = [System.Web.HttpUtility]::HtmlEncode($teramindResult)');
+    lines.push('    $managerLine = $log | Where-Object { $_ -match "^\\[OK\\] Manager" -or $_ -match "^\\[FAIL\\] Clear manager" } | Select-Object -First 1');
+    lines.push('    $managerHtml = if ($managerLine) { [System.Web.HttpUtility]::HtmlEncode(($managerLine -replace "^\\[OK\\] Manager[:]? ?", "" -replace "^\\[FAIL\\] Clear manager[:]? ?", "Failed to clear - ")) } else { "<em>Not processed.</em>" }');
+    lines.push('    $ownedHtml = if ($ownedTransferStr) { [System.Web.HttpUtility]::HtmlEncode($ownedTransferStr) } else { "<em>Not processed.</em>" }');
     lines.push('    $teramindComputersHtml = if ($teramindComputersStr) { [System.Web.HttpUtility]::HtmlEncode($teramindComputersStr) } else { "<em>No devices processed.</em>" }');
+    lines.push('    $anvizHtml = [System.Web.HttpUtility]::HtmlEncode($anvizResult)');
+    lines.push('    $fortiVpnHtml = [System.Web.HttpUtility]::HtmlEncode($fortiVpnResult)');
     lines.push('    $licensesHtml = if ($removedLicensesStr) { [System.Web.HttpUtility]::HtmlEncode($removedLicensesStr) } else { "<em>None</em>" }');
     lines.push('    $overallStatus = if ($failCount -eq 0) { "Completed Successfully" } else { "Completed with $failCount Failure(s)" }');
     lines.push('    $statusColor  = if ($failCount -eq 0) { "#059669" } else { "#dc2626" }');
     lines.push('    $subject = "[GoTeam IT] Offboarding $overallStatus - $TM_NAME"');
+    lines.push('');
+    lines.push('    # ----- Build the Action Requested items + status banner from log state -----');
+    lines.push('    $manualActionItemsHtml = ""');
+    lines.push('    foreach ($line in $log) {');
+    lines.push('        if ($line -match "\\[MANUAL ACTION REQUIRED\\]\\s*(.+)$") {');
+    lines.push('            $enc = [System.Web.HttpUtility]::HtmlEncode($Matches[1].Trim())');
+    lines.push('            $manualActionItemsHtml += "<li>$enc</li>"');
+    lines.push('        }');
+    lines.push('    }');
+    lines.push('    $failItemsHtml = ""');
+    lines.push('    foreach ($line in $log) {');
+    lines.push('        if ($line -match "^\\[FAIL\\]\\s*(.+)$") {');
+    lines.push('            $enc = [System.Web.HttpUtility]::HtmlEncode($Matches[1].Trim())');
+    lines.push('            $failItemsHtml += "<li><strong>FAILED:</strong> $enc &mdash; see audit log</li>"');
+    lines.push('        }');
+    lines.push('    }');
+    lines.push('    if ($failCount -gt 0) {');
+    lines.push('        $statusBanner = \'<div class="status-fail"><strong>Attention needed.</strong> This offboarding completed with {0} failure(s). Review the audit log in SharePoint immediately.</div>\' -f $failCount');
+    lines.push('    } elseif ($manualCount -gt 0 -or $warnCount -gt 0) {');
+    lines.push('        $statusBanner = \'<div class="status-warn"><strong>Follow-up needed.</strong> Offboarding completed with {0} item(s) requiring a human. See the Action requested list below.</div>\' -f $manualCount');
+    lines.push('    } else {');
+    lines.push('        $statusBanner = \'<div class="status-ok"><strong>All clear.</strong> Offboarding completed successfully. No manual action is required.</div>\'');
+    lines.push('    }');
+    lines.push('    if ($manualActionItemsHtml -ne "" -or $failItemsHtml -ne "") {');
+    lines.push('        $actionBox = "<div class=`"action`"><h3>Action requested</h3><p>These items still need a human. Please complete them as part of the offboarding checklist:</p><ul>$manualActionItemsHtml$failItemsHtml</ul><p>If a failure is listed, review the full audit log in SharePoint &rarr; <em>ITOperations / Offboarding Logs</em> and escalate as needed.</p></div>"');
+    lines.push('    } else {');
+    lines.push('        $actionBox = ""');
+    lines.push('    }');
+    lines.push('    $generatedOn = Get-Date -Format "dddd, MMMM d, yyyy \'at\' HH:mm"');
+    lines.push('    $hostLabel   = $env:COMPUTERNAME');
+    lines.push('');
     lines.push('    $htmlBody = @"');
     lines.push('<!DOCTYPE html>');
-    lines.push('<html><head><meta charset="utf-8"><style>body{font-family:-apple-system,Segoe UI,Arial,sans-serif;color:#111827;background:#f9fafb;padding:24px;margin:0}.card{background:#fff;max-width:640px;margin:0 auto;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,0.08);overflow:hidden}.header{background:linear-gradient(135deg,#1e40af 0%,#1d4ed8 100%);color:#fff;padding:28px 32px}.header h1{margin:0;font-size:20px;font-weight:700;letter-spacing:0.2px}.header .sub{margin-top:6px;font-size:13px;opacity:0.85}.status-bar{padding:14px 32px;font-size:14px;font-weight:600;color:#fff;background:$statusColor;display:flex;align-items:center;gap:8px}.body{padding:28px 32px}h2{font-size:14px;color:#374151;margin:0 0 10px;text-transform:uppercase;letter-spacing:0.6px;font-weight:700}.grid{display:grid;grid-template-columns:140px 1fr;gap:8px 16px;font-size:13.5px;line-height:1.6;margin-bottom:24px}.grid .k{color:#6b7280}.grid .v{color:#111827;font-weight:500}.section{border-top:1px solid #e5e7eb;padding-top:20px;margin-top:20px}.badge{display:inline-block;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;letter-spacing:0.3px}.b-ok{background:#d1fae5;color:#065f46}.b-fail{background:#fee2e2;color:#991b1b}.b-warn{background:#fef3c7;color:#92400e}.b-info{background:#dbeafe;color:#1e40af}ul{margin:4px 0 0 20px;padding:0;font-size:13px;color:#374151;line-height:1.7}.footer{padding:18px 32px;background:#f9fafb;color:#6b7280;font-size:11px;line-height:1.5;border-top:1px solid #e5e7eb}</style></head>');
-    lines.push('<body><div class="card"><div class="header"><h1>Offboarding Confirmation</h1><div class="sub">Automated workflow executed on $(Get-Date -Format "dddd, MMMM d, yyyy \\\"at\\\" HH:mm") PHT</div></div><div class="status-bar">$overallStatus</div><div class="body"><h2>Team Member</h2><div class="grid"><div class="k">Full Name</div><div class="v">$TM_NAME</div><div class="k">Email</div><div class="v">$TM_UPN</div><div class="k">Local Dep ID</div><div class="v">$LOCAL_DEP_ID</div></div><div class="section"><h2>Execution Summary</h2><div class="grid"><div class="k">OK Steps</div><div class="v"><span class="badge b-ok">$okCount</span></div><div class="k">Warnings</div><div class="v"><span class="badge b-warn">$warnCount</span></div><div class="k">Failures</div><div class="v"><span class="badge b-fail">$failCount</span></div><div class="k">Manual Follow-up</div><div class="v"><span class="badge b-info">$manualCount</span></div></div></div><div class="section"><h2>Microsoft 365</h2><div class="grid"><div class="k">Sign-in</div><div class="v">Blocked, all sessions revoked</div><div class="k">Licenses Removed</div><div class="v">$licensesHtml</div><div class="k">Groups</div><div class="v">Removed from all synced groups</div><div class="k">MFA Methods</div><div class="v">Removed (non-password)</div><div class="k">CA2 / CA3</div><div class="v">Cleared from Dynamic Distros</div><div class="k">Remarks</div><div class="v">Set to &quot;$REMARK&quot;</div></div></div><div class="section"><h2>Device Access</h2><div class="grid"><div class="k">Windows Devices</div><div class="v"><ul>$devicesHtml</ul></div><div class="k">Absolute Freeze</div><div class="v">$freezeHtml</div></div></div><div class="section"><h2>Teramind</h2><div class="grid"><div class="k">User</div><div class="v">$teramindHtml</div><div class="k">Computer(s)</div><div class="v">$teramindComputersHtml</div></div></div><div class="section"><h2>Audit Trail</h2><div class="grid"><div class="k">Full Log</div><div class="v">Uploaded to SharePoint &rarr; <em>ITOperations / Offboarding Logs</em></div><div class="k">Dashboard Row</div><div class="v">Writeback complete to <em>GoTeam-Departures</em> (LocalId $LOCAL_DEP_ID)</div></div></div></div><div class="footer">This is an automated message from the GoTeam User Management System. No reply is required.<br>If any failure is listed above, review the full audit log in SharePoint and escalate as needed.<br>Generated by scheduled offboarding workflow &middot; $(hostname)</div></div></body></html>');
+    lines.push('<html><head><meta charset="utf-8"><title>Offboarding Notice</title><style>');
+    lines.push('body{font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Arial,sans-serif;color:#111827;background:#f3f4f6;padding:24px;margin:0;-webkit-font-smoothing:antialiased}');
+    lines.push('.card{background:#fff;max-width:720px;margin:0 auto;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,0.08);overflow:hidden}');
+    lines.push('.hdr{background:#1a2a5e;color:#fff;padding:28px 36px 24px}');
+    lines.push('.hdr-logo{font-size:22px;font-weight:700;letter-spacing:-0.5px;color:#fff}');
+    lines.push('.hdr-tag{text-align:right;font-size:12px;color:#c7d2fe;vertical-align:middle;letter-spacing:0.3px}');
+    lines.push('.hdr h1{margin:18px 0 0;font-size:22px;font-weight:700;line-height:1.3;color:#fff}');
+    lines.push('.hdr .ref{margin-top:6px;font-size:13px;color:#c7d2fe}');
+    lines.push('.accent{height:3px;background:#3b82f6}');
+    lines.push('.body{padding:28px 36px;font-size:14px;line-height:1.65;color:#1f2937}');
+    lines.push('.body p{margin:0 0 14px}');
+    lines.push('.body p.greeting{margin-bottom:16px;font-weight:600;color:#111827}');
+    lines.push('.status-ok,.status-warn,.status-fail{padding:14px 18px;margin:16px 0 22px;border-radius:4px;font-size:13.5px;line-height:1.5}');
+    lines.push('.status-ok{background:#ecfdf5;color:#065f46;border-left:4px solid #10b981}');
+    lines.push('.status-warn{background:#fffbeb;color:#92400e;border-left:4px solid #f59e0b}');
+    lines.push('.status-fail{background:#fef2f2;color:#991b1b;border-left:4px solid #ef4444}');
+    lines.push('.action{background:#eff6ff;border-left:4px solid #1a2a5e;padding:16px 20px;margin:20px 0 24px;border-radius:0 4px 4px 0}');
+    lines.push('.action h3{margin:0 0 8px;font-size:14px;color:#1a2a5e;font-weight:700}');
+    lines.push('.action p{margin:0 0 8px;font-size:13.5px;color:#1f2937}');
+    lines.push('.action ul{margin:8px 0;padding-left:20px;font-size:13.5px;color:#1f2937;line-height:1.6}');
+    lines.push('.action li{margin-bottom:4px}');
+    lines.push('h2{font-size:15px;font-weight:700;color:#111827;margin:26px 0 12px}');
+    lines.push('.pairs{border-collapse:collapse;margin-bottom:8px;width:100%}');
+    lines.push('.pairs tr{border-bottom:1px solid #e5e7eb}');
+    lines.push('.pairs tr:last-child{border-bottom:none}');
+    lines.push('.pairs td{padding:12px 16px 12px 0;vertical-align:top;font-size:13.5px;line-height:1.55}');
+    lines.push('.pairs td.lbl{width:180px;font-weight:600;color:#111827;padding-right:16px}');
+    lines.push('.pairs td.val{color:#374151}');
+    lines.push('.details{border-collapse:collapse;margin-bottom:8px;border:1px solid #e5e7eb;width:100%}');
+    lines.push('.details tr{border-bottom:1px solid #e5e7eb}');
+    lines.push('.details tr:last-child{border-bottom:none}');
+    lines.push('.details td{padding:10px 14px;font-size:13.5px;vertical-align:top}');
+    lines.push('.details td.lbl{background:#f9fafb;width:180px;font-weight:600;color:#374151;border-right:1px solid #e5e7eb}');
+    lines.push('.details td.val{color:#111827}');
+    lines.push('.steps{border-collapse:collapse;margin-bottom:8px;border:1px solid #e5e7eb;width:100%}');
+    lines.push('.steps thead td{background:#1a2a5e;color:#fff;padding:10px 14px;font-size:11.5px;font-weight:600;letter-spacing:0.4px;text-transform:uppercase}');
+    lines.push('.steps thead td.owner,.steps thead td.timing{width:130px}');
+    lines.push('.steps tbody tr{border-bottom:1px solid #e5e7eb}');
+    lines.push('.steps tbody tr:last-child{border-bottom:none}');
+    lines.push('.steps tbody td{padding:11px 14px;font-size:13px;vertical-align:top;color:#374151;line-height:1.5}');
+    lines.push('.steps tbody td.num{width:32px;color:#6b7280;font-weight:600;text-align:center}');
+    lines.push('.footer{padding:20px 36px;background:#f9fafb;color:#6b7280;font-size:11.5px;line-height:1.6;border-top:1px solid #e5e7eb}');
+    lines.push('.footer p{margin:0 0 6px}');
+    lines.push('.footer p:last-child{margin-bottom:0}');
+    lines.push('em{color:#6b7280;font-style:normal}');
+    lines.push('ul{margin:4px 0 0 18px;padding:0;font-size:13.5px;color:#374151;line-height:1.6}');
+    lines.push('</style></head>');
+    lines.push('<body><div class="card">');
+    lines.push('<div class="hdr">');
+    lines.push('<table width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td class="hdr-logo">goteam</td><td class="hdr-tag">Access Management Notice</td></tr></table>');
+    lines.push('<h1>Offboarding $overallStatus for $TM_NAME</h1>');
+    lines.push('<div class="ref">Reference $LOCAL_DEP_ID</div>');
+    lines.push('</div>');
+    lines.push('<div class="accent"></div>');
+    lines.push('<div class="body">');
+    lines.push('<p class="greeting">Hi IT Team,</p>');
+    lines.push('<p>The automated offboarding workflow for <strong>$TM_NAME</strong> completed on $generatedOn PHT. Below is a summary of what was revoked, what still needs manual attention, and what to expect next.</p>');
+    lines.push('$statusBanner');
+    lines.push('$actionBox');
+    lines.push('<h2>How access was revoked</h2>');
+    lines.push('<table class="pairs" cellpadding="0" cellspacing="0" border="0">');
+    lines.push('<tr><td class="lbl">Microsoft 365 account</td><td class="val">Sign-in blocked, all active sessions revoked, non-password MFA methods cleared, and the user removed from every synced group.</td></tr>');
+    lines.push('<tr><td class="lbl">Licenses</td><td class="val">$licensesHtml</td></tr>');
+    lines.push('<tr><td class="lbl">CA attributes</td><td class="val">CA2 and CA3 cleared from the dynamic distribution lists. Remarks set to &quot;$REMARK&quot;.</td></tr>');
+    lines.push('<tr><td class="lbl">Manager relationship</td><td class="val">$managerHtml</td></tr>');
+    lines.push('<tr><td class="lbl">Owned directory objects</td><td class="val">$ownedHtml</td></tr>');
+    lines.push('<tr><td class="lbl">Windows devices</td><td class="val"><ul style="margin:0;padding-left:18px;">$devicesHtml</ul></td></tr>');
+    lines.push('<tr><td class="lbl">Absolute protection</td><td class="val">$freezeHtml</td></tr>');
+    lines.push('<tr><td class="lbl">Teramind user</td><td class="val">$teramindHtml</td></tr>');
+    lines.push('<tr><td class="lbl">Teramind computers</td><td class="val">$teramindComputersHtml</td></tr>');
+    lines.push('<tr><td class="lbl">CrossChex biometrics</td><td class="val">$anvizHtml</td></tr>');
+    lines.push('<tr><td class="lbl">FortiGate VPN</td><td class="val">$fortiVpnHtml</td></tr>');
+    lines.push('</table>');
+    lines.push('<h2>Offboarding details</h2>');
+    lines.push('<table class="details" cellpadding="0" cellspacing="0" border="0">');
+    lines.push('<tr><td class="lbl">Team member</td><td class="val">$TM_NAME</td></tr>');
+    lines.push('<tr><td class="lbl">Email</td><td class="val">$TM_UPN</td></tr>');
+    lines.push('<tr><td class="lbl">Local Dep ID</td><td class="val">$LOCAL_DEP_ID</td></tr>');
+    lines.push('<tr><td class="lbl">Final remarks</td><td class="val">$REMARK</td></tr>');
+    lines.push('<tr><td class="lbl">OK steps</td><td class="val">$okCount</td></tr>');
+    lines.push('<tr><td class="lbl">Failures</td><td class="val">$failCount</td></tr>');
+    lines.push('<tr><td class="lbl">Warnings</td><td class="val">$warnCount</td></tr>');
+    lines.push('<tr><td class="lbl">Manual follow-ups</td><td class="val">$manualCount</td></tr>');
+    lines.push('<tr><td class="lbl">Full audit log</td><td class="val">Uploaded to SharePoint &rarr; <em>ITOperations / Offboarding Logs</em></td></tr>');
+    lines.push('<tr><td class="lbl">SharePoint row</td><td class="val">Updated in <em>GoTeam-Departures</em> (LocalId $LOCAL_DEP_ID)</td></tr>');
+    lines.push('<tr><td class="lbl">Workflow run</td><td class="val">$generatedOn PHT</td></tr>');
+    lines.push('</table>');
+    lines.push('</div>');
+    lines.push('<div class="footer">');
+    lines.push('<p>This is an automated message from the GoTeam User Management System. No reply is required.</p>');
+    lines.push('<p>Generated by scheduled offboarding workflow &middot; $hostLabel &middot; $generatedOn PHT</p>');
+    lines.push('</div>');
+    lines.push('</div></body></html>');
     lines.push('"@');
     lines.push('    Add-Type -AssemblyName System.Web -ErrorAction SilentlyContinue | Out-Null');
     lines.push('    $mailBody = @{');
@@ -5401,7 +5844,10 @@
     lines.push('    Write-Host "[OK] Confirmation email sent to rudy.maneja@go.team"');
     lines.push('} catch {');
     lines.push('    Write-Host "[FAIL] Confirmation email: $_"');
-    lines.push('    try { Add-Content -Path $localPath -Value "[FAIL] Confirmation email: $_" -ErrorAction SilentlyContinue } catch {}');
+    lines.push('    # Append to the audit log via the script-scoped path that Write-AuditLog set earlier.');
+    lines.push('    if ($script:AuditLogPath) {');
+    lines.push('        try { Add-Content -Path $script:AuditLogPath -Value ("[FAIL] Confirmation email: " + $_) -ErrorAction SilentlyContinue } catch {}');
+    lines.push('    }');
     lines.push('}');
     lines.push('');
     lines.push('try { Stop-Transcript | Out-Null } catch {}');
@@ -6818,7 +7264,7 @@
     if (tokens.length < 3) return '';
     const lastToken = tokens[tokens.length - 1].toLowerCase().replace(/\./g, '');
     if (NAME_SUFFIXES.has(lastToken) || NAME_SUFFIXES.has(lastToken + '.')) {
-      return tokens[tokens.length - 1];
+      return stripDiacritics(tokens[tokens.length - 1]);
     }
     return '';
   }
@@ -6839,7 +7285,7 @@
     // Strategy 1: look for a middle initial — last name is everything AFTER it
     for (let i = 1; i < tokens.length - 1; i++) {
       if (/^[A-Za-z]\.?$/.test(tokens[i])) {
-        return tokens.slice(i + 1).map(t => t.replace(/\./g, '')).join(' ');
+        return stripDiacritics(tokens.slice(i + 1).map(t => t.replace(/\./g, '')).join(' '));
       }
     }
     // Strategy 2: no middle initial — walk back to absorb compound-name prefixes.
@@ -6854,7 +7300,10 @@
       if (prefixes.has(w)) start = i;
       else break;
     }
-    return tokens.slice(start).map(t => t.replace(/\./g, '')).join(' ');
+    // stripDiacritics: ñ → n, á → a, ü → u etc. Keeps surname tokens Latin-ASCII so
+    // Excel exports, M365 provisioning payloads, and display names stay consistent
+    // (and avoid UTF-8 mojibake like "YbaÃ±ez" when a CSV is opened in Excel).
+    return stripDiacritics(tokens.slice(start).map(t => t.replace(/\./g, '')).join(' '));
   }
   // Password gen — 8 alphanumeric, excluding ambiguous I, l, 1, O, 0
   // Guarantees ≥1 uppercase, ≥1 lowercase, ≥1 digit (M365 password policy)
