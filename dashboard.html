@@ -1969,11 +1969,15 @@
       // CA2 mirrors the old "department" scheme used by Dynamic Distros:
       //   Internal → "Internal"; else the shift category (Morning / Mid / Night)
       // CA2 = Internal-only marker (Dynamic Distro filter for Everyone Internal).
-      // CA3 = shift category for client-facing TMs (Dynamic Distro filter for Everyone Morning / Night).
-      // Internal users: CA2 = "Internal", CA3 = blank.
-      // Client-facing users: CA2 = blank, CA3 = shift category (Morning / Night).
+      // CA3 = shift category for EVERY new hire (Internal and Client-Facing) so
+      //       the Morning / Night onsite TM dynamic distros and shift-based
+      //       reporting include Internal staff too. Previously CA3 was left
+      //       blank for Internal hires, which meant shift-based groups silently
+      //       excluded them; HR needs them in those groups now.
+      // Internal users:      CA2 = "Internal", CA3 = shift category (Morning / Night).
+      // Client-facing users: CA2 = blank,      CA3 = shift category (Morning / Night).
       const ca2Value = isInternal ? 'Internal' : '';
-      const ca3Value = isInternal ? '' : detectShiftCategory(h.phShiftSchedule);
+      const ca3Value = detectShiftCategory(h.phShiftSchedule);
       const employeeTypeValue = isInternal ? 'Internal' : 'Client-Facing';
       const departmentValue   = (h.department || '').trim();
       const officeValue       = (h.officeLocation || '').trim();
@@ -3630,9 +3634,34 @@
   async function readAttritionSheets() {
     const { driveId, itemId } = await getAttritionFileRef();
     atLog('  Attrition Tracker driveId=' + (driveId || '').slice(0, 30) + '..., itemId=' + (itemId || '').slice(0, 20) + '...', '#94a3b8');
+
+    // Create a NON-PERSISTENT workbook session so any filter-clearing we do here
+    // never writes back to HR's file. Without this, Excel autoFilter state can
+    // cause range reads to return empty cells for filtered-out rows — which in
+    // turn triggered false "Removed from Tracker" flags whenever HR applied a
+    // filter in the masterfile. persistChanges=false → session dies after close,
+    // HR's filter state in the saved file is preserved intact.
+    let sessionId = null;
+    try {
+      const sess = await graphFetch(
+        '/drives/' + driveId + '/items/' + itemId + '/workbook/createSession',
+        { method: 'POST', body: { persistChanges: false } }
+      );
+      sessionId = sess.id;
+      atLog('  Opened non-persistent workbook session (filters cleared only for this read)', '#94a3b8');
+    } catch (e) {
+      atLog('  [WARN] Could not open workbook session: ' + e.message.slice(0, 120) + ' — falling back to sessionless reads (filter state may still affect results)', '#fbbf24');
+    }
+
+    // All subsequent Graph Excel calls pass this header when session is available.
+    const sessionHeaders = sessionId ? { 'Workbook-Session-Id': sessionId } : {};
+
     let sheets = [];
     try {
-      const ws = await graphFetch('/drives/' + driveId + '/items/' + itemId + '/workbook/worksheets?$select=id,name');
+      const ws = await graphFetch(
+        '/drives/' + driveId + '/items/' + itemId + '/workbook/worksheets?$select=id,name',
+        { headers: sessionHeaders }
+      );
       sheets = ws.value || [];
     } catch (e) {
       throw new Error('Failed to list worksheets — ' + e.message);
@@ -3640,11 +3669,43 @@
     atLog('  Workbook has ' + sheets.length + ' total sheet(s).', '#94a3b8');
     const sheetNames = sheets.map(s => s.name);
 
+    // Best-effort: clear any active filter on a sheet before reading its range.
+    // Scoped to our non-persistent session, so it never modifies the saved file.
+    async function clearFilter(sheetName) {
+      if (!sessionId) return; // skip if session unavailable
+      try {
+        await graphFetch(
+          '/drives/' + driveId + '/items/' + itemId + '/workbook/worksheets/' + encodeURIComponent(sheetName) + '/autoFilter/clearCriteria',
+          { method: 'POST', body: {}, headers: sessionHeaders }
+        );
+      } catch (e) {
+        // Sheet may not have an autoFilter at all; that's fine, swallow.
+      }
+    }
+
     async function readRange(sheetName, address) {
       const url = '/drives/' + driveId + '/items/' + itemId + '/workbook/worksheets/' + encodeURIComponent(sheetName) + "/range(address='" + address + "')";
-      const r = await graphFetch(url);
+      const r = await graphFetch(url, { headers: sessionHeaders });
       return r.values || [];
     }
+
+    // Close the session at the end of this function (even on error) so Graph
+    // can release the underlying Excel calculation worker. Closure block set up
+    // via a flag so we can reach it from both success + error paths below.
+    // (The try/catch around the actual sheet reads already exists further down.)
+    const closeSession = async () => {
+      if (!sessionId) return;
+      try {
+        await graphFetch(
+          '/drives/' + driveId + '/items/' + itemId + '/workbook/closeSession',
+          { method: 'POST', body: {}, headers: sessionHeaders }
+        );
+      } catch (e) { /* fire-and-forget */ }
+      sessionId = null;
+    };
+    // Hook onto the window so a later error path can still trigger close.
+    // (We also call it explicitly at the normal return point below.)
+    window._lastAttritionSessionCloser = closeSession;
 
     // Bucket for departures we'll propose
     const proposals = [];
@@ -3652,6 +3713,7 @@
     // --- Sheet 1: "Attrition Masterlist 2026" — A:N (14 cols × 500 rows = 7000 cells → split into A:G and H:N) ---
     const target1 = sheetNames.find(n => /attrition\s*masterlist\s*2026/i.test(n));
     if (target1) {
+      await clearFilter(target1);
       atLog('  Reading "' + target1 + '"...', '#60a5fa');
       try {
         // Read A:N in 2 batches to stay under cell limit
@@ -3702,6 +3764,7 @@
     // --- Sheet 2: "Recalled Masterlist 2022 - 2026" — E, I, J, M columns ---
     const target2 = sheetNames.find(n => /recalled\s*masterlist/i.test(n));
     if (target2) {
+      await clearFilter(target2);
       atLog('  Reading "' + target2 + '"...', '#60a5fa');
       try {
         const rows = await readRange(target2, 'A1:M500');  // 13 cols × 500 = 6500
@@ -3737,6 +3800,7 @@
     // --- Sheet 3: "RECALL with NTE" — C, F, G, J columns ---
     const target3 = sheetNames.find(n => /recall\s*with\s*nte/i.test(n));
     if (target3) {
+      await clearFilter(target3);
       atLog('  Reading "' + target3 + '"...', '#60a5fa');
       try {
         const rows = await readRange(target3, 'A1:J500');  // 10 cols × 500 = 5000 — right at limit, but OK
@@ -3773,6 +3837,8 @@
       atLog('  [WARN] Sheet "RECALL with NTE" not found.', '#fbbf24');
     }
 
+    // Release the non-persistent workbook session. HR's file is unmodified.
+    await closeSession();
     return proposals;
   }
 
@@ -3788,6 +3854,27 @@
     try {
       const proposals = await readAttritionSheets();
       atLog('Total rows parsed: ' + proposals.length, '#22c55e');
+
+      // Safety guard against "Removed from Tracker" false positives caused by
+      // HR applying a filter in the masterfile. We now clear filters in a
+      // non-persistent session (see readAttritionSheets), but belt-and-braces:
+      // compare this read's row count against the last known healthy read. A
+      // sudden drop (< 50% of previous) means something truncated the read —
+      // filter state, a mistakenly-deleted block, or an incomplete API response
+      // — and we must NOT flag the missing rows as "removed from tracker"
+      // because they'd come back on the next normal refresh.
+      let suspiciousRead = false;
+      try {
+        const lastGoodRaw = localStorage.getItem('attritionLastGoodRowCount');
+        const lastGood = lastGoodRaw ? parseInt(lastGoodRaw, 10) : 0;
+        if (lastGood > 20 && proposals.length < Math.floor(lastGood * 0.5)) {
+          suspiciousRead = true;
+          atLog('[WARN] Tracker returned ' + proposals.length + ' row(s) but last healthy read saw ' + lastGood + '. Skipping Removed-from-Tracker detection to avoid false flags. (Likely cause: active filter on the masterfile, or incomplete read.)', '#fbbf24');
+        }
+        if (!suspiciousRead && proposals.length > 0) {
+          localStorage.setItem('attritionLastGoodRowCount', String(proposals.length));
+        }
+      } catch (e) { /* localStorage disabled or quota — ignore */ }
 
       // Filter by month range on effectiveDate
       const filtered = proposals.filter(p => {
@@ -3856,7 +3943,9 @@
       // from the OBE email (e.g. "John Roque B. Coronejo" vs "John Roque Coronejo").
       const trackerIdSet   = new Set(filtered.filter(p => p.employeeId).map(p => String(p.employeeId).trim().toLowerCase()));
       const trackerNameSet = new Set(filtered.map(p => normName(p.name)));
-      const removedFromTracker = state.departures.filter(d => {
+      // If this read looked truncated (filter / bad read), suppress removed-from-tracker
+      // detection entirely — don't flag anything stale based on an incomplete snapshot.
+      const removedFromTracker = suspiciousRead ? [] : state.departures.filter(d => {
         if (d.removedFromTrackerAt) return false; // already noted
         // If we have an Employee ID on the dashboard row AND the tracker had this ID this run → not removed
         const idKey = String(d.employeeId || '').trim().toLowerCase();
