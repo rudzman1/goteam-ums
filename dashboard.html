@@ -1966,6 +1966,17 @@
       const upn = stripDiacritics(first + '.' + last.replace(/[\s-]+/g, '')).toLowerCase() + '@' + (settings.domain || 'go.team');
       const display = first + ' ' + last + (ms365Suffix(h.starterName) ? ' ' + ms365Suffix(h.starterName) : '');
       const isInternal = (h.companyName || '').trim().toLowerCase() === 'goteam';
+      // Entra's companyName property is capped at 64 chars. If the raw tracker value
+      // is longer (common when HR appends legal-entity suffixes like
+      // "ProSolution Private Clients (trading under ProSolution Group Pty Ltd)"),
+      // first strip the trailing parenthetical, then hard-truncate as a last resort.
+      // Without this, the Graph POST returns 400 Request_BadRequest / InvalidLength
+      // and the whole user-creation fails.
+      let companyForGraph = String(h.companyName || '').trim();
+      if (companyForGraph.length > 64) {
+        const stripped = companyForGraph.replace(/\s*\([^)]*\)\s*$/, '').trim();
+        companyForGraph = (stripped.length > 0 && stripped.length <= 64) ? stripped : companyForGraph.slice(0, 64).trim();
+      }
       // CA2 mirrors the old "department" scheme used by Dynamic Distros:
       //   Internal → "Internal"; else the shift category (Morning / Mid / Night)
       // CA2 = Internal-only marker (Dynamic Distro filter for Everyone Internal).
@@ -2013,7 +2024,7 @@
           const patchBody = {
             accountEnabled: true,
             jobTitle: h.position || '',
-            companyName: h.companyName || '',
+            companyName: companyForGraph,
             department: departmentValue,
             employeeType: employeeTypeValue,
             officeLocation: officeValue,
@@ -2022,7 +2033,10 @@
           };
           if (hireDateForGraph) patchBody.employeeHireDate = hireDateForGraph;
           await graphFetch('/users/' + existing.id, { method: 'PATCH', body: patchBody });
-          log('    [OK] Reactivated — company="' + (h.companyName || '') + '", dept="' + departmentValue + '", type="' + employeeTypeValue + '", office="' + officeValue + '", CA2="' + (ca2Value || '—') + '", CA3="' + (ca3Value || '—') + '", remarks="' + newRemark + '"', '#22c55e');
+          if (companyForGraph !== String(h.companyName || '').trim()) {
+            log('    [WARN] companyName truncated to fit Entra 64-char limit: "' + companyForGraph + '" (original was ' + String(h.companyName || '').length + ' chars)', '#fbbf24');
+          }
+          log('    [OK] Reactivated — company="' + companyForGraph + '", dept="' + departmentValue + '", type="' + employeeTypeValue + '", office="' + officeValue + '", CA2="' + (ca2Value || '—') + '", CA3="' + (ca3Value || '—') + '", remarks="' + newRemark + '"', '#22c55e');
         } catch (existErr) {
           // 404 (or any non-existence signal) → fall through to create path.
           const createBody = {
@@ -2033,7 +2047,7 @@
             mailNickname: upn.split('@')[0],
             userPrincipalName: upn,
             jobTitle: h.position || '',
-            companyName: h.companyName || '',
+            companyName: companyForGraph,
             department: departmentValue,
             employeeType: employeeTypeValue,
             officeLocation: officeValue,
@@ -2044,7 +2058,10 @@
           };
           if (hireDateForGraph) createBody.employeeHireDate = hireDateForGraph;
           newUser = await graphFetch('/users', { method: 'POST', body: createBody });
-          log('    [OK] Created — id=' + newUser.id + ', company="' + (h.companyName || '') + '", dept="' + departmentValue + '", type="' + employeeTypeValue + '", office="' + officeValue + '", CA2="' + (ca2Value || '—') + '", CA3="' + (ca3Value || '—') + '"', '#22c55e');
+          if (companyForGraph !== String(h.companyName || '').trim()) {
+            log('    [WARN] companyName truncated to fit Entra 64-char limit: "' + companyForGraph + '" (original was ' + String(h.companyName || '').length + ' chars)', '#fbbf24');
+          }
+          log('    [OK] Created — id=' + newUser.id + ', company="' + companyForGraph + '", dept="' + departmentValue + '", type="' + employeeTypeValue + '", office="' + officeValue + '", CA2="' + (ca2Value || '—') + '", CA3="' + (ca3Value || '—') + '"', '#22c55e');
         }
         createdIds.push(newUser.id);
         wasReactivatedList.push(wasReactivated);
@@ -2262,6 +2279,7 @@
       { name: 'TeramindComputersRevoked', text: { allowMultipleLines: true } },
       { name: 'AnvizRevoked',      text: {} },
       { name: 'FortiVpnRevoked',   text: {} },
+      { name: 'NinjaNgcWipe',      text: {} },
       { name: 'SharedMailboxDone', boolean: {} },
       { name: 'SharedMailboxDoneAt', text: {} },
       { name: 'RemovedFromTrackerAt', text: {} },
@@ -4790,7 +4808,7 @@
       (skippedNoEmail > 0 ? '(Skipping ' + skippedNoEmail + ' row(s) missing email or effective date)\n\n' : '') +
       'Per-TM steps that will fire:\n' +
       '  • M365 revoke (owned-objects transfer + sign-in + licenses + groups + MFA + CA2/CA3 + Remarks + manager)\n' +
-      '  • Entra device disable + Intune Force Sync\n' +
+      '  • Entra device disable + Intune Force Sync + NinjaOne Ngc wipe (Windows Hello PIN)\n' +
       '  • Teramind user + computer delete (ON by default)\n' +
       '  • CrossChex biometric de-authorize (ON by default, uses Employee ID as User No.)\n' +
       '  • SharePoint writeback + confirmation email\n\n' +
@@ -4967,6 +4985,7 @@
       '    <li>Clear manager relationship (keeps manager\'s org chart clean in Outlook/Teams/Delve)</li>' +
       '    <li>Remove auth methods (MFA)</li>' +
       '    <li><strong style="color:#b45309;">Discover corporate Windows devices → disable each in Entra + Intune Force Sync</strong></li>' +
+      '    <li><strong style="color:#7c2d12;">NinjaOne: trigger Ngc wipe script on each discovered device (removes Windows Hello PIN + biometric templates; user data preserved)</strong></li>' +
       '    <li><strong style="color:#7c2d12;">[Optional] Absolute OS Freeze each discovered device + flag firmware freeze for manual follow-up</strong></li>' +
       '    <li><strong style="color:#065f46;">[Optional] Teramind user: disable monitoring + clear department + delete user</strong></li>' +
       '    <li><strong style="color:#065f46;">[Optional] Teramind computer(s): disable monitoring + soft-delete each discovered device</strong></li>' +
@@ -5162,6 +5181,7 @@
     lines.push('            TeramindComputersRevoked = $teramindComputersStr');
     lines.push('            AnvizRevoked          = $anvizResult');
     lines.push('            FortiVpnRevoked       = $fortiVpnResult');
+    lines.push('            NinjaNgcWipe          = $ninjaResultStr');
     lines.push('            NoteLabel             = "Auto-run via Task Scheduler - $successCount OK steps"');
     lines.push('        }');
     lines.push('        Invoke-MgGraphRequest -Method PATCH -Uri "/v1.0/sites/$($wbSite.Id)/lists/$($wbList.Id)/items/$($item.id)/fields" -Body ($patchBody | ConvertTo-Json)');
@@ -5514,6 +5534,45 @@
     lines.push('    $log += "[OK] Device actions: $disabledCount disabled in Entra, $syncedCount Intune sync queued"');
     lines.push('} catch { $log += "[FAIL] Device discovery: $_" }');
     lines.push('');
+    lines.push('# ===== NinjaOne: wipe Windows Hello (Ngc) on each discovered device =====');
+    lines.push('# Triggers the predefined NinjaOne automation script that deletes the Ngc');
+    lines.push('# folder (Windows Hello PIN + biometric templates) while preserving user');
+    lines.push('# files, apps, Office, browser profiles, OneDrive cache, etc.  The wipe');
+    lines.push('# fires on each device\'s next NinjaOne check-in - devices that are offline');
+    lines.push('# or Absolute-frozen will run the wipe as soon as they reconnect.');
+    lines.push('# Depends on NinjaOne-Lib.ps1 + ninjaone-creds.xml + ninjaone-config.json');
+    lines.push('# provisioned on this PC by Setup-NinjaOne.ps1.');
+    lines.push('$ninjaResults = @()');
+    lines.push('$ninjaResultStr = ""');
+    lines.push('try {');
+    lines.push('    . "C:\\OffboardingTasks\\NinjaOne-Lib.ps1"');
+    lines.push('    Initialize-NinjaOne');
+    lines.push('    $ninjaConfig = Get-Content "C:\\OffboardingTasks\\ninjaone-config.json" -Raw | ConvertFrom-Json');
+    lines.push('    foreach ($dev in $discoveredDevices) {');
+    lines.push('        if (-not $dev.Name) { continue }');
+    lines.push('        try {');
+    lines.push('            $njDev = Find-NinjaOneDevice -Hostname $dev.Name');
+    lines.push('            if (-not $njDev) {');
+    lines.push('                $log += "[WARN]   NinjaOne: no match for $($dev.Name) (device may not be enrolled)"');
+    lines.push('                $ninjaResults += ("{0}=no-match" -f $dev.Name)');
+    lines.push('                continue');
+    lines.push('            }');
+    lines.push('            $runId = Invoke-NinjaOneScript -DeviceId $njDev.id -ScriptId $ninjaConfig.ScriptId');
+    lines.push('            $log += "[OK]   NinjaOne Ngc wipe queued: $($dev.Name) (ninjaDeviceId=$($njDev.id), runId=$runId)"');
+    lines.push('            $ninjaResults += ("{0}=queued(ninjaId={1},runId={2})" -f $dev.Name, $njDev.id, $runId)');
+    lines.push('        } catch {');
+    lines.push('            $log += "[FAIL]   NinjaOne Ngc wipe $($dev.Name): $_"');
+    lines.push('            $ninjaResults += ("{0}=failed" -f $dev.Name)');
+    lines.push('        }');
+    lines.push('    }');
+    lines.push('    $ninjaResultStr = ($ninjaResults -join "; ")');
+    lines.push('    if (-not $ninjaResultStr) { $ninjaResultStr = "no devices" }');
+    lines.push('    $log += "[OK] NinjaOne Ngc wipe processed: $($ninjaResults.Count) device(s)"');
+    lines.push('} catch {');
+    lines.push('    $log += "[FAIL] NinjaOne Ngc wipe step: $_"');
+    lines.push('    $ninjaResultStr = "step-failed"');
+    lines.push('}');
+    lines.push('');
     if (o.freezeAbsolute) {
       lines.push('# ===== Absolute OS Freeze on each discovered Windows device =====');
       lines.push('# Submits an On-Demand (OS-level) Freeze via Absolute V3 JWS API for every');
@@ -5786,6 +5845,7 @@
     lines.push('    $managerLine = $log | Where-Object { $_ -match "^\\[OK\\] Manager" -or $_ -match "^\\[FAIL\\] Clear manager" } | Select-Object -First 1');
     lines.push('    $managerHtml = if ($managerLine) { [System.Web.HttpUtility]::HtmlEncode(($managerLine -replace "^\\[OK\\] Manager[:]? ?", "" -replace "^\\[FAIL\\] Clear manager[:]? ?", "Failed to clear - ")) } else { "<em>Not processed.</em>" }');
     lines.push('    $ownedHtml = if ($ownedTransferStr) { [System.Web.HttpUtility]::HtmlEncode($ownedTransferStr) } else { "<em>Not processed.</em>" }');
+    lines.push('    $ninjaHtml = if ($ninjaResultStr) { [System.Web.HttpUtility]::HtmlEncode($ninjaResultStr) } else { "<em>Not processed.</em>" }');
     lines.push('    $teramindComputersHtml = if ($teramindComputersStr) { [System.Web.HttpUtility]::HtmlEncode($teramindComputersStr) } else { "<em>No devices processed.</em>" }');
     lines.push('    $anvizHtml = [System.Web.HttpUtility]::HtmlEncode($anvizResult)');
     lines.push('    $fortiVpnHtml = [System.Web.HttpUtility]::HtmlEncode($fortiVpnResult)');
@@ -5898,6 +5958,7 @@
     lines.push('<tr><td class="lbl">Teramind computers</td><td class="val">$teramindComputersHtml</td></tr>');
     lines.push('<tr><td class="lbl">CrossChex biometrics</td><td class="val">$anvizHtml</td></tr>');
     lines.push('<tr><td class="lbl">FortiGate VPN</td><td class="val">$fortiVpnHtml</td></tr>');
+    lines.push('<tr><td class="lbl">Windows Hello PIN</td><td class="val">$ninjaHtml</td></tr>');
     lines.push('</table>');
     lines.push('<h2>Offboarding details</h2>');
     lines.push('<table class="details" cellpadding="0" cellspacing="0" border="0">');
