@@ -2280,6 +2280,7 @@
       { name: 'AnvizRevoked',      text: {} },
       { name: 'FortiVpnRevoked',   text: {} },
       { name: 'NinjaNgcWipe',      text: {} },
+      { name: 'MailForwardingSetTo', text: {} },
       { name: 'SharedMailboxDone', boolean: {} },
       { name: 'SharedMailboxDoneAt', text: {} },
       { name: 'RemovedFromTrackerAt', text: {} },
@@ -4808,6 +4809,7 @@
       (skippedNoEmail > 0 ? '(Skipping ' + skippedNoEmail + ' row(s) missing email or effective date)\n\n' : '') +
       'Per-TM steps that will fire:\n' +
       '  • M365 revoke (owned-objects transfer + sign-in + licenses + groups + MFA + CA2/CA3 + Remarks + manager)\n' +
+      '  • Internal only: Shared Mailbox conversion + Coach FullAccess/SendAs + auto-reply off + mail forwarding to Coach (copy retained)\n' +
       '  • Entra device disable + Intune Force Sync + NinjaOne Ngc wipe (Windows Hello PIN)\n' +
       '  • Teramind user + computer delete (ON by default)\n' +
       '  • CrossChex biometric de-authorize (ON by default, uses Employee ID as User No.)\n' +
@@ -4870,6 +4872,8 @@
         revokeBiometric: true,
         biometricUserNo: (d.employeeId || '').toString().trim(),
         revokeFortiVpn:  true,
+        // Mail forwarding is an internal-only SOP step - no-op for external TMs.
+        forwardMailToCoach: isInternal,
         coachUpn: (d.leadershipCoachEmail || '').trim(),
         coachName: (d.leadershipCoach || '').trim(),
         remark, effectiveDate: effIso,
@@ -4894,6 +4898,7 @@
       d.scheduledRevokeTeramind = true;
       d.scheduledRevokeBiometric = true;
       d.scheduledRevokeFortiVpn = true;
+      d.scheduledForwardMailToCoach = isInternal;
       if (!d.biometricUserNo) d.biometricUserNo = (d.employeeId || '').toString().trim();
       results.ok++;
     }
@@ -4967,6 +4972,8 @@
       '  <div style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="scheduleRevokeBiometric" checked /> <span style="font-size:12px;color:var(--muted);">De-authorize from all Anviz devices. CrossChex record stays for audit.</span></div>' +
       '  <label style="color:var(--muted);">Revoke FortiGate VPN:</label>' +
       '  <div style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="scheduleRevokeFortiVpn" checked /> <span style="font-size:12px;color:var(--muted);">Flags [MANUAL ACTION REQUIRED] in the audit log + confirmation email. API automation is on hold pending FortiOS 7.4.13 investigation. IT disables the local user in FortiGate GUI (System &rarr; Administrators &rarr; User Definition) as part of the offboarding checklist.</span></div>' +
+      (isInternal ? '  <label style="color:var(--muted);">Forward mail to Leadership Coach:</label>' +
+      '  <div style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="scheduleForwardMail" checked /> <span style="font-size:12px;color:var(--muted);">Per internal SOP. Sets a server-side mail forwarding rule to the Leadership Coach via Set-Mailbox -ForwardingSMTPAddress. <strong>Keeps a copy</strong> in the shared mailbox (DeliverToMailboxAndForward=true) for audit / eDiscovery.</span></div>' : '') +
       '  <label style="color:var(--muted);">CrossChex User No.:</label>' +
       '  <div style="display:flex;align-items:center;gap:8px;"><input type="text" id="scheduleBiometricUserNo" value="' + escapeHtml(d.employeeId || '') + '" placeholder="e.g. 4111" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;width:160px;" /> <span style="font-size:12px;color:var(--muted);">Defaults to Employee ID. Override here if CrossChex uses a different number for this TM.</span></div>' +
       '</div>' +
@@ -4978,7 +4985,8 @@
       '    <li>Revoke all sessions</li>' +
       (isInternal ? '    <li><strong style="color:#1d4ed8;">Convert mailbox to Shared</strong></li>' +
                      '    <li><strong style="color:#1d4ed8;">Set Full Access + Send As for Leadership Coach</strong></li>' +
-                     '    <li><strong style="color:#1d4ed8;">Disable any existing auto-reply (CEO policy — no auto-reply on resigned staff)</strong></li>' : '') +
+                     '    <li><strong style="color:#1d4ed8;">Disable any existing auto-reply (CEO policy — no auto-reply on resigned staff)</strong></li>' +
+                     '    <li><strong style="color:#1d4ed8;">[Optional] Forward incoming mail to Leadership Coach (copy retained in shared mailbox for audit)</strong></li>' : '') +
       '    <li>Remove from all groups</li>' +
       '    <li>Remove all licenses</li>' +
       '    <li>Clear CA2 + CA3 (removed from Dynamic Distros)</li>' +
@@ -5015,6 +5023,10 @@
     const revokeTeramind = document.getElementById('scheduleRevokeTeramind').checked;
     const revokeBiometric = document.getElementById('scheduleRevokeBiometric').checked;
     const revokeFortiVpn = document.getElementById('scheduleRevokeFortiVpn').checked;
+    // Mail forwarding checkbox only renders for Internal TMs; if it's missing in the DOM
+    // (external TM), treat as false. If present and checked -> forward with copy-retention.
+    const _fwdEl = document.getElementById('scheduleForwardMail');
+    const forwardMailToCoach = !!(_fwdEl && _fwdEl.checked);
     const biometricUserNo = (document.getElementById('scheduleBiometricUserNo').value || '').trim();
 
     // Determine remark based on type of exit (same logic as manual Revoke)
@@ -5035,6 +5047,7 @@
       revokeBiometric,
       biometricUserNo,
       revokeFortiVpn,
+      forwardMailToCoach,
       coachUpn: (d.leadershipCoachEmail || '').trim(),
       coachName: (d.leadershipCoach || '').trim(),
       remark,
@@ -5062,6 +5075,7 @@
     d.scheduledRevokeTeramind = revokeTeramind;
     d.scheduledRevokeBiometric = revokeBiometric;
     d.scheduledRevokeFortiVpn = revokeFortiVpn;
+    d.scheduledForwardMailToCoach = forwardMailToCoach;
     d.biometricUserNo = biometricUserNo;  // persisted so next schedule remembers the override
     save();
     renderDepartures();
@@ -5182,6 +5196,7 @@
     lines.push('            AnvizRevoked          = $anvizResult');
     lines.push('            FortiVpnRevoked       = $fortiVpnResult');
     lines.push('            NinjaNgcWipe          = $ninjaResultStr');
+    lines.push('            MailForwardingSetTo   = $mailForwardingResult');
     lines.push('            NoteLabel             = "Auto-run via Task Scheduler - $successCount OK steps"');
     lines.push('        }');
     lines.push('        Invoke-MgGraphRequest -Method PATCH -Uri "/v1.0/sites/$($wbSite.Id)/lists/$($wbList.Id)/items/$($item.id)/fields" -Body ($patchBody | ConvertTo-Json)');
@@ -5341,6 +5356,35 @@
       lines.push('        $log += "[OK] 5/N Auto-reply already disabled - no change"');
       lines.push('    }');
       lines.push('} catch { $log += "[FAIL] 5/N Auto-reply disable: $_" }');
+      lines.push('');
+      if (o.forwardMailToCoach) {
+        lines.push('# ===== Step 5.5: Forward incoming mail to Leadership Coach (internal SOP) =====');
+        lines.push('# Server-side forwarding rule: new mail to the leaver is delivered to the Coach');
+        lines.push('# AND kept in the shared mailbox (DeliverToMailboxAndForward=true) so the audit');
+        lines.push('# trail / eDiscovery view stays intact. Requires the shared-mailbox conversion');
+        lines.push('# above to have succeeded and a Leadership Coach to be on record.');
+        lines.push('$mailForwardingResult = "skipped"');
+        lines.push('if (-not $COACH_UPN) {');
+        lines.push('    $log += "[WARN] 5.5/N Mail forwarding skipped - no Leadership Coach on record"');
+        lines.push('    $mailForwardingResult = "skipped (no coach)"');
+        lines.push('} else {');
+        lines.push('    try {');
+        lines.push('        Set-Mailbox -Identity $TM_UPN -ForwardingSMTPAddress $COACH_UPN -DeliverToMailboxAndForward $true -ErrorAction Stop');
+        lines.push('        $log += "[OK] 5.5/N Mail forwarding set to $COACH_UPN (copy retained in shared mailbox)"');
+        lines.push('        $mailForwardingResult = ("forwarded to " + $COACH_UPN + " (copy retained)")');
+        lines.push('    } catch {');
+        lines.push('        $log += "[FAIL] 5.5/N Mail forwarding: $_"');
+        lines.push('        $mailForwardingResult = "failed"');
+        lines.push('    }');
+        lines.push('}');
+        lines.push('');
+      } else {
+        lines.push('$mailForwardingResult = "not configured"');
+        lines.push('');
+      }
+    } else {
+      // External TM path: mailbox conversion was skipped, so forwarding can't be set either.
+      lines.push('$mailForwardingResult = "n/a (external TM, no shared mailbox)"');
       lines.push('');
     }
     lines.push('# ===== Remove from all groups =====');
@@ -5846,6 +5890,7 @@
     lines.push('    $managerHtml = if ($managerLine) { [System.Web.HttpUtility]::HtmlEncode(($managerLine -replace "^\\[OK\\] Manager[:]? ?", "" -replace "^\\[FAIL\\] Clear manager[:]? ?", "Failed to clear - ")) } else { "<em>Not processed.</em>" }');
     lines.push('    $ownedHtml = if ($ownedTransferStr) { [System.Web.HttpUtility]::HtmlEncode($ownedTransferStr) } else { "<em>Not processed.</em>" }');
     lines.push('    $ninjaHtml = if ($ninjaResultStr) { [System.Web.HttpUtility]::HtmlEncode($ninjaResultStr) } else { "<em>Not processed.</em>" }');
+    lines.push('    $mailFwdHtml = if ($mailForwardingResult) { [System.Web.HttpUtility]::HtmlEncode($mailForwardingResult) } else { "<em>Not processed.</em>" }');
     lines.push('    $teramindComputersHtml = if ($teramindComputersStr) { [System.Web.HttpUtility]::HtmlEncode($teramindComputersStr) } else { "<em>No devices processed.</em>" }');
     lines.push('    $anvizHtml = [System.Web.HttpUtility]::HtmlEncode($anvizResult)');
     lines.push('    $fortiVpnHtml = [System.Web.HttpUtility]::HtmlEncode($fortiVpnResult)');
@@ -5949,6 +5994,7 @@
     lines.push('<table class="pairs" cellpadding="0" cellspacing="0" border="0">');
     lines.push('<tr><td class="lbl">Microsoft 365 account</td><td class="val">Sign-in blocked, all active sessions revoked, non-password MFA methods cleared, and the user removed from every synced group.</td></tr>');
     lines.push('<tr><td class="lbl">Licenses</td><td class="val">$licensesHtml</td></tr>');
+    lines.push('<tr><td class="lbl">Mail forwarding</td><td class="val">$mailFwdHtml</td></tr>');
     lines.push('<tr><td class="lbl">CA attributes</td><td class="val">CA2 and CA3 cleared from the dynamic distribution lists. Remarks set to &quot;$REMARK&quot;.</td></tr>');
     lines.push('<tr><td class="lbl">Manager relationship</td><td class="val">$managerHtml</td></tr>');
     lines.push('<tr><td class="lbl">Owned directory objects</td><td class="val">$ownedHtml</td></tr>');
