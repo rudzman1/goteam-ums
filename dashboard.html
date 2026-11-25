@@ -1162,7 +1162,7 @@
       <button class="btn btn-icon" onclick="closeModal('obeScanModal')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
     <div class="modal-body">
-      <p style="color:var(--muted);font-size:13px;margin-bottom:14px;line-height:1.6;">Reads OBE emails sent by HR's R24 automation (sender <code>no-reply@r24.go.team</code>, subject <code>[Offboarding …] &lt;Name&gt; of &lt;Client&gt; (OBE XX-XXXX)</code>). Parses the body for TM ID, Separation Type, Date Tendered, Effective Date, Notice Period, Reason for Leaving, and more.</p>
+      <p style="color:var(--muted);font-size:13px;margin-bottom:14px;line-height:1.6;">Reads OBE emails sent by HR's R24 automation (sender <code>no-reply@r24.go.team</code>). Supports both subject formats: <code>[Offboarding …] &lt;Name&gt; of &lt;Client&gt; (OBE XX-XXXX)</code> and the newer <code>[STATUS] Offboarding - &lt;Name&gt; of &lt;Client&gt; (OBE XX-XXXX)</code>. Parses the body for TM ID, Separation Type, Date Tendered, Effective Date, Notice Period, Reason for Leaving, and more.</p>
       <div style="display:flex;gap:10px;align-items:flex-end;margin-bottom:14px;flex-wrap:wrap;">
         <div>
           <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">Scan last</label>
@@ -2281,6 +2281,7 @@
       { name: 'FortiVpnRevoked',   text: {} },
       { name: 'NinjaNgcWipe',      text: {} },
       { name: 'MailForwardingSetTo', text: {} },
+      { name: 'MerakiStatus',       text: {} },
       { name: 'SharedMailboxDone', boolean: {} },
       { name: 'SharedMailboxDoneAt', text: {} },
       { name: 'RemovedFromTrackerAt', text: {} },
@@ -4170,9 +4171,18 @@
   // Returns null if the email doesn't match the OBE pattern.
   function parseOBEEmail(subject, bodyText) {
     if (!subject || !bodyText) return null;
-    // Subject: "[Offboarding Completed] <Name> of <Client> (OBE XX-XXXX)"
-    //      or: "[Offboarding Endorsement] ..." / "[Offboarding Initiated] ..."
-    const subjMatch = subject.match(/\[Offboarding\s+([^\]]+)\]\s+(.+?)\s+of\s+(.+?)\s*\((OBE\s*[\d\-]+)\)\s*$/i);
+    // Two subject-line formats are in the wild - R24 changed the convention
+    // for "Completed" variants partway through 2026 but still sends older
+    // shapes for Endorsement / Initiated. Accept both:
+    //   OLD: "[Offboarding <Status>] <Name> of <Client> (OBE XX-XXXX)"
+    //        e.g. "[Offboarding Endorsement] John Roque B. Coronejo of Acme (OBE 26-0064)"
+    //   NEW: "[<STATUS>] Offboarding - <Name> of <Client> (OBE XX-XXXX)"
+    //        e.g. "[COMPLETED] Offboarding - Anna Paulyn B. Pagunsan of Fuse Recruitment (OBE 26-0087)"
+    // The dash in the NEW format may be hyphen (-), en-dash (–) or em-dash (—).
+    let subjMatch = subject.match(/\[Offboarding\s+([^\]]+)\]\s+(.+?)\s+of\s+(.+?)\s*\((OBE\s*[\d\-]+)\)\s*$/i);
+    if (!subjMatch) {
+      subjMatch = subject.match(/\[([^\]]+)\]\s+Offboarding\s*[-–—]\s*(.+?)\s+of\s+(.+?)\s*\((OBE\s*[\d\-]+)\)\s*$/i);
+    }
     if (!subjMatch) return null;
     const subjStatus = subjMatch[1].trim();
     const name = subjMatch[2].trim();
@@ -4810,7 +4820,7 @@
       'Per-TM steps that will fire:\n' +
       '  • M365 revoke (owned-objects transfer + sign-in + licenses + groups + MFA + CA2/CA3 + Remarks + manager)\n' +
       '  • Internal only: Shared Mailbox conversion + Coach FullAccess/SendAs + auto-reply off + mail forwarding to Coach (copy retained)\n' +
-      '  • Entra device disable + Intune Force Sync + NinjaOne Ngc wipe (Windows Hello PIN)\n' +
+      '  • Entra device disable + Intune Force Sync + NinjaOne Ngc wipe (Windows Hello PIN) + Meraki WiFi/admin removal\n' +
       '  • Teramind user + computer delete (ON by default)\n' +
       '  • CrossChex biometric de-authorize (ON by default, uses Employee ID as User No.)\n' +
       '  • SharePoint writeback + confirmation email\n\n' +
@@ -4994,6 +5004,7 @@
       '    <li>Remove auth methods (MFA)</li>' +
       '    <li><strong style="color:#b45309;">Discover corporate Windows devices → disable each in Entra + Intune Force Sync</strong></li>' +
       '    <li><strong style="color:#7c2d12;">NinjaOne: trigger Ngc wipe script on each discovered device (removes Windows Hello PIN + biometric templates; user data preserved)</strong></li>' +
+      '    <li><strong style="color:#7c2d12;">Meraki: remove WiFi auth user from both networks (CEBU-HM / CEBU-I1) and dashboard admin at org level if present</strong></li>' +
       '    <li><strong style="color:#7c2d12;">[Optional] Absolute OS Freeze each discovered device + flag firmware freeze for manual follow-up</strong></li>' +
       '    <li><strong style="color:#065f46;">[Optional] Teramind user: disable monitoring + clear department + delete user</strong></li>' +
       '    <li><strong style="color:#065f46;">[Optional] Teramind computer(s): disable monitoring + soft-delete each discovered device</strong></li>' +
@@ -5003,7 +5014,7 @@
       '    <li>Set Remarks to "Separated" / "Recalled"</li>' +
       '    <li>Write results back to SharePoint GoTeam-Departures</li>' +
       '    <li>Append log line to <code>' + escapeHtml(SCHEDULE_AUDIT_PATH) + '</code></li>' +
-      '    <li><strong style="color:#1d4ed8;">Send professional confirmation email to rudy.maneja@go.team</strong></li>' +
+      '    <li><strong style="color:#1d4ed8;">Send professional confirmation email to itdepartment@go.team</strong></li>' +
       '  </ol>' +
       '</div>';
     // Stash context on the modal for the Generate step
@@ -5197,6 +5208,7 @@
     lines.push('            FortiVpnRevoked       = $fortiVpnResult');
     lines.push('            NinjaNgcWipe          = $ninjaResultStr');
     lines.push('            MailForwardingSetTo   = $mailForwardingResult');
+    lines.push('            MerakiStatus          = $merakiResultStr');
     lines.push('            NoteLabel             = "Auto-run via Task Scheduler - $successCount OK steps"');
     lines.push('        }');
     lines.push('        Invoke-MgGraphRequest -Method PATCH -Uri "/v1.0/sites/$($wbSite.Id)/lists/$($wbList.Id)/items/$($item.id)/fields" -Body ($patchBody | ConvertTo-Json)');
@@ -5269,7 +5281,12 @@
     lines.push('                        continue');
     lines.push('                    }');
     lines.push('                    $addBody = @{ "@odata.id" = "https://graph.microsoft.com/v1.0/users/$coachId" } | ConvertTo-Json');
-    lines.push('                    Invoke-MgGraphRequest -Method POST -Uri ("/v1.0/groups/" + $o.id + "/owners/`$ref") -Body $addBody -ContentType "application/json" -ErrorAction Stop');
+    lines.push('                    try {');
+    lines.push('                        Invoke-MgGraphRequest -Method POST -Uri ("/v1.0/groups/" + $o.id + "/owners/`$ref") -Body $addBody -ContentType "application/json" -ErrorAction Stop');
+    lines.push('                    } catch {');
+    lines.push('                        # "One or more added object references already exist" = coach is already an owner, which is fine. Rethrow anything else.');
+    lines.push('                        if ($_.Exception.Message -notmatch "already exist") { throw }');
+    lines.push('                    }');
     lines.push('                    Invoke-MgGraphRequest -Method DELETE -Uri ("/v1.0/groups/" + $o.id + "/owners/" + $TM_GRAPHID + "/`$ref") -ErrorAction Stop');
     lines.push('                    $log += "[OK] Group ' + "'" + '$oName' + "'" + ' transferred to $COACH_UPN"');
     lines.push('                    $ownedResults += "group ' + "'" + '$oName' + "'" + ' -> $COACH_UPN"');
@@ -5281,7 +5298,11 @@
     lines.push('                        continue');
     lines.push('                    }');
     lines.push('                    $addBody = @{ "@odata.id" = "https://graph.microsoft.com/v1.0/directoryObjects/$parkId" } | ConvertTo-Json');
-    lines.push('                    Invoke-MgGraphRequest -Method POST -Uri ("/v1.0/applications/" + $o.id + "/owners/`$ref") -Body $addBody -ContentType "application/json" -ErrorAction Stop');
+    lines.push('                    try {');
+    lines.push('                        Invoke-MgGraphRequest -Method POST -Uri ("/v1.0/applications/" + $o.id + "/owners/`$ref") -Body $addBody -ContentType "application/json" -ErrorAction Stop');
+    lines.push('                    } catch {');
+    lines.push('                        if ($_.Exception.Message -notmatch "already exist") { throw }');
+    lines.push('                    }');
     lines.push('                    Invoke-MgGraphRequest -Method DELETE -Uri ("/v1.0/applications/" + $o.id + "/owners/" + $TM_GRAPHID + "/`$ref") -ErrorAction Stop');
     lines.push('                    $log += "[OK] App registration ' + "'" + '$oName' + "'" + ' parked on $parkUpn"');
     lines.push('                    $log += "[MANUAL ACTION REQUIRED] Review and delete orphaned app ' + "'" + '$oName' + "'" + ' (now parked on $parkUpn)"');
@@ -5294,7 +5315,11 @@
     lines.push('                        continue');
     lines.push('                    }');
     lines.push('                    $addBody = @{ "@odata.id" = "https://graph.microsoft.com/v1.0/directoryObjects/$parkId" } | ConvertTo-Json');
-    lines.push('                    Invoke-MgGraphRequest -Method POST -Uri ("/v1.0/servicePrincipals/" + $o.id + "/owners/`$ref") -Body $addBody -ContentType "application/json" -ErrorAction Stop');
+    lines.push('                    try {');
+    lines.push('                        Invoke-MgGraphRequest -Method POST -Uri ("/v1.0/servicePrincipals/" + $o.id + "/owners/`$ref") -Body $addBody -ContentType "application/json" -ErrorAction Stop');
+    lines.push('                    } catch {');
+    lines.push('                        if ($_.Exception.Message -notmatch "already exist") { throw }');
+    lines.push('                    }');
     lines.push('                    Invoke-MgGraphRequest -Method DELETE -Uri ("/v1.0/servicePrincipals/" + $o.id + "/owners/" + $TM_GRAPHID + "/`$ref") -ErrorAction Stop');
     lines.push('                    $log += "[OK] Service principal ' + "'" + '$oName' + "'" + ' parked on $parkUpn"');
     lines.push('                    $log += "[MANUAL ACTION REQUIRED] Review orphaned SP ' + "'" + '$oName' + "'" + ' (now parked on $parkUpn) - do NOT delete without verifying no active SaaS integration"');
@@ -5617,6 +5642,66 @@
     lines.push('    $ninjaResultStr = "step-failed"');
     lines.push('}');
     lines.push('');
+    lines.push('# ===== Meraki: remove WiFi auth user + dashboard admin (if present) =====');
+    lines.push('# Looks up the leaver by email across every configured Meraki network.');
+    lines.push('# Each hit is deleted (WiFi/Splash auth users are hard-deleted; dashboard');
+    lines.push('# admins are removed from the org admin roster). If the TM has neither,');
+    lines.push('# the step logs "not-in-meraki" and moves on. Depends on Meraki-Lib.ps1 +');
+    lines.push('# meraki-creds.xml + meraki-config.json on this PC.');
+    lines.push('$merakiResultParts = @()');
+    lines.push('$merakiResultStr = "not processed"');
+    lines.push('try {');
+    lines.push('    . "C:\\OffboardingTasks\\Meraki-Lib.ps1"');
+    lines.push('    Initialize-Meraki');
+    lines.push('    # --- WiFi / Auth users across configured networks ---');
+    lines.push('    try {');
+    lines.push('        $authHits = Find-MerakiAuthUser -Email $TM_UPN');
+    lines.push('        if (-not $authHits -or $authHits.Count -eq 0) {');
+    lines.push('            $log += "[INFO] Meraki auth user: no match for $TM_UPN"');
+    lines.push('            $merakiResultParts += "auth=none"');
+    lines.push('        } else {');
+    lines.push('            foreach ($h in $authHits) {');
+    lines.push('                try {');
+    lines.push('                    Remove-MerakiAuthUser -NetworkId $h.networkId -UserId $h.user.id | Out-Null');
+    lines.push('                    $log += "[OK]   Meraki auth user removed from $($h.networkId) (id=$($h.user.id))"');
+    lines.push('                    $merakiResultParts += ("auth=removed(" + $h.networkId + ")")');
+    lines.push('                } catch {');
+    lines.push('                    $log += "[FAIL]   Meraki auth user delete on $($h.networkId): $_"');
+    lines.push('                    $merakiResultParts += ("auth=failed(" + $h.networkId + ")")');
+    lines.push('                }');
+    lines.push('            }');
+    lines.push('        }');
+    lines.push('    } catch {');
+    lines.push('        $log += "[FAIL] Meraki auth user lookup: $_"');
+    lines.push('        $merakiResultParts += "auth=lookup-failed"');
+    lines.push('    }');
+    lines.push('    # --- Dashboard admin (org level) ---');
+    lines.push('    try {');
+    lines.push('        $admin = Find-MerakiAdmin -Email $TM_UPN');
+    lines.push('        if (-not $admin) {');
+    lines.push('            $log += "[INFO] Meraki admin: no match for $TM_UPN"');
+    lines.push('            $merakiResultParts += "admin=none"');
+    lines.push('        } else {');
+    lines.push('            try {');
+    lines.push('                Remove-MerakiAdmin -AdminId $admin.id | Out-Null');
+    lines.push('                $log += "[OK]   Meraki dashboard admin removed (id=$($admin.id), orgAccess=$($admin.orgAccess))"');
+    lines.push('                $merakiResultParts += ("admin=removed(" + $admin.orgAccess + ")")');
+    lines.push('            } catch {');
+    lines.push('                $log += "[FAIL]   Meraki admin delete: $_"');
+    lines.push('                $merakiResultParts += "admin=failed"');
+    lines.push('            }');
+    lines.push('        }');
+    lines.push('    } catch {');
+    lines.push('        $log += "[FAIL] Meraki admin lookup: $_"');
+    lines.push('        $merakiResultParts += "admin=lookup-failed"');
+    lines.push('    }');
+    lines.push('    $merakiResultStr = ($merakiResultParts -join "; ")');
+    lines.push('    $log += "[OK] Meraki step processed: $merakiResultStr"');
+    lines.push('} catch {');
+    lines.push('    $log += "[FAIL] Meraki step: $_"');
+    lines.push('    $merakiResultStr = "step-failed"');
+    lines.push('}');
+    lines.push('');
     if (o.freezeAbsolute) {
       lines.push('# ===== Absolute OS Freeze on each discovered Windows device =====');
       lines.push('# Submits an On-Demand (OS-level) Freeze via Absolute V3 JWS API for every');
@@ -5643,10 +5728,10 @@
       lines.push('                -DeviceUid $absDev.deviceUid `');
       lines.push('                -RequestTitle $freezeTitle `');
       lines.push('                -MessageUid "ffe8122b-ad78-4675-930e-2c02bc8c3578" `');
-      // TESTING PHASE: send freeze notifications to rudy.maneja@go.team.
-      // PRODUCTION: swap the string below to "itdepartment@go.team" when IT
-      // is ready to own the alert channel for scheduled offboardings.
-      lines.push('                -NotificationEmails @("rudy.maneja@go.team")');
+      // Absolute freeze notifications are routed to the IT Department shared
+      // mailbox so multiple IT members have visibility (replaces the earlier
+      // rudy.maneja@go.team routing which single-pointed on one admin).
+      lines.push('                -NotificationEmails @("itdepartment@go.team")');
       lines.push('            if ($freezeResult.Success) {');
       lines.push('                $ruid = $null');
       lines.push('                try { $ruid = $freezeResult.Content.data.requestUid } catch {}');
@@ -5891,6 +5976,7 @@
     lines.push('    $ownedHtml = if ($ownedTransferStr) { [System.Web.HttpUtility]::HtmlEncode($ownedTransferStr) } else { "<em>Not processed.</em>" }');
     lines.push('    $ninjaHtml = if ($ninjaResultStr) { [System.Web.HttpUtility]::HtmlEncode($ninjaResultStr) } else { "<em>Not processed.</em>" }');
     lines.push('    $mailFwdHtml = if ($mailForwardingResult) { [System.Web.HttpUtility]::HtmlEncode($mailForwardingResult) } else { "<em>Not processed.</em>" }');
+    lines.push('    $merakiHtml = if ($merakiResultStr) { [System.Web.HttpUtility]::HtmlEncode($merakiResultStr) } else { "<em>Not processed.</em>" }');
     lines.push('    $teramindComputersHtml = if ($teramindComputersStr) { [System.Web.HttpUtility]::HtmlEncode($teramindComputersStr) } else { "<em>No devices processed.</em>" }');
     lines.push('    $anvizHtml = [System.Web.HttpUtility]::HtmlEncode($anvizResult)');
     lines.push('    $fortiVpnHtml = [System.Web.HttpUtility]::HtmlEncode($fortiVpnResult)');
@@ -6005,6 +6091,7 @@
     lines.push('<tr><td class="lbl">CrossChex biometrics</td><td class="val">$anvizHtml</td></tr>');
     lines.push('<tr><td class="lbl">FortiGate VPN</td><td class="val">$fortiVpnHtml</td></tr>');
     lines.push('<tr><td class="lbl">Windows Hello PIN</td><td class="val">$ninjaHtml</td></tr>');
+    lines.push('<tr><td class="lbl">Meraki WiFi / Dashboard</td><td class="val">$merakiHtml</td></tr>');
     lines.push('</table>');
     lines.push('<h2>Offboarding details</h2>');
     lines.push('<table class="details" cellpadding="0" cellspacing="0" border="0">');
@@ -6032,12 +6119,12 @@
     lines.push('        message = @{');
     lines.push('            subject = $subject');
     lines.push('            body    = @{ contentType = "HTML"; content = $htmlBody }');
-    lines.push('            toRecipients = @(@{ emailAddress = @{ address = "rudy.maneja@go.team" } })');
+    lines.push('            toRecipients = @(@{ emailAddress = @{ address = "itdepartment@go.team" } })');
     lines.push('        }');
     lines.push('        saveToSentItems = $true');
     lines.push('    }');
     lines.push('    Invoke-MgGraphRequest -Method POST -Uri "/v1.0/users/itnotificationalerts@go.team/sendMail" -Body ($mailBody | ConvertTo-Json -Depth 10)');
-    lines.push('    Write-Host "[OK] Confirmation email sent to rudy.maneja@go.team"');
+    lines.push('    Write-Host "[OK] Confirmation email sent to itdepartment@go.team"');
     lines.push('} catch {');
     lines.push('    Write-Host "[FAIL] Confirmation email: $_"');
     lines.push('    # Append to the audit log via the script-scoped path that Write-AuditLog set earlier.');
